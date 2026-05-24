@@ -7,3 +7,5 @@ backend/__pycache__/
 .env
 *.db
 *.session
+frontend/node_modules/
+backend/venv/
