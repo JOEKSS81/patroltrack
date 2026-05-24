@@ -1,0 +1,9 @@
+node_modules/
+venv/
+backend/.wwebjs_auth/
+backend/.wwebjs_cache/
+backend/__pycache__/
+*.pyc
+.env
+*.db
+*.session
