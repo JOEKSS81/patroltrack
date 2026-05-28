@@ -1,0 +1,16 @@
+name = "patroltrack-api"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Activa el flag necessari per a `Date` amb zona horària via Intl
+compatibility_flags = []
+
+# D1 — la base de dades es vincula a env.DB a runtime.
+# El database_id es completa amb la sortida de `wrangler d1 create patroltrack`.
+[[d1_databases]]
+binding = "DB"
+database_name = "patroltrack"
+database_id = "3f55e731-9cb8-4940-a390-309fea018e6b"
+
+# CORS i URL pública configurats al codi (src/index.ts).
+# Per habilitar un domini personalitzat, vegeu cloudflare/README.md.

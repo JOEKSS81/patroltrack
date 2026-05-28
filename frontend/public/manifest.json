@@ -1,0 +1,13 @@
+{
+  "name": "PatrolTrack",
+  "short_name": "Patrol",
+  "description": "Detector de patrulles a Lleida",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0c10",
+  "theme_color": "#0a0c10",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
