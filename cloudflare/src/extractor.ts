@@ -3,23 +3,49 @@
 
 const PATROL_KEYWORDS: Record<string, string[]> = {
   mossos: [
-    "mossos", "mosso",
+    "mossos", "mosso", "gossos", "pasma", "policia", "poli"
     "policia catalana", "policía catalana",
-    "esquadra",
+    "esquadra", "secreta"
+    "mozos", "mozo", "perros", "pasma", "policía", "poli" 
+"policía catalana", "policía catalana", "mossos", "mosso", "mosus", "gossos", "gossos d'esquadra", "esquadra", "brimos", "brimo", "arro", "arros", "mozos", "mozo", "policia catalana", "policía catalana", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas", "perros", "perro", "pitufos negros"
+
+"escuadra",
   ],
   guardia: [
+    "guardia civil", "guardia", "gc ", " gc,", "(gc)", 
+"benemérita", "benemerita", "picoletos", "malos", "verdes" 
+"tricornio", "tricorni",
     "guardia civil", "guardia", "gc ", " gc,", "(gc)",
-    "benemérita", "benemerita",
+    "benemérita", "benemerita", "picoletos", "malos", "verds"
     "tricornio", "tricorni",
+    "guardia civil", "guardias civiles", "civiles", "verdes", "verde", "picoletos", "picoleto", "picolos", "picolo", "picos", "lagartos", "lagarto", "aceitunos", "aceituno", "la benemérita", "benemérita", "monos", "mono", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
+    "policia nacional", "policía nacional", "nacionales", "nacional", "maderos", "madero", "la madera", "azules", "azul", "monos", "mono", "grises", "gris", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
   ],
   local: [
-    "policia local", "policía local",
+    "policía local", "policía local", "monillo", "monillos" 
+"municipal", "munios", 
+"guardia urbana", "urbana",
+    "policia local", "policía local", "monillo", "monillos"
     "municipal", "munis",
     "guardia urbana", "urbana",
+    "policia local", "policía local", "guardia urbana", "urbana", "urbanos", "urbano", "municipales", "municipal", "pitufos", "pitufo", "guindillas", "guindilla", "sheriffs", "sheriff", "multa-multa", "plastas", "plasta", "los de tráfico", "trafico", "tráfico", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
   ],
 };
 
 const PRESENCE_KEYWORDS = [
+  "control", "controles", "controlante", 
+"patrulla", "patrullas", "patrullante", 
+"radar", "radares", 
+"hay", "hay", "están", "están", "está", "se encuentra", 
+"acaban de", "acaban de", 
+"cuidado", "cuidado", "atención", "atención", "alerta", 
+"pillado", "pillado", "parado", "parado", 
+"multa", "multas", "multan", 
+"haciendo controles", "haciendo controles", 
+"a la altura", "a la altura", "al km", "kilómetro", 
+"rotonda", "semáforo", "semaforo", "cruce", "cruce", 
+"entrada", "salida", "salida", "cruze" 
+"pk", "punto kilométrico", "punto kilometrico",
   "control", "controls", "controlant",
   "patrulla", "patrulles", "patrullant",
   "radar", "radars",
@@ -31,7 +57,7 @@ const PRESENCE_KEYWORDS = [
   "fent controls", "haciendo controles",
   "a l'altura", "a la altura", "al km", "kilómetro",
   "rotonda", "semàfor", "semaforo", "cruïlla", "cruce",
-  "entrada", "sortida", "salida",
+  "entrada", "sortida", "salida", "cruze"
   "pk", "punt kilometric", "punto kilometrico",
 ];
 

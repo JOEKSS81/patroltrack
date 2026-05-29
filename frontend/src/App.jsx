@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import dogComic from "./assets/dog-comic.webp";
 
 // API URL — prioritats:
 //   1) VITE_API_URL (env var de build, p.ex. https://patroltrack-api.xxx.workers.dev)
@@ -73,6 +74,44 @@ function distKm(a1,o1,a2,o2){
   const R=6371,d1=(a2-a1)*Math.PI/180,d2=(o2-o1)*Math.PI/180;
   const a=Math.sin(d1/2)**2+Math.cos(a1*Math.PI/180)*Math.cos(a2*Math.PI/180)*Math.sin(d2/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+// ── Probabilitat REAL a partir de deteccions ──────────────────────────────
+// Mateix model que el Worker (/api/probability): pes per confiança × decaïment
+// temporal. Sense dades reals → 0 (cap alarma inventada). El divisor és més
+// suau que el del backend perquè poques deteccions reals ja siguin visibles.
+const CONF_W={alta:1,mitja:0.6,baixa:0.3};
+const PROB_DIVISOR=4;
+function timeDecay(createdAt){
+  try{
+    const days=Math.max(0,(Date.now()-new Date(createdAt).getTime())/86400000);
+    if(days<=7)return 1;if(days<=30)return 0.7;if(days<=90)return 0.4;return 0.2;
+  }catch{return 0.5;}
+}
+// Puntuació per tipus d'una zona a una hora (finestra ±matchHour).
+function zoneTypeScores(dets,zone,hour,window=1){
+  const s={mossos:0,guardia:0,local:0,n:0};
+  for(const d of dets){
+    if((d.zone_norm||d.zone)!==zone)continue;
+    if(typeof d.hour==="number"&&window>=0){
+      let diff=Math.abs(d.hour-hour);diff=Math.min(diff,24-diff);
+      if(diff>window)continue;
+    }
+    const t=d.patrol_type;if(!(t in s)||t==="n")continue;
+    s[t]+=(CONF_W[d.confidence]??0.5)*timeDecay(d.created_at);
+    s.n++;
+  }
+  return s;
+}
+function scoresToProb(s){
+  const m=Math.min(s.mossos/PROB_DIVISOR,1),g=Math.min(s.guardia/PROB_DIVISOR,1),l=Math.min(s.local/PROB_DIVISOR,1);
+  return {mossos:m,guardia:g,local:l,overall:Math.max(m,g,l),n:s.n};
+}
+// Mapa { zoneId: overallProb } per al mapa i el radar (només zones del MAP_ZONES).
+function overallZoneProbs(dets,hour){
+  const out={};
+  for(const z of MAP_ZONES)out[z.id]=scoresToProb(zoneTypeScores(dets,z.id,hour)).overall;
+  return out;
 }
 
 function playBark(ctx){
@@ -235,9 +274,12 @@ function useRadar(zoneData){
 function Splash({onActivate,onSkip,wasActive}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <div style={{fontSize:64,marginBottom:14}}>🐕</div>
+      <img src={dogComic} alt="El gos guardià" style={{
+        width:"min(72vw, 300px)",height:"auto",display:"block",marginBottom:16,
+        filter:"drop-shadow(0 0 20px rgba(255,60,60,0.45)) drop-shadow(0 10px 26px rgba(0,0,0,0.6))",
+      }}/>
       <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
-      <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
+      <div style={{fontSize:15,color:C.textDim,marginBottom:24,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
         {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
       </div>
       <button onClick={onActivate} autoFocus style={{width:"100%",maxWidth:340,padding:"20px 24px",background:C.success,color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 0 32px ${C.success}66`}}>
@@ -294,7 +336,7 @@ function RadarTab({radar}){
           })}
         </div>
       )}
-      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><div style={{fontSize:36,marginBottom:8}}>🐕</div><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
+      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><img src={dogComic} alt="" style={{width:140,height:"auto",margin:"0 auto 12px",display:"block",filter:"drop-shadow(0 0 14px rgba(255,60,60,0.45))"}}/><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
     </div>
   );
@@ -521,6 +563,37 @@ function CalendarTab({detections}){
   );
 }
 
+// ── Editor de grups (WhatsApp / Telegram) ─────────────────────────────────
+function GroupEditor({label,icon,color,items,onAdd,onRemove}){
+  const [val,setVal]=useState("");
+  const add=()=>{const v=val.trim();if(v&&!items.includes(v)){onAdd(v);setVal("");}};
+  return(
+    <div style={{marginBottom:16}}>
+      <div style={{fontSize:14,fontWeight:600,marginBottom:8,display:"flex",alignItems:"center",gap:8}}>
+        <span style={{width:26,height:26,borderRadius:7,background:`${color}22`,color,display:"inline-flex",alignItems:"center",justifyContent:"center",fontSize:15}}>{icon}</span>
+        {label}
+        <span style={{fontSize:12,color:C.textMuted,fontWeight:400}}>· {items.length}</span>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:items.length?10:0}}>
+        <input value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")add();}}
+          placeholder={`Nom del grup de ${label}`}
+          style={{flex:1,minWidth:0,padding:"9px 11px",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,fontFamily:"inherit",outline:"none"}}/>
+        <button onClick={add} disabled={!val.trim()}
+          style={{flex:"0 0 auto",width:42,background:val.trim()?color:C.border,color:val.trim()?"#000":C.textMuted,border:"none",borderRadius:8,fontSize:22,fontWeight:800,cursor:val.trim()?"pointer":"default",fontFamily:"inherit"}}>+</button>
+      </div>
+      <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+        {items.map(g=>(
+          <span key={g} style={{display:"inline-flex",alignItems:"center",gap:6,background:C.bg,border:`1px solid ${C.border}`,borderRadius:20,padding:"5px 6px 5px 12px",fontSize:13,color:C.text}}>
+            {g}
+            <button onClick={()=>onRemove(g)} title="Treure"
+              style={{width:20,height:20,borderRadius:"50%",background:C.border,color:C.textDim,border:"none",cursor:"pointer",fontSize:14,lineHeight:1,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>×</button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── App principal ─────────────────────────────────────────────────────────
 export default function App(){
   const [tab,setTab]=useState("dashboard");
@@ -532,7 +605,14 @@ export default function App(){
   const [queryDay,setQueryDay]=useState(new Date().getDay());
   const [queryPK,setQueryPK]=useState("");
   const [queryResult,setQueryResult]=useState(null);
-  const [sources,setSources]=useState({telegram:true,whatsapp:true});
+  const [groups,setGroups]=useState(()=>{
+    try{const g=JSON.parse(localStorage.getItem("pt_groups")||"null");if(g&&Array.isArray(g.whatsapp)&&Array.isArray(g.telegram))return g;}catch{}
+    return {whatsapp:[],telegram:[]};
+  });
+  const saveGroups=(g)=>{setGroups(g);try{localStorage.setItem("pt_groups",JSON.stringify(g));}catch{}};
+  const addGroup=(plat,name)=>saveGroups({...groups,[plat]:[...groups[plat],name]});
+  const removeGroup=(plat,name)=>saveGroups({...groups,[plat]:groups[plat].filter(x=>x!==name)});
+  const allGroups=[...groups.whatsapp,...groups.telegram];
   const [hourlyData,setHourlyData]=useState({});
   const [zoneProbs,setZoneProbs]=useState({});
   const [filterType,setFilterType]=useState("all");
@@ -558,6 +638,34 @@ export default function App(){
   const [reporting,setReporting]=useState(false);
   const [reportResult,setReportResult]=useState(null);
 
+  // Aplica deteccions noves: cache local + alerta de nova detecció + probabilitats reals.
+  const applyDetections=useCallback((d)=>{
+    if(!Array.isArray(d))return;
+    if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>setNewAlert(null),4000);}
+    prevCount.current=d.length;
+    setDetections(d);
+    try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
+    setZoneProbs(overallZoneProbs(d,new Date().getHours()));
+  },[]);
+
+  // Carrega health + deteccions del backend. Reutilitzable (interval i post-report).
+  const loadData=useCallback(async()=>{
+    let ok=false;
+    try{
+      const[hr,dr]=await Promise.all([
+        fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
+        fetch(`${API}/api/detections?limit=50`,{cache:"no-store"}).catch(()=>null),
+      ]);
+      const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
+      const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
+      if(h){setHealth(h);try{localStorage.setItem("pt_health",JSON.stringify(h));}catch{}ok=true;}
+      if(Array.isArray(d)){applyDetections(d);ok=true;}
+    }catch{/* manté l'estat anterior si el backend falla */}
+    setOnline(ok);
+    if(ok){const t=Date.now();setLastSync(t);try{localStorage.setItem("pt_lastSync",String(t));}catch{}}
+    return ok;
+  },[applyDetections]);
+
   const sendReport=async()=>{
     if(!apiToken){setReportResult({ok:false,reason:"Configura el token a la pestanya Configuració primer"});return;}
     if(!reportMsg.trim()){setReportResult({ok:false,reason:"Escriu o enganxa un missatge"});return;}
@@ -574,7 +682,7 @@ export default function App(){
         setReportResult(data);
         if(data.ok&&data.stored){
           setReportMsg("");setReportGroup("");
-          // refresca la llista de deteccions després d'un moment
+          loadData(); // refresca historial i mapa a l'instant
           setTimeout(()=>{setShowReport(false);setReportResult(null);},2200);
         }
       }
@@ -582,16 +690,11 @@ export default function App(){
     finally{setReporting(false);}
   };
 
+  // Probabilitat REAL per hora de la zona seleccionada (a partir de deteccions).
   const getHourly=(zone)=>{
-    const seed=zone.charCodeAt(0),d={};
-    HOURS.forEach(h=>{const b=((seed*h)%100)/200,r=(h>=7&&h<=9)||(h>=17&&h<=20)?0.25:0,n=h>=1&&h<=5?-0.2:0;d[h]=Math.max(0,Math.min(1,b+r+n));});
+    const d={};
+    HOURS.forEach(h=>{d[h]=scoresToProb(zoneTypeScores(detections,zone,h,0)).overall;});
     return d;
-  };
-
-  const getZoneP=()=>{
-    const p={};
-    MAP_ZONES.forEach(z=>{const s=z.id.charCodeAt(0),h=new Date().getHours(),b=((s*h)%100)/200,r=(h>=7&&h<=9)||(h>=17&&h<=20)?0.25:0;p[z.id]=Math.max(0,Math.min(1,b+r+Math.random()*0.1));});
-    return p;
   };
 
   // Restaura el caché local immediatament: l'app mostra dades encara que el
@@ -599,49 +702,19 @@ export default function App(){
   useEffect(()=>{
     try{
       const cd=localStorage.getItem("pt_detections");
-      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;}}
+      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;setZoneProbs(overallZoneProbs(arr,new Date().getHours()));}}
       const ch=localStorage.getItem("pt_health");if(ch)setHealth(JSON.parse(ch));
       const ls=localStorage.getItem("pt_lastSync");if(ls)setLastSync(Number(ls));
     }catch{}
   },[]);
 
   useEffect(()=>{
-    let alive=true;
-    const fetch2=async()=>{
-      let ok=false;
-      try{
-        const[hr,dr]=await Promise.all([
-          fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
-          fetch(`${API}/api/detections?limit=50`,{cache:"no-store"}).catch(()=>null),
-        ]);
-        const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
-        const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
-        if(!alive)return;
-        if(h){setHealth(h);try{localStorage.setItem("pt_health",JSON.stringify(h));}catch{}; ok=true;}
-        if(Array.isArray(d)){
-          if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>{if(alive)setNewAlert(null);},4000);}
-          prevCount.current=d.length;
-          setDetections(d);
-          try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
-          const p={...getZoneP()};
-          d.forEach(det=>{if(det.zone_norm&&p[det.zone_norm]!==undefined)p[det.zone_norm]=Math.min(1,(p[det.zone_norm]||0)+0.15);});
-          setZoneProbs(p);
-          ok=true;
-        }
-      }catch{/* deixa l'estat anterior intacte */}
-      if(alive){
-        setOnline(ok);
-        if(ok){const t=Date.now();setLastSync(t);try{localStorage.setItem("pt_lastSync",String(t));}catch{}}
-      }
-    };
-    fetch2();
-    if(Object.keys(zoneProbs).length===0)setZoneProbs(getZoneP());
-    const t=setInterval(fetch2,15000);
-    return()=>{alive=false;clearInterval(t);};
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
+    loadData();
+    const t=setInterval(loadData,15000);
+    return()=>clearInterval(t);
+  },[loadData]);
 
-  useEffect(()=>{setHourlyData(getHourly(selectedZone));},[selectedZone]);
+  useEffect(()=>{setHourlyData(getHourly(selectedZone));},[selectedZone,detections]);// eslint-disable-line react-hooks/exhaustive-deps
 
   const [querying,setQuerying]=useState(false);
   const handleQuery=async()=>{
@@ -659,7 +732,8 @@ export default function App(){
   };
 
   const curH=new Date().getHours();
-  const curP=zoneProbs[selectedZone]||(hourlyData[curH]||0);
+  const curStats=scoresToProb(zoneTypeScores(detections,selectedZone,curH));
+  const curP=curStats.overall;
   const filtDets=filterType==="all"?detections:detections.filter(d=>d.patrol_type===filterType);
 
   const tabs=[
@@ -704,7 +778,7 @@ export default function App(){
               {online?"En línia":"Offline"}
             </span>
             <span>·</span>
-            <span>{sources.telegram&&"TG"}{sources.telegram&&sources.whatsapp&&" "}{sources.whatsapp&&"WA"}</span>
+            <span>{allGroups.length?`${allGroups.length} grups`:"manual"}</span>
             <span>·</span>
             <span>{health?`${health.total} dets · 24h:${health.last_24h}`:(detections.length?`${detections.length} dets (cache)`:"Sense dades")}</span>
             {!online&&lastSync&&<span style={{color:C.warning}}>· últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</span>}
@@ -727,9 +801,10 @@ export default function App(){
                 <div><div style={{fontSize:15,fontWeight:700}}>{selectedZone}</div><div style={{fontSize:13,color:C.textDim,marginTop:2}}>Ara · {curH}:00h</div></div>
                 <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
               </div>
-              <ProbBar value={curP*0.7} type="mossos"/>
-              <ProbBar value={curP*0.4} type="guardia"/>
-              <ProbBar value={curP*0.2} type="local"/>
+              {curStats.n===0&&<div style={{fontSize:12,color:C.textMuted,marginBottom:8}}>Sense deteccions reals en aquesta zona/hora — 0% real.</div>}
+              <ProbBar value={curStats.mossos} type="mossos"/>
+              <ProbBar value={curStats.guardia} type="guardia"/>
+              <ProbBar value={curStats.local} type="local"/>
               <HourlyChart data={hourlyData}/>
             </div>
             <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em"}}>Últimes deteccions</div>
@@ -868,18 +943,13 @@ export default function App(){
             </div>
 
             <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
-              {[{key:"telegram",label:"Telegram",icon:"✈",status:"Configurat · en espera",sc:C.warning},{key:"whatsapp",label:"WhatsApp",icon:"◎",status:"Connectat via Web",sc:C.success}].map(s=>(
-                <div key={s.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                    <div style={{width:36,height:36,borderRadius:8,background:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{s.icon}</div>
-                    <div><div style={{fontSize:15,fontWeight:600}}>{s.label}</div><div style={{fontSize:13,color:s.sc}}>{s.status}</div></div>
-                  </div>
-                  <div onClick={()=>setSources(p=>({...p,[s.key]:!p[s.key]}))} style={{width:44,height:24,borderRadius:12,background:sources[s.key]?C.accent:C.border,position:"relative",cursor:"pointer",transition:"background 0.2s"}}>
-                    <div style={{position:"absolute",top:2,left:sources[s.key]?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
-                  </div>
-                </div>
-              ))}
+              <div style={{fontSize:15,fontWeight:700,marginBottom:6,color:C.accent}}>Grups a vigilar</div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:14,lineHeight:1.5}}>
+                Afegeix els grups de WhatsApp i Telegram que vols seguir. Apareixeran com a suggeriment quan facis un report manual.
+                <div style={{marginTop:6,color:C.warning}}>⚠ La captura automàtica d'aquests grups encara no està activa: ara mateix les deteccions només entren pel botó <b>+ Reportar</b>.</div>
+              </div>
+              <GroupEditor label="WhatsApp" icon="◎" color={C.success} items={groups.whatsapp} onAdd={n=>addGroup("whatsapp",n)} onRemove={n=>removeGroup("whatsapp",n)}/>
+              <GroupEditor label="Telegram" icon="✈" color={C.mossos} items={groups.telegram} onAdd={n=>addGroup("telegram",n)} onRemove={n=>removeGroup("telegram",n)}/>
             </div>
             <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
               <div style={{fontSize:15,fontWeight:700,marginBottom:10,color:C.accent}}>Estat del sistema</div>
@@ -938,9 +1008,11 @@ export default function App(){
             <input
               value={reportGroup}
               onChange={e=>setReportGroup(e.target.value)}
-              placeholder="Nom del grup (opcional)"
+              placeholder={allGroups.length?"Tria o escriu el grup (opcional)":"Nom del grup (opcional)"}
+              list="pt-group-list"
               style={{...ss,boxSizing:"border-box",fontSize:13,marginTop:8}}
             />
+            <datalist id="pt-group-list">{allGroups.map(g=><option key={g} value={g}/>)}</datalist>
 
             {reportResult&&(
               <div style={{
@@ -980,14 +1052,31 @@ export default function App(){
       )}
 
       {/* Bottom nav */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"6px 0 10px",overflowX:"auto"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"0 0 auto",minWidth:50,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px"}}>
-            <span style={{fontSize:tab===t.id?20:17,color:tab===t.id?C.accent:C.textMuted}}>{t.icon}</span>
-            <span style={{fontSize:11,color:tab===t.id?C.accent:C.textMuted,letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{t.label}</span>
-          </button>
-        ))}
+      <div className="pt-nav" style={{
+        position:"fixed",bottom:0,left:0,right:0,zIndex:8000,
+        background:C.surface,borderTop:`1px solid ${C.border}`,
+        display:"flex",gap:4,padding:"8px 8px calc(8px + env(safe-area-inset-bottom))",
+        overflowX:"auto",boxShadow:"0 -6px 24px rgba(0,0,0,0.4)",
+      }}>
+        {tabs.map(t=>{
+          const on=tab===t.id;
+          return(
+            <button key={t.id} onClick={()=>setTab(t.id)} aria-label={t.label} style={{
+              flex:"0 0 auto",minWidth:54,position:"relative",cursor:"pointer",fontFamily:"inherit",
+              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,
+              padding:"7px 8px 6px",borderRadius:12,
+              background:on?C.accentDim:"transparent",
+              border:`1px solid ${on?C.accentGlow:"transparent"}`,
+              transition:"background 0.18s,border-color 0.18s",
+            }}>
+              {on&&<span style={{position:"absolute",top:-1,left:"50%",transform:"translateX(-50%)",width:18,height:3,borderRadius:2,background:C.accent,boxShadow:`0 0 8px ${C.accent}`}}/>}
+              <span style={{fontSize:19,lineHeight:1,color:on?C.accent:C.textMuted,opacity:on?1:0.75,transition:"color 0.18s"}}>{t.icon}</span>
+              <span style={{fontSize:10.5,fontWeight:on?700:500,color:on?C.accent:C.textMuted,letterSpacing:"0.03em",whiteSpace:"nowrap"}}>{t.label}</span>
+            </button>
+          );
+        })}
       </div>
+      <style>{`.pt-nav::-webkit-scrollbar{display:none}.pt-nav{scrollbar-width:none}`}</style>
     </div>
   );
 }
