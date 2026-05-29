@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PatrolTrack · Com funciona</title>
+<style>
+  :root{
+    --bg:#0a0c10; --surface:#111318; --surface2:#0d1117; --border:#2a3340;
+    --accent:#ffb84d; --text:#f5f7fb; --dim:#b8c0cc; --muted:#8a92a3;
+    --blue:#60a5fa; --green:#22d97a; --purple:#c084fc; --red:#ff5757;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:'DM Mono',ui-monospace,Menlo,Consolas,monospace;
+    line-height:1.5;padding:22px 14px 60px}
+  .wrap{max-width:760px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 2px}
+  h1 .b{color:var(--accent)} h1 .g{color:var(--dim)}
+  .sub{font-size:13px;color:var(--muted);margin:0 0 22px}
+  h2{font-size:15px;color:var(--accent);letter-spacing:.04em;
+    margin:30px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  .flow{display:flex;flex-direction:column;align-items:center;gap:0}
+  .box{width:100%;max-width:520px;background:var(--surface);
+    border:1px solid var(--border);border-radius:14px;padding:14px 16px;
+    box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  .box .t{font-weight:800;font-size:15px;margin-bottom:2px}
+  .box .u{font-size:11px;color:var(--muted);margin-bottom:8px;word-break:break-all}
+  .box ul{margin:0;padding-left:18px;font-size:13px;color:var(--dim)}
+  .box li{margin:3px 0}
+  .box.fe{border-color:var(--accent)} .box.fe .t{color:var(--accent)}
+  .box.api{border-color:var(--blue)} .box.api .t{color:var(--blue)}
+  .box.db{border-color:var(--green)} .box.db .t{color:var(--green)}
+  .arrow{color:var(--accent);font-size:22px;line-height:1;margin:8px 0}
+  .lbl{font-size:11px;color:var(--muted);margin:-4px 0 4px;text-align:center}
+  .note{background:rgba(255,176,32,.12);border:1px solid var(--accent);
+    border-radius:12px;padding:12px 14px;font-size:13px;color:var(--text);margin-top:14px}
+  .split{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+  .split .box{flex:1;min-width:200px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+  th{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  td .k{color:var(--text)}
+  .keys{list-style:none;padding:0;margin:10px 0 0}
+  .keys li{background:var(--surface);border:1px solid var(--border);
+    border-left:3px solid var(--accent);border-radius:8px;padding:10px 12px;
+    margin-bottom:8px;font-size:13px;color:var(--dim)}
+  .keys b{color:var(--text)}
+  code{background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--accent)}
+  footer{margin-top:32px;font-size:11px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🐕 PATROL<span class="g">TRACK</span></h1>
+  <p class="sub">Com funciona l'app · de quina manera i amb què</p>
+
+  <h2>1 · Funcionament (quan fas servir l'app)</h2>
+  <div class="flow">
+    <div class="box fe">
+      <div class="t">📱 El teu mòbil — PWA</div>
+      <div class="u">patroltrack.pages.dev · React + Vite</div>
+      <ul>
+        <li>Mapa · Radar · Stats · Calendari · Historial</li>
+        <li>El <b>radar GPS</b> calcula la probabilitat <b>al mòbil</b> amb les deteccions descarregades</li>
+        <li>Botó <b>“+ Reportar”</b> per afegir avisos a mà</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="lbl">HTTPS · cada 15s llegeix dades · report = POST amb token</div>
+    <div class="box api">
+      <div class="t">☁️ Worker — API (sense servidor)</div>
+      <div class="u">patroltrack-api…workers.dev</div>
+      <ul>
+        <li><code>GET /api/detections</code> · <code>/health</code> · <code>/probability</code></li>
+        <li><code>POST /api/ingest</code> (protegit amb token)</li>
+        <li><b>extractor</b>: llegeix el missatge i en treu patrulla / zona / tipus</li>
+        <li>No està sempre encès: es desperta a cada petició</li>
+      </ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="box db">
+      <div class="t">🗄️ D1 — base de dades (SQLite)</div>
+      <div class="u">taula “detections”</div>
+      <ul><li>Desa cada detecció: data, hora, zona, tipus, confiança…</li></ul>
+    </div>
+  </div>
+
+  <h2>2 · D'on surten les dades</h2>
+  <div class="flow">
+    <div class="box">
+      <div class="t">✍️ Missatge de patrulla</div>
+      <ul><li>Ex: “Mossos a la N-II km 45, cuidado”</li><li>El copies tu i l'enganxes al botó “+ Reportar”</li></ul>
+    </div>
+    <div class="arrow">↓</div>
+    <div class="box api"><div class="t">Worker → extractor → D1</div>
+      <ul><li>Si sembla una alerta de patrulla → es desa ✅</li><li>Si no → es descarta</li></ul>
+    </div>
+  </div>
+  <div class="note">⚠️ <b>Ara mateix NO hi ha captura automàtica</b> de WhatsApp/Telegram. L'única entrada de dades és el botó <b>“+ Reportar”</b> manual. (La captura automàtica és la peça que queda pendent.)</div>
+
+  <h2>3 · On van les actualitzacions</h2>
+  <div class="flow">
+    <div class="box"><div class="t">💻 Local (Mac)</div><div class="u">codi font — on s'edita</div></div>
+    <div class="arrow">↓ &nbsp; ↓</div>
+    <div class="split">
+      <div class="box"><div class="t">🐙 GitHub</div><ul><li><code>commit</code> + <code>push</code></li><li>Còpia de seguretat + historial</li></ul></div>
+      <div class="box fe"><div class="t">☁️ Cloudflare</div><ul><li><code>build</code> + <code>deploy</code></li><li>L'<b>app EN VIU</b> al mòbil</li></ul></div>
+    </div>
+  </div>
+  <div class="note">Cada destí és un <b>pas a part</b>: editar canvia el local a l'instant; veure-ho al mòbil = desplegar a Cloudflare; guardar-ho = push a GitHub. <b>Google Drive no s'actualitza</b> (és una còpia a part).</div>
+
+  <h2>4 · Amb què està fet</h2>
+  <table>
+    <tr><th>Capa</th><th>Tecnologia</th><th>On viu</th></tr>
+    <tr><td class="k">Frontend (PWA)</td><td>React + Vite</td><td>Cloudflare Pages</td></tr>
+    <tr><td class="k">API / lògica</td><td>Worker TypeScript</td><td>Cloudflare Workers</td></tr>
+    <tr><td class="k">Base de dades</td><td>SQLite</td><td>Cloudflare D1</td></tr>
+    <tr><td class="k">Extractor</td><td>Regex (al Worker)</td><td>dins l'API</td></tr>
+    <tr><td class="k">Radar</td><td>GPS + càlcul al navegador</td><td>al mòbil</td></tr>
+    <tr><td class="k">Codi / backup</td><td>Git</td><td>GitHub</td></tr>
+  </table>
+
+  <h2>Idees clau</h2>
+  <ul class="keys">
+    <li>Tot corre a <b>Cloudflare</b> (gratis) → <b>no depèn del teu Mac</b>; funciona 24/7.</li>
+    <li>El Worker <b>no està sempre encès</b>: es desperta a cada petició (per això és gratis i ràpid).</li>
+    <li>El <b>radar</b> no envia res: descarrega les deteccions i calcula la probabilitat <b>al teu mòbil</b>.</li>
+    <li>Les probabilitats són <b>reals</b>: si no hi ha deteccions en una zona/hora → 0% (cap alarma inventada).</li>
+    <li>L'única entrada de dades és <b>“+ Reportar”</b> (captura automàtica pendent).</li>
+  </ul>
+
+  <footer>PatrolTrack · Lleida · document generat automàticament</footer>
+</div>
+</body>
+</html>
