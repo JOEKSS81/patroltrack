@@ -7,6 +7,14 @@ backend/__pycache__/
 .env
 *.db
 *.session
+.DS_Store
+**/.DS_Store
+.claude/
+frontend/.env.local
+.wrangler/
+**/.wrangler/
+dist/
+**/dist/
 frontend/node_modules/
 backend/venv/
 frontend/node_modules/
