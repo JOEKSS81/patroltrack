@@ -8,6 +8,7 @@ import { extractPatrolInfo } from "./extractor";
 export interface Env {
   DB: D1Database;
   INGEST_TOKEN?: string; // secret per autenticar /api/ingest (vegeu README)
+  TELEGRAM_WEBHOOK_SECRET?: string; // secret per validar el webhook de Telegram
 }
 
 // -- utilitats ------------------------------------------------------------
@@ -134,6 +135,30 @@ async function handleProbability(env: Env, url: URL): Promise<Response> {
 // POST /api/ingest — endpoint per a Tasker. Cos JSON:
 //   { message: string, group_name?: string, source?: string }
 // Header obligatori: x-ingest-token: <secret>
+// Desa una detecció si el missatge sembla una alerta de patrulla.
+// Compartit per /api/ingest (manual/Tasker) i /api/telegram (bot).
+async function storeDetection(env: Env, message: string, source: string, groupName: string) {
+  const info = extractPatrolInfo(message, source);
+  if (!info) return { stored: false as const };
+
+  const now = new Date();
+  const { hour, dow } = lleidaHourAndDow(now);
+
+  const ins = await env.DB.prepare(`
+    INSERT INTO detections
+      (created_at, hour, day_of_week, zone, zone_norm, patrol_type,
+       source, group_name, raw_message, confidence, lat, lng)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    now.toISOString(), hour, dow,
+    info.zone, info.zone_norm, info.patrol_type,
+    info.source, groupName.slice(0, 200), message.slice(0, 1000),
+    info.confidence, info.lat, info.lng,
+  ).run();
+
+  return { stored: true as const, id: ins.meta?.last_row_id ?? null, info };
+}
+
 async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat al Worker" }, 500);
   const token = req.headers.get("x-ingest-token");
@@ -146,34 +171,39 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const message = (body.message ?? "").trim();
   if (!message) return json({ ok: false, reason: "missatge buit" }, 400);
 
-  const source = body.source ?? "whatsapp";
-  const info = extractPatrolInfo(message, source);
-  if (!info) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
-
-  const now = new Date();
-  const { hour, dow } = lleidaHourAndDow(now);
-  const groupName = (body.group_name ?? "").slice(0, 200);
-
-  const ins = await env.DB.prepare(`
-    INSERT INTO detections
-      (created_at, hour, day_of_week, zone, zone_norm, patrol_type,
-       source, group_name, raw_message, confidence, lat, lng)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(
-    now.toISOString(), hour, dow,
-    info.zone, info.zone_norm, info.patrol_type,
-    info.source, groupName, message.slice(0, 1000),
-    info.confidence, info.lat, info.lng,
-  ).run();
+  const res = await storeDetection(env, message, body.source ?? "whatsapp", body.group_name ?? "");
+  if (!res.stored) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
 
   return json({
     ok: true,
     stored: true,
-    id: ins.meta?.last_row_id ?? null,
-    patrol_type: info.patrol_type,
-    zone_norm: info.zone_norm,
-    confidence: info.confidence,
+    id: res.id,
+    patrol_type: res.info.patrol_type,
+    zone_norm: res.info.zone_norm,
+    confidence: res.info.confidence,
   });
+}
+
+// POST /api/telegram — webhook del bot de Telegram.
+// Telegram envia la capçalera X-Telegram-Bot-Api-Secret-Token (definida a setWebhook).
+// Sempre responem 200 perquè Telegram no reintenti l'enviament.
+async function handleTelegram(env: Env, req: Request): Promise<Response> {
+  if (!env.TELEGRAM_WEBHOOK_SECRET ||
+      req.headers.get("x-telegram-bot-api-secret-token") !== env.TELEGRAM_WEBHOOK_SECRET) {
+    return json({ ok: false }, 401);
+  }
+
+  let update: any;
+  try { update = await req.json(); } catch { return json({ ok: true }); }
+
+  const msg = update?.message ?? update?.channel_post ?? update?.edited_message;
+  const text = String(msg?.text ?? msg?.caption ?? "").trim();
+  const groupName = String(msg?.chat?.title ?? msg?.chat?.username ?? "Telegram");
+
+  if (text) {
+    try { await storeDetection(env, text, "telegram", groupName); } catch { /* ignora errors per no reintentar */ }
+  }
+  return json({ ok: true });
 }
 
 // -- router ---------------------------------------------------------------
@@ -190,6 +220,7 @@ export default {
       if (req.method === "GET" && path === "/api/detections") return await handleDetections(env, url);
       if (req.method === "GET" && path === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && path === "/api/ingest") return await handleIngest(env, req);
+      if (req.method === "POST" && path === "/api/telegram") return await handleTelegram(env, req);
 
       // Endpoint senzill per provar que el Worker corre
       if (path === "/") return json({ name: "PatrolTrack API", ok: true });

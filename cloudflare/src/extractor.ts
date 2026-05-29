@@ -3,62 +3,42 @@
 
 const PATROL_KEYWORDS: Record<string, string[]> = {
   mossos: [
-    "mossos", "mosso", "gossos", "pasma", "policia", "poli"
-    "policia catalana", "policía catalana",
-    "esquadra", "secreta"
-    "mozos", "mozo", "perros", "pasma", "policía", "poli" 
-"policía catalana", "policía catalana", "mossos", "mosso", "mosus", "gossos", "gossos d'esquadra", "esquadra", "brimos", "brimo", "arro", "arros", "mozos", "mozo", "policia catalana", "policía catalana", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas", "perros", "perro", "pitufos negros"
-
-"escuadra",
+    "mossos", "mosso", "mosus", "gossos", "gossos d'esquadra", "esquadra", "escuadra",
+    "mozos", "mozo", "brimos", "brimo", "arro", "arros",
+    "policia catalana", "policía catalana", "pitufos negros", "perros", "perro",
+    "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas",
   ],
   guardia: [
-    "guardia civil", "guardia", "gc ", " gc,", "(gc)", 
-"benemérita", "benemerita", "picoletos", "malos", "verdes" 
-"tricornio", "tricorni",
-    "guardia civil", "guardia", "gc ", " gc,", "(gc)",
-    "benemérita", "benemerita", "picoletos", "malos", "verds"
-    "tricornio", "tricorni",
-    "guardia civil", "guardias civiles", "civiles", "verdes", "verde", "picoletos", "picoleto", "picolos", "picolo", "picos", "lagartos", "lagarto", "aceitunos", "aceituno", "la benemérita", "benemérita", "monos", "mono", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
-    "policia nacional", "policía nacional", "nacionales", "nacional", "maderos", "madero", "la madera", "azules", "azul", "monos", "mono", "grises", "gris", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
+    "guardia civil", "guardias civiles", "guardia", "gc ", " gc,", "(gc)", "civiles",
+    "benemérita", "benemerita", "la benemérita",
+    "picoletos", "picoleto", "picolos", "picolo", "picos",
+    "tricornio", "tricorni", "verdes", "verde", "verds",
+    "lagartos", "lagarto", "aceitunos", "aceituno", "monos", "mono", "malos",
+    "policia nacional", "policía nacional", "nacionales", "nacional",
+    "maderos", "madero", "la madera", "azules", "azul", "grises", "gris",
   ],
   local: [
-    "policía local", "policía local", "monillo", "monillos" 
-"municipal", "munios", 
-"guardia urbana", "urbana",
-    "policia local", "policía local", "monillo", "monillos"
-    "municipal", "munis",
-    "guardia urbana", "urbana",
-    "policia local", "policía local", "guardia urbana", "urbana", "urbanos", "urbano", "municipales", "municipal", "pitufos", "pitufo", "guindillas", "guindilla", "sheriffs", "sheriff", "multa-multa", "plastas", "plasta", "los de tráfico", "trafico", "tráfico", "pasma", "poli", "polis", "policia", "policía", "secreta", "secretas"
+    "policia local", "policía local", "municipal", "municipales", "munis", "munios",
+    "guardia urbana", "urbana", "urbanos", "urbano", "monillo", "monillos",
+    "pitufos", "pitufo", "guindillas", "guindilla", "sheriffs", "sheriff",
+    "multa-multa", "plastas", "plasta", "los de tráfico", "trafico", "tráfico",
   ],
 };
 
 const PRESENCE_KEYWORDS = [
-  "control", "controles", "controlante", 
-"patrulla", "patrullas", "patrullante", 
-"radar", "radares", 
-"hay", "hay", "están", "están", "está", "se encuentra", 
-"acaban de", "acaban de", 
-"cuidado", "cuidado", "atención", "atención", "alerta", 
-"pillado", "pillado", "parado", "parado", 
-"multa", "multas", "multan", 
-"haciendo controles", "haciendo controles", 
-"a la altura", "a la altura", "al km", "kilómetro", 
-"rotonda", "semáforo", "semaforo", "cruce", "cruce", 
-"entrada", "salida", "salida", "cruze" 
-"pk", "punto kilométrico", "punto kilometrico",
-  "control", "controls", "controlant",
-  "patrulla", "patrulles", "patrullant",
-  "radar", "radars",
-  "hi ha", "hay", "estan", "están", "está", "es troba",
+  "control", "controls", "controles", "controlant", "controlante",
+  "patrulla", "patrulles", "patrullas", "patrullant", "patrullante",
+  "radar", "radars", "radares",
+  "hi ha", "hay", "estan", "están", "está", "es troba", "se encuentra",
   "acaben de", "acaban de",
   "cuidado", "compte", "atenció", "atención", "alerta",
   "pillat", "pillado", "aturat", "parado",
-  "multa", "multes", "multan",
+  "multa", "multes", "multas", "multan",
   "fent controls", "haciendo controles",
   "a l'altura", "a la altura", "al km", "kilómetro",
-  "rotonda", "semàfor", "semaforo", "cruïlla", "cruce",
-  "entrada", "sortida", "salida", "cruze"
-  "pk", "punt kilometric", "punto kilometrico",
+  "rotonda", "semàfor", "semáforo", "semaforo", "cruïlla", "cruce", "cruze",
+  "entrada", "sortida", "salida",
+  "pk", "punt kilometric", "punto kilométrico", "punto kilometrico",
 ];
 
 const NEGATIVE_KEYWORDS = [
