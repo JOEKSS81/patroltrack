@@ -750,14 +750,14 @@ export default function App(){
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
       {/* Header */}
-      <div style={{padding:"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:newAlert?40:0}}>
-        <div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,boxShadow:`0 0 8px ${C.accent}`}}/>
+      <div style={{padding:dogPhoto?"12px 14px":"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:newAlert?40:0,minHeight:dogPhoto?96:undefined}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,boxShadow:`0 0 8px ${C.accent}`,flexShrink:0}}/>
             <span style={{fontSize:17,fontWeight:700,letterSpacing:"0.05em",color:C.accent}}>PATROL<span style={{color:C.textDim}}>TRACK</span></span>
-            <span style={{fontSize:12,color:C.textDim,background:C.border,padding:"2px 7px",borderRadius:4}}>Lleida · BETA</span>
+            <span style={{fontSize:11,color:C.textDim,background:C.border,padding:"2px 7px",borderRadius:4}}>Lleida · BETA</span>
           </div>
-          <div style={{fontSize:12,color:C.textMuted,marginTop:2,display:"flex",alignItems:"center",gap:6}}>
+          <div style={{fontSize:11,color:C.textMuted,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <span style={{display:"inline-flex",alignItems:"center",gap:4,color:online?C.success:C.danger}}>
               <span style={{width:6,height:6,borderRadius:"50%",background:online?C.success:C.danger,boxShadow:`0 0 6px ${online?C.success:C.danger}`}}/>
               {online?"En línia":"Offline"}
@@ -769,24 +769,33 @@ export default function App(){
             {!online&&lastSync&&<span style={{color:C.warning}}>· últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</span>}
           </div>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <div style={{textAlign:"right"}}>
-            <div style={{fontSize:20,fontWeight:700}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
-            <div style={{fontSize:12,color:C.textDim}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
-          </div>
-          {dogPhoto&&(
-            <button
-              onClick={()=>setShowDogMemorial(true)}
-              title={dogName?`En memòria de ${dogName}`:"En memòria"}
-              style={{padding:0,margin:0,background:"none",border:"none",cursor:"pointer",lineHeight:0}}
-            >
-              <img
-                src={dogPhoto}
-                alt={dogName||"En memòria"}
-                style={{width:42,height:42,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.accent}`,boxShadow:`0 0 10px ${C.accent}44`}}
-              />
-            </button>
-          )}
+
+        {/* Foto del gos — centrada, gran, focus a la cara */}
+        {dogPhoto&&(
+          <button
+            onClick={()=>setShowDogMemorial(true)}
+            title={dogName?`En memòria de ${dogName}`:"En memòria"}
+            style={{padding:0,margin:0,background:"none",border:"none",cursor:"pointer",lineHeight:0,flexShrink:0}}
+          >
+            <img
+              src={dogPhoto}
+              alt={dogName||"En memòria"}
+              style={{
+                width:78,height:78,
+                borderRadius:"50%",
+                objectFit:"cover",
+                objectPosition:"center 25%", /* focus a la zona dels ulls/morro */
+                border:`3px solid ${C.accent}`,
+                boxShadow:`0 0 16px ${C.accent}66`,
+                display:"block",
+              }}
+            />
+          </button>
+        )}
+
+        <div style={{textAlign:"right",flexShrink:0}}>
+          <div style={{fontSize:20,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
+          <div style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
         </div>
       </div>
 
