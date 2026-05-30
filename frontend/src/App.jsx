@@ -235,7 +235,7 @@ function useRadar(zoneData){
 function Splash({onActivate,onSkip,wasActive,dogPhoto}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <img src={dogPhoto} alt="PatrolTrack" style={{width:180,height:180,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:18,border:`3px solid ${C.accent}`,boxShadow:`0 0 32px ${C.accent}55`}}/>
+      <img src={dogPhoto} alt="PatrolTrack" style={{maxWidth:"min(85vw,360px)",maxHeight:"50vh",width:"auto",height:"auto",marginBottom:20,filter:`drop-shadow(0 0 28px ${C.accent}66)`,display:"block"}}/>
       <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
       <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
         {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
@@ -711,28 +711,29 @@ export default function App(){
       )}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
-      {/* Header — la foto del gos és la PROTAGONISTA al centre */}
+      {/* Header — la foto del gos és la PROTAGONISTA gegant al centre */}
       {(()=>{
-        const HEADER_H=130; // alçada total del header
-        const DOG_H=Math.round(HEADER_H*0.68); // foto = 68% de l'alçada
+        const HEADER_H=200; // alçada total del header
+        const DOG_H=Math.round(HEADER_H*0.95); // foto = 95% de l'alçada
         return(
-          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:newAlert?40:0,height:HEADER_H,boxSizing:"border-box"}}>
-            <div style={{flex:"0 1 auto",minWidth:0,maxWidth:"30%"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-                <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,boxShadow:`0 0 8px ${C.accent}`,flexShrink:0}}/>
-                <span style={{fontSize:15,fontWeight:700,letterSpacing:"0.03em",color:C.accent}}>PATROL<span style={{color:C.textDim}}>TRACK</span></span>
+          <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:newAlert?40:0,height:HEADER_H,boxSizing:"border-box"}}>
+            <div style={{flex:"0 1 auto",minWidth:0,maxWidth:"28%"}}>
+              <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                <div style={{width:7,height:7,borderRadius:"50%",background:C.accent,boxShadow:`0 0 6px ${C.accent}`,flexShrink:0}}/>
+                <span style={{fontSize:14,fontWeight:700,letterSpacing:"0.02em",color:C.accent}}>PATROL<span style={{color:C.textDim}}>TRACK</span></span>
               </div>
               <div style={{fontSize:10,color:C.textDim,marginTop:2}}>Lleida · BETA</div>
-              <div style={{fontSize:10,color:C.textMuted,marginTop:4,lineHeight:1.4}}>
+              <div style={{fontSize:10,color:C.textMuted,marginTop:6,lineHeight:1.4}}>
                 <div style={{color:online?C.success:C.danger,display:"flex",alignItems:"center",gap:3}}>
                   <span style={{width:5,height:5,borderRadius:"50%",background:online?C.success:C.danger,boxShadow:`0 0 4px ${online?C.success:C.danger}`}}/>
                   {online?"En línia":"Offline"}
                 </div>
-                <div>{health?`${health.total} dets · 24h:${health.last_24h}`:(detections.length?`${detections.length} dets`:"—")}</div>
+                <div>{health?`${health.total} dets`:(detections.length?`${detections.length} dets`:"—")}</div>
+                {health&&<div>24h: {health.last_24h}</div>}
               </div>
             </div>
 
-            {/* Foto del gos — centrada, gran, ample tot el que pot */}
+            {/* Foto del gos — gegant, centrada, ample que la foto natural */}
             <div style={{flex:"1 1 auto",display:"flex",justifyContent:"center",alignItems:"center",height:"100%",minWidth:0}}>
               <img
                 src={dogPhoto}
@@ -743,14 +744,14 @@ export default function App(){
                   width:"auto",
                   objectFit:"contain",
                   objectPosition:"center",
-                  filter:`drop-shadow(0 0 12px ${C.accent}88)`,
+                  filter:`drop-shadow(0 0 14px ${C.accent}99)`,
                   display:"block",
                 }}
               />
             </div>
 
             <div style={{flex:"0 1 auto",textAlign:"right",flexShrink:0,maxWidth:"22%"}}>
-              <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
+              <div style={{fontSize:16,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
               <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
               {!online&&lastSync&&<div style={{fontSize:9,color:C.warning,whiteSpace:"nowrap",marginTop:2}}>últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>}
             </div>
