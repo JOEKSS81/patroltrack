@@ -232,12 +232,17 @@ function useRadar(zoneData){
 }
 
 // ── Splash d'auto-activació ───────────────────────────────────────────────
-function Splash({onActivate,onSkip,wasActive,dogPhoto}){
+function Splash({onActivate,onSkip,wasActive,dogPhoto,dogName}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
       {dogPhoto
         ? <img src={dogPhoto} alt="" style={{width:120,height:120,borderRadius:"50%",objectFit:"cover",marginBottom:14,border:`3px solid ${C.accent}`,boxShadow:`0 0 24px ${C.accent}55`}}/>
         : <div style={{fontSize:64,marginBottom:14}}>🐕</div>}
+      {dogPhoto&&dogName&&(
+        <div style={{fontSize:13,color:C.textDim,marginTop:-6,marginBottom:14,fontStyle:"italic",textAlign:"center"}}>
+          En memòria de <span style={{color:C.accent}}>{dogName}</span> 🤍
+        </div>
+      )}
       <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
       <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
         {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
@@ -590,6 +595,16 @@ export default function App(){
     img.onerror=()=>alert("No s'ha pogut llegir la imatge.");
     img.src=URL.createObjectURL(file);
   };
+  // Nom del gos (per al record/avatar)
+  const [dogName,setDogNameRaw]=useState(()=>{
+    try{return localStorage.getItem("pt_dog_name")||"";}catch{return "";}
+  });
+  const setDogName=(n)=>{
+    const v=(n||"").trim().slice(0,40);
+    setDogNameRaw(v);
+    try{ if(v) localStorage.setItem("pt_dog_name",v); else localStorage.removeItem("pt_dog_name"); }catch{}
+  };
+  const [showDogMemorial,setShowDogMemorial]=useState(false);
 
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
@@ -720,7 +735,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",display:"flex",flexDirection:"column"}}>
-      {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
+      {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} dogName={dogName} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
       {radar.alert&&(()=>{const z=radar.nearby.find(n=>n.prob>=radar.thresh);return(
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9998,background:C.danger,color:"#fff",padding:"12px 16px",textAlign:"center",boxShadow:`0 0 30px ${C.danger}88`,animation:"pulse 0.6s infinite alternate"}}>
           <div style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA · {z?.id} · {z?.dist} km</div>
@@ -754,9 +769,24 @@ export default function App(){
             {!online&&lastSync&&<span style={{color:C.warning}}>· últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</span>}
           </div>
         </div>
-        <div style={{textAlign:"right"}}>
-          <div style={{fontSize:20,fontWeight:700}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
-          <div style={{fontSize:12,color:C.textDim}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontSize:20,fontWeight:700}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
+            <div style={{fontSize:12,color:C.textDim}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
+          </div>
+          {dogPhoto&&(
+            <button
+              onClick={()=>setShowDogMemorial(true)}
+              title={dogName?`En memòria de ${dogName}`:"En memòria"}
+              style={{padding:0,margin:0,background:"none",border:"none",cursor:"pointer",lineHeight:0}}
+            >
+              <img
+                src={dogPhoto}
+                alt={dogName||"En memòria"}
+                style={{width:42,height:42,borderRadius:"50%",objectFit:"cover",border:`2px solid ${C.accent}`,boxShadow:`0 0 10px ${C.accent}44`}}
+              />
+            </button>
+          )}
         </div>
       </div>
 
@@ -910,11 +940,11 @@ export default function App(){
           <div>
             {/* 🐕 Foto personalitzada */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🐕 Foto del teu gos</div>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🐕 El teu gos</div>
               <div style={{fontSize:14,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                Apareixerà a la pantalla d'entrada i al Radar en lloc de l'emoji. Es desa només al teu navegador.
+                La foto apareix a la pantalla d'entrada, al Radar i sempre visible a la barra superior. Es desa només al teu navegador.
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:14}}>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
                 <div style={{width:80,height:80,borderRadius:"50%",border:`2px solid ${C.border}`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,flexShrink:0}}>
                   {dogPhoto
                     ? <img src={dogPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
@@ -932,6 +962,19 @@ export default function App(){
                   )}
                 </div>
               </div>
+
+              <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom (opcional, per al record):</div>
+              <input
+                value={dogName}
+                onChange={e=>setDogName(e.target.value)}
+                placeholder="Ex: Roc"
+                style={{...ss,boxSizing:"border-box",fontSize:14,padding:"10px 12px"}}
+              />
+              {dogName&&(
+                <div style={{fontSize:12,color:C.textMuted,marginTop:6,fontStyle:"italic"}}>
+                  Apareixerà com "En memòria de {dogName} 🤍" a la pantalla d'entrada.
+                </div>
+              )}
             </div>
 
             {/* 🔑 Token per reportar */}
@@ -972,29 +1015,43 @@ export default function App(){
                 }}
               >+ AFEGIR GRUP AL BOT</button>
 
-              {/* Card desplegable — ajuda pas a pas */}
+              {/* Per a TOTS els usuaris — instruccions simples i clares */}
+              <div style={{background:`${C.success}11`,borderRadius:8,border:`1px solid ${C.success}55`,padding:14,marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:800,color:C.success,marginBottom:8,letterSpacing:"0.03em"}}>✨ COM AFEGIR EL TEU GRUP (2 tocs)</div>
+                <ol style={{margin:0,paddingLeft:20,fontSize:13,color:C.text,lineHeight:1.7}}>
+                  <li>Toca el botó blau <b>"+ AFEGIR GRUP AL BOT"</b> de dalt</li>
+                  <li>Telegram s'obrirà i et mostrarà la llista dels teus grups → <b>tria el grup</b> on vols capturar les patrulles</li>
+                </ol>
+                <div style={{fontSize:12,color:C.textDim,marginTop:8,lineHeight:1.5}}>
+                  Llest. Els missatges d'aquell grup amb paraules tipus "mossos", "control", "patrulla"... apareixeran aquí automàticament. Pots afegir tants grups com vulguis repetint el procés.
+                </div>
+              </div>
+
+              {/* Card desplegable — només per al PROPIETARI (configuració inicial) */}
               <div style={{background:C.bg,borderRadius:8,border:`1px solid ${C.border}`,marginBottom:14,overflow:"hidden"}}>
                 <button
                   onClick={()=>setShowBotHelp(v=>!v)}
-                  style={{width:"100%",padding:"12px 14px",background:"transparent",color:C.text,border:"none",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                  style={{width:"100%",padding:"12px 14px",background:"transparent",color:C.textDim,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}
                 >
-                  <span>📖 Com configurar el bot pas a pas</span>
-                  <span style={{fontSize:18,color:C.accent,transition:"transform 0.2s",transform:showBotHelp?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                  <span>🔧 Configuració tècnica inicial (només el propietari, un sol cop)</span>
+                  <span style={{fontSize:18,color:C.accent,transition:"transform 0.2s",transform:showBotHelp?"rotate(180deg)":"rotate(0deg)",flexShrink:0,marginLeft:6}}>▾</span>
                 </button>
                 {showBotHelp&&(
-                  <div style={{padding:"4px 14px 14px",fontSize:13,color:C.textDim,lineHeight:1.6,borderTop:`1px solid ${C.border}`}}>
+                  <div style={{padding:"4px 14px 14px",fontSize:12,color:C.textDim,lineHeight:1.6,borderTop:`1px solid ${C.border}`}}>
+                    <div style={{fontSize:11,color:C.textMuted,marginBottom:10,fontStyle:"italic"}}>
+                      Si has rebut un enllaç d'un amic, <b>això NO et toca</b>. Salta directament al bloc verd de dalt.
+                    </div>
                     {[
-                      {n:"1",t:"Crea el bot (un sol cop)",b:"A Telegram, busca @BotFather → escriu /newbot → segueix-li les instruccions. Apunta't el TOKEN que et donarà — el necessitaràs un sol cop al pas 3."},
-                      {n:"2",t:"Desactiva Privacy mode",b:"@BotFather → /mybots → tria el bot → Bot Settings → Group Privacy → Turn off. Sense això el bot només llegirà comandes (/start), no els missatges normals dels grups."},
-                      {n:"3",t:"Registra el webhook (al Mac)",b:"Al terminal: bash /tmp/setup_webhook.sh — t'enganxes el token quan el demani. Aquest pas connecta el bot al Worker."},
-                      {n:"4",t:"Afegeix el bot al grup",b:"Aquí mateix: toca el botó '+ AFEGIR GRUP AL BOT' de dalt → tria el grup → Telegram afegeix el bot automàticament."},
-                      {n:"5",t:"(Recomanat) Rota el token",b:"Quan tot funcioni, fes /revoke a @BotFather → tens un token nou que ningú més coneix. El webhook segueix funcionant igual."},
+                      {n:"1",t:"Crea el bot",b:"A Telegram, busca @BotFather → escriu /newbot → segueix-li les instruccions. Apunta el TOKEN que et donarà."},
+                      {n:"2",t:"Desactiva Privacy mode",b:"@BotFather → /mybots → tria el bot → Bot Settings → Group Privacy → Turn off. Imprescindible perquè el bot llegeixi els missatges normals dels grups."},
+                      {n:"3",t:"Registra el webhook (al teu Mac)",b:"Terminal: bash /tmp/setup_webhook.sh, enganxa el token quan te'l demani. Això connecta el bot amb el servidor."},
+                      {n:"4",t:"(Recomanat) Rota el token",b:"Quan tot funcioni, fes /revoke a @BotFather per tenir un token nou que només sàpigues tu. El bot segueix funcionant igual."},
                     ].map(s=>(
                       <div key={s.n} style={{display:"flex",gap:10,marginTop:10}}>
-                        <div style={{width:24,height:24,borderRadius:"50%",background:C.accent,color:"#000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>{s.n}</div>
+                        <div style={{width:22,height:22,borderRadius:"50%",background:C.border,color:C.textDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{s.n}</div>
                         <div style={{flex:1}}>
-                          <div style={{color:C.text,fontWeight:700,marginBottom:2}}>{s.t}</div>
-                          <div>{s.b}</div>
+                          <div style={{color:C.text,fontWeight:700,marginBottom:2,fontSize:13}}>{s.t}</div>
+                          <div style={{fontSize:12}}>{s.b}</div>
                         </div>
                       </div>
                     ))}
@@ -1062,6 +1119,21 @@ export default function App(){
           </div>
         )}
       </div>
+
+      {/* Modal "in memoriam" del gos (apareix en tocar l'avatar del header) */}
+      {showDogMemorial&&dogPhoto&&(
+        <div onClick={()=>setShowDogMemorial(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9700,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
+          <div onClick={e=>e.stopPropagation()} style={{maxWidth:340,width:"100%",background:C.surface,borderRadius:16,padding:24,textAlign:"center",border:`1px solid ${C.accent}55`,boxShadow:`0 0 40px ${C.accent}33`}}>
+            <img src={dogPhoto} alt="" style={{width:140,height:140,borderRadius:"50%",objectFit:"cover",margin:"0 auto 14px",border:`3px solid ${C.accent}`,boxShadow:`0 0 24px ${C.accent}55`}}/>
+            <div style={{fontSize:13,color:C.textDim,marginBottom:4,letterSpacing:"0.05em"}}>EN MEMÒRIA DE</div>
+            <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:10}}>{dogName||"el meu millor amic"} 🤍</div>
+            <div style={{fontSize:13,color:C.text,fontStyle:"italic",lineHeight:1.6,marginBottom:18}}>
+              Aquesta app porta el seu nom i el seu lladruc per protegir-nos a la carretera.
+            </div>
+            <button onClick={()=>setShowDogMemorial(false)} style={{padding:"10px 22px",background:"transparent",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Tancar</button>
+          </div>
+        </div>
+      )}
 
       {/* Modal de detall d'una detecció */}
       {selectedDet&&(()=>{
