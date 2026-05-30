@@ -232,10 +232,12 @@ function useRadar(zoneData){
 }
 
 // ── Splash d'auto-activació ───────────────────────────────────────────────
-function Splash({onActivate,onSkip,wasActive}){
+function Splash({onActivate,onSkip,wasActive,dogPhoto}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <div style={{fontSize:64,marginBottom:14}}>🐕</div>
+      {dogPhoto
+        ? <img src={dogPhoto} alt="" style={{width:120,height:120,borderRadius:"50%",objectFit:"cover",marginBottom:14,border:`3px solid ${C.accent}`,boxShadow:`0 0 24px ${C.accent}55`}}/>
+        : <div style={{fontSize:64,marginBottom:14}}>🐕</div>}
       <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
       <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
         {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
@@ -254,7 +256,7 @@ function Splash({onActivate,onSkip,wasActive}){
 }
 
 // ── Pestanya RADAR (pura UI) ──────────────────────────────────────────────
-function RadarTab({radar}){
+function RadarTab({radar,dogPhoto}){
   const {active,pos,err,nearby,sound,toggleSound,thresh,setThresh,start,stop}=radar;
   return(
     <div>
@@ -294,7 +296,7 @@ function RadarTab({radar}){
           })}
         </div>
       )}
-      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><div style={{fontSize:36,marginBottom:8}}>🐕</div><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
+      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}>{dogPhoto?<img src={dogPhoto} alt="" style={{width:80,height:80,borderRadius:"50%",objectFit:"cover",marginBottom:10,border:`2px solid ${C.accent}55`}}/>:<div style={{fontSize:36,marginBottom:8}}>🐕</div>}<div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
     </div>
   );
@@ -564,6 +566,36 @@ export default function App(){
   };
   const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
+
+  // Foto del gos personalitzada (base64 al localStorage) ---------------------
+  const [dogPhoto,setDogPhotoRaw]=useState(()=>{
+    try{return localStorage.getItem("pt_dog")||"";}catch{return "";}
+  });
+  const setDogPhoto=(dataUrl)=>{
+    setDogPhotoRaw(dataUrl);
+    try{ if(dataUrl) localStorage.setItem("pt_dog",dataUrl); else localStorage.removeItem("pt_dog"); }catch(e){alert("La foto és massa gran per desar-la al navegador. Prova'n una de més petita.");}
+  };
+  const handleDogUpload=(file)=>{
+    if(!file) return;
+    const img=new Image();
+    img.onload=()=>{
+      const max=320;
+      const ratio=Math.min(max/img.width,max/img.height,1);
+      const c=document.createElement("canvas");
+      c.width=img.width*ratio; c.height=img.height*ratio;
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+      setDogPhoto(c.toDataURL("image/jpeg",0.85));
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror=()=>alert("No s'ha pogut llegir la imatge.");
+    img.src=URL.createObjectURL(file);
+  };
+
+  // Estat per al modal de detall del historial -------------------------------
+  const [selectedDet,setSelectedDet]=useState(null);
+
+  // Estat per a la card desplegable d'ajuda del bot --------------------------
+  const [showBotHelp,setShowBotHelp]=useState(false);
   const [showReport,setShowReport]=useState(false);
   const [reportMsg,setReportMsg]=useState("");
   const [reportGroup,setReportGroup]=useState("");
@@ -688,7 +720,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",display:"flex",flexDirection:"column"}}>
-      {showSplash&&<Splash wasActive={wasActive} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
+      {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
       {radar.alert&&(()=>{const z=radar.nearby.find(n=>n.prob>=radar.thresh);return(
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9998,background:C.danger,color:"#fff",padding:"12px 16px",textAlign:"center",boxShadow:`0 0 30px ${C.danger}88`,animation:"pulse 0.6s infinite alternate"}}>
           <div style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA · {z?.id} · {z?.dist} km</div>
@@ -769,7 +801,7 @@ export default function App(){
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
         {tab==="stats"&&<StatsTab detections={detections}/>}
         {tab==="calendar"&&<CalendarTab detections={detections}/>}
 
@@ -838,126 +870,275 @@ export default function App(){
                 <button key={k} onClick={()=>setFilterType(k)} style={{padding:"5px 12px",borderRadius:6,border:`1px solid ${filterType===k?C.accent:C.border}`,background:filterType===k?C.accentDim:"transparent",color:filterType===k?C.accent:C.textDim,fontSize:13,cursor:"pointer",fontFamily:"inherit",whiteSpace:"nowrap"}}>{l}</button>
               ))}
             </div>
-            <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>{filtDets.length} registres</div>
+            <div style={{fontSize:11,color:C.textDim,marginBottom:6,display:"flex",justifyContent:"space-between"}}>
+              <span>{filtDets.length} registres</span>
+              <span style={{color:C.textMuted}}>Toca per veure detalls</span>
+            </div>
             {filtDets.length===0?(
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,textAlign:"center"}}><div style={{fontSize:14,color:C.textDim}}>Sense deteccions</div></div>
-            ):filtDets.map((d,i)=>{
-              const ptype=PT[d.patrol_type]||PT.unknown;
-              const time=d.created_at?new Date(d.created_at).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"??";
-              return(
-                <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:12,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span><span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span></div>
-                  <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}{d.pk&&<span style={{color:C.warning,marginLeft:8}}>{d.pk}</span>}</div>
-                  {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,70)}"</div>}
-                  <div style={{display:"flex",gap:8}}>
-                    <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
-                    <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
-                  </div>
-                </div>
-              );
-            })}
+            ):(
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden"}}>
+                {filtDets.map((d,i)=>{
+                  const ptype=PT[d.patrol_type]||PT.unknown;
+                  const time=d.created_at?new Date(d.created_at).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"??";
+                  return(
+                    <div
+                      key={i}
+                      onClick={()=>setSelectedDet(d)}
+                      style={{
+                        display:"flex",alignItems:"center",gap:8,
+                        padding:"7px 10px",
+                        borderLeft:`3px solid ${ptype.color}`,
+                        borderBottom:i<filtDets.length-1?`1px solid ${C.border}`:"none",
+                        cursor:"pointer",
+                      }}
+                    >
+                      <span style={{fontSize:10,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 5px",borderRadius:3,flexShrink:0,minWidth:32,textAlign:"center"}}>{ptype.short}</span>
+                      <span style={{fontSize:11,color:C.text,flexShrink:0,fontWeight:600,whiteSpace:"nowrap"}}>{d.zone_norm||d.zone}</span>
+                      <span style={{fontSize:10,color:C.textDim,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:"italic"}}>{d.raw_message||"—"}</span>
+                      <span style={{fontSize:10,color:C.accent,flexShrink:0,fontWeight:600}}>{time}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
         {/* CONFIG */}
         {tab==="config"&&(
           <div>
-            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:6,color:C.accent}}>🔑 Token per reportar</div>
-              <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                Necessari per al botó "+ Reportar". És el token que vas configurar al Worker amb <code style={{background:C.bg,padding:"1px 5px",borderRadius:3,fontSize:11}}>npm run secret:set</code>. Es guarda només al teu navegador.
+            {/* 🐕 Foto personalitzada */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🐕 Foto del teu gos</div>
+              <div style={{fontSize:14,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Apareixerà a la pantalla d'entrada i al Radar en lloc de l'emoji. Es desa només al teu navegador.
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                <div style={{width:80,height:80,borderRadius:"50%",border:`2px solid ${C.border}`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,flexShrink:0}}>
+                  {dogPhoto
+                    ? <img src={dogPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                    : <span style={{fontSize:38}}>🐕</span>}
+                </div>
+                <div style={{flex:1}}>
+                  <label style={{display:"inline-block",padding:"10px 14px",background:C.accent,color:"#000",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                    {dogPhoto?"Canviar foto":"Pujar foto"}
+                    <input type="file" accept="image/*" onChange={e=>handleDogUpload(e.target.files?.[0])} style={{display:"none"}}/>
+                  </label>
+                  {dogPhoto&&(
+                    <button onClick={()=>setDogPhoto("")} style={{marginLeft:8,padding:"10px 14px",background:"transparent",color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                      Treure
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* 🔑 Token per reportar */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token per reportar</div>
+              <div style={{fontSize:14,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Necessari per al botó "+ Reportar". És el token que vas configurar al Worker amb <code style={{background:C.bg,padding:"2px 6px",borderRadius:3,fontSize:13}}>npm run secret:set</code>. Es guarda només al teu navegador.
               </div>
               <input
                 type="password"
                 value={apiToken}
                 onChange={e=>setApiToken(e.target.value)}
                 placeholder="Enganxa aquí el token (64 caràcters hex)"
-                style={{...ss,boxSizing:"border-box",fontFamily:"monospace",fontSize:13}}
+                style={{...ss,boxSizing:"border-box",fontFamily:"monospace",fontSize:14,padding:"12px 14px"}}
               />
-              <div style={{fontSize:11,color:apiToken?C.success:C.warning,marginTop:6}}>
+              <div style={{fontSize:13,color:apiToken?C.success:C.warning,marginTop:8}}>
                 {apiToken?`✓ Token configurat (${apiToken.length} caràcters)`:"⚠ Sense token: el botó de reportar no funcionarà"}
               </div>
             </div>
 
-            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:6,color:C.accent}}>✈️ Connectar grup de Telegram</div>
-              <div style={{fontSize:12,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+            {/* ✈️ Telegram */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>✈️ Connectar grup de Telegram</div>
+              <div style={{fontSize:14,color:C.textDim,marginBottom:14,lineHeight:1.5}}>
                 Toca el botó i Telegram t'obrirà amb la llista dels teus grups. Tria un grup → el bot s'hi afegirà automàticament i els missatges començaran a arribar aquí. <b>No has de crear cap bot.</b>
               </div>
               <button
                 onClick={()=>{if(addGroupUrl)window.open(addGroupUrl,"_blank","noopener");}}
                 disabled={!botUsername}
                 style={{
-                  width:"100%",padding:14,
+                  width:"100%",padding:"16px 18px",
                   background:botUsername?"#229ED9":C.border,
                   color:botUsername?"#fff":C.textDim,
-                  border:"none",borderRadius:8,
-                  fontSize:15,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
+                  border:"none",borderRadius:10,
+                  fontSize:16,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
                   boxShadow:botUsername?"0 0 18px #229ED966":"none",
-                  marginBottom:10,
+                  marginBottom:14,
                 }}
               >+ AFEGIR GRUP AL BOT</button>
 
-              <div style={{fontSize:11,color:C.textDim,marginBottom:6}}>Nom del bot (sense @):</div>
+              {/* Card desplegable — ajuda pas a pas */}
+              <div style={{background:C.bg,borderRadius:8,border:`1px solid ${C.border}`,marginBottom:14,overflow:"hidden"}}>
+                <button
+                  onClick={()=>setShowBotHelp(v=>!v)}
+                  style={{width:"100%",padding:"12px 14px",background:"transparent",color:C.text,border:"none",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}
+                >
+                  <span>📖 Com configurar el bot pas a pas</span>
+                  <span style={{fontSize:18,color:C.accent,transition:"transform 0.2s",transform:showBotHelp?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                </button>
+                {showBotHelp&&(
+                  <div style={{padding:"4px 14px 14px",fontSize:13,color:C.textDim,lineHeight:1.6,borderTop:`1px solid ${C.border}`}}>
+                    {[
+                      {n:"1",t:"Crea el bot (un sol cop)",b:"A Telegram, busca @BotFather → escriu /newbot → segueix-li les instruccions. Apunta't el TOKEN que et donarà — el necessitaràs un sol cop al pas 3."},
+                      {n:"2",t:"Desactiva Privacy mode",b:"@BotFather → /mybots → tria el bot → Bot Settings → Group Privacy → Turn off. Sense això el bot només llegirà comandes (/start), no els missatges normals dels grups."},
+                      {n:"3",t:"Registra el webhook (al Mac)",b:"Al terminal: bash /tmp/setup_webhook.sh — t'enganxes el token quan el demani. Aquest pas connecta el bot al Worker."},
+                      {n:"4",t:"Afegeix el bot al grup",b:"Aquí mateix: toca el botó '+ AFEGIR GRUP AL BOT' de dalt → tria el grup → Telegram afegeix el bot automàticament."},
+                      {n:"5",t:"(Recomanat) Rota el token",b:"Quan tot funcioni, fes /revoke a @BotFather → tens un token nou que ningú més coneix. El webhook segueix funcionant igual."},
+                    ].map(s=>(
+                      <div key={s.n} style={{display:"flex",gap:10,marginTop:10}}>
+                        <div style={{width:24,height:24,borderRadius:"50%",background:C.accent,color:"#000",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,flexShrink:0}}>{s.n}</div>
+                        <div style={{flex:1}}>
+                          <div style={{color:C.text,fontWeight:700,marginBottom:2}}>{s.t}</div>
+                          <div>{s.b}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom del bot (sense @):</div>
               <input
                 value={botUsername}
                 onChange={e=>setBotUsername(e.target.value)}
                 placeholder="Patrol_trackBot"
-                style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace"}}
+                style={{...ss,boxSizing:"border-box",fontSize:14,fontFamily:"monospace",padding:"12px 14px"}}
               />
-              <div style={{fontSize:10,color:C.textMuted,marginTop:4}}>
+              <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
                 Per defecte: Patrol_trackBot. Canvia-ho si has creat el bot amb un altre nom.
               </div>
 
-              <div style={{marginTop:14,padding:10,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:6}}>📤 Compartir l'app amb amics</div>
-                <div style={{fontSize:11,color:C.textDim,marginBottom:8,lineHeight:1.5}}>
+              <div style={{marginTop:16,padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:8}}>📤 Compartir l'app amb amics</div>
+                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
                   Comparteix aquest enllaç i el teu amic podrà afegir els seus propis grups sense res més que tocar el botó de dalt:
                 </div>
-                <div style={{display:"flex",gap:6}}>
+                <div style={{display:"flex",gap:8}}>
                   <input
                     readOnly
                     value={shareAppUrl}
                     onClick={e=>{e.target.select();}}
-                    style={{...ss,boxSizing:"border-box",fontSize:12,fontFamily:"monospace",flex:1}}
+                    style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace",flex:1,padding:"10px 12px"}}
                   />
                   <button
                     onClick={()=>{
                       if(navigator.share){navigator.share({title:"PatrolTrack",url:shareAppUrl}).catch(()=>{});}
                       else if(navigator.clipboard){navigator.clipboard.writeText(shareAppUrl);alert("Enllaç copiat!");}
                     }}
-                    style={{padding:"8px 14px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+                    style={{padding:"10px 16px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
                   >Compartir</button>
                 </div>
               </div>
             </div>
 
-            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
               {[{key:"telegram",label:"Telegram",icon:"✈",status:"Configurat · en espera",sc:C.warning},{key:"whatsapp",label:"WhatsApp",icon:"◎",status:"Connectat via Web",sc:C.success}].map(s=>(
-                <div key={s.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <div style={{display:"flex",gap:10,alignItems:"center"}}>
-                    <div style={{width:36,height:36,borderRadius:8,background:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:18}}>{s.icon}</div>
-                    <div><div style={{fontSize:15,fontWeight:600}}>{s.label}</div><div style={{fontSize:13,color:s.sc}}>{s.status}</div></div>
+                <div key={s.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{display:"flex",gap:12,alignItems:"center"}}>
+                    <div style={{width:40,height:40,borderRadius:8,background:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{s.icon}</div>
+                    <div><div style={{fontSize:16,fontWeight:600}}>{s.label}</div><div style={{fontSize:14,color:s.sc}}>{s.status}</div></div>
                   </div>
-                  <div onClick={()=>setSources(p=>({...p,[s.key]:!p[s.key]}))} style={{width:44,height:24,borderRadius:12,background:sources[s.key]?C.accent:C.border,position:"relative",cursor:"pointer",transition:"background 0.2s"}}>
-                    <div style={{position:"absolute",top:2,left:sources[s.key]?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
+                  <div onClick={()=>setSources(p=>({...p,[s.key]:!p[s.key]}))} style={{width:48,height:26,borderRadius:13,background:sources[s.key]?C.accent:C.border,position:"relative",cursor:"pointer",transition:"background 0.2s"}}>
+                    <div style={{position:"absolute",top:2,left:sources[s.key]?24:2,width:22,height:22,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
                   </div>
                 </div>
               ))}
             </div>
-            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:10,color:C.accent}}>Estat del sistema</div>
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:12,color:C.accent}}>Estat del sistema</div>
               {[{label:"Backend API",value:health?"En línia":"Fora de línia",ok:!!health},{label:"Base de dades",value:health?`${health.total} registres`:"—",ok:!!health},{label:"Última 24h",value:health?`${health.last_24h} deteccions`:"—",ok:true}].map((s,i)=>(
-                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"8px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <span style={{fontSize:14,color:C.textDim}}>{s.label}</span>
-                  <span style={{fontSize:14,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
+                <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:15,color:C.textDim}}>{s.label}</span>
+                  <span style={{fontSize:15,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
       </div>
+
+      {/* Modal de detall d'una detecció */}
+      {selectedDet&&(()=>{
+        const d=selectedDet;
+        const ptype=PT[d.patrol_type]||PT.unknown;
+        const dt=d.created_at?new Date(d.created_at):null;
+        const dateStr=dt?dt.toLocaleDateString("ca-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"?";
+        const timeStr=dt?dt.toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"?";
+        return(
+          <div onClick={()=>setSelectedDet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9500,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:560,maxHeight:"86vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${ptype.color}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.6)`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+                <div style={{fontSize:17,fontWeight:800,color:ptype.color}}>{ptype.label}</div>
+                <button onClick={()=>setSelectedDet(null)} style={{background:"none",border:"none",color:C.textDim,fontSize:24,cursor:"pointer",lineHeight:1}}>✕</button>
+              </div>
+
+              {d.raw_message&&(
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:14,fontSize:14,color:C.text,lineHeight:1.5,fontStyle:"italic"}}>
+                  "{d.raw_message}"
+                </div>
+              )}
+
+              <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"10px 14px",fontSize:14}}>
+                <span style={{color:C.textDim}}>Zona:</span>
+                <span style={{color:C.text,fontWeight:600}}>{d.zone_norm||d.zone||"?"}</span>
+
+                {d.pk&&<>
+                  <span style={{color:C.textDim}}>Punt km:</span>
+                  <span style={{color:C.warning,fontWeight:600}}>{d.pk}</span>
+                </>}
+
+                <span style={{color:C.textDim}}>Data:</span>
+                <span style={{color:C.text}}>{dateStr}</span>
+
+                <span style={{color:C.textDim}}>Hora:</span>
+                <span style={{color:C.text}}>{timeStr}</span>
+
+                <span style={{color:C.textDim}}>Font:</span>
+                <span style={{color:C.text}}>{(d.source||"?").toUpperCase()}</span>
+
+                {d.group_name&&<>
+                  <span style={{color:C.textDim}}>Grup:</span>
+                  <span style={{color:C.text,wordBreak:"break-word"}}>{d.group_name}</span>
+                </>}
+
+                <span style={{color:C.textDim}}>Confiança:</span>
+                <span style={{color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,fontWeight:600,textTransform:"capitalize"}}>{d.confidence||"?"}</span>
+
+                {(d.lat!=null&&d.lng!=null)&&<>
+                  <span style={{color:C.textDim}}>Coordenades:</span>
+                  <span style={{color:C.text,fontFamily:"monospace",fontSize:13}}>{Number(d.lat).toFixed(4)}, {Number(d.lng).toFixed(4)}</span>
+                </>}
+
+                {d.id&&<>
+                  <span style={{color:C.textMuted,fontSize:12}}>ID:</span>
+                  <span style={{color:C.textMuted,fontSize:12,fontFamily:"monospace"}}>#{d.id}</span>
+                </>}
+              </div>
+
+              {(d.lat!=null&&d.lng!=null)&&(
+                <a
+                  href={`https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lng}&zoom=14`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{display:"block",marginTop:14,padding:12,background:C.bg,border:`1px solid ${C.accent}55`,borderRadius:8,color:C.accent,textDecoration:"none",fontSize:14,fontWeight:700,textAlign:"center"}}
+                >
+                  📍 Veure al mapa
+                </a>
+              )}
+
+              <button
+                onClick={()=>setSelectedDet(null)}
+                style={{width:"100%",marginTop:14,padding:12,background:"transparent",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+              >Tancar</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Botó flotant "+ Reportar" */}
       <button
