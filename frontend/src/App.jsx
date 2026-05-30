@@ -552,6 +552,18 @@ export default function App(){
     setApiTokenRaw(t);
     try{ if(t) localStorage.setItem("pt_token",t); else localStorage.removeItem("pt_token"); }catch{}
   };
+
+  // Telegram bot username ---------------------------------------------------
+  const [botUsername,setBotUsernameRaw]=useState(()=>{
+    try{return localStorage.getItem("pt_bot")||"Patrol_trackBot";}catch{return "Patrol_trackBot";}
+  });
+  const setBotUsername=(b)=>{
+    const clean=(b||"").replace(/^@/,"").trim();
+    setBotUsernameRaw(clean);
+    try{ if(clean) localStorage.setItem("pt_bot",clean); else localStorage.removeItem("pt_bot"); }catch{}
+  };
+  const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
+  const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
   const [showReport,setShowReport]=useState(false);
   const [reportMsg,setReportMsg]=useState("");
   const [reportGroup,setReportGroup]=useState("");
@@ -864,6 +876,59 @@ export default function App(){
               />
               <div style={{fontSize:11,color:apiToken?C.success:C.warning,marginTop:6}}>
                 {apiToken?`✓ Token configurat (${apiToken.length} caràcters)`:"⚠ Sense token: el botó de reportar no funcionarà"}
+              </div>
+            </div>
+
+            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:6,color:C.accent}}>✈️ Connectar grup de Telegram</div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Toca el botó i Telegram t'obrirà amb la llista dels teus grups. Tria un grup → el bot s'hi afegirà automàticament i els missatges començaran a arribar aquí. <b>No has de crear cap bot.</b>
+              </div>
+              <button
+                onClick={()=>{if(addGroupUrl)window.open(addGroupUrl,"_blank","noopener");}}
+                disabled={!botUsername}
+                style={{
+                  width:"100%",padding:14,
+                  background:botUsername?"#229ED9":C.border,
+                  color:botUsername?"#fff":C.textDim,
+                  border:"none",borderRadius:8,
+                  fontSize:15,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
+                  boxShadow:botUsername?"0 0 18px #229ED966":"none",
+                  marginBottom:10,
+                }}
+              >+ AFEGIR GRUP AL BOT</button>
+
+              <div style={{fontSize:11,color:C.textDim,marginBottom:6}}>Nom del bot (sense @):</div>
+              <input
+                value={botUsername}
+                onChange={e=>setBotUsername(e.target.value)}
+                placeholder="Patrol_trackBot"
+                style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace"}}
+              />
+              <div style={{fontSize:10,color:C.textMuted,marginTop:4}}>
+                Per defecte: Patrol_trackBot. Canvia-ho si has creat el bot amb un altre nom.
+              </div>
+
+              <div style={{marginTop:14,padding:10,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:C.text,marginBottom:6}}>📤 Compartir l'app amb amics</div>
+                <div style={{fontSize:11,color:C.textDim,marginBottom:8,lineHeight:1.5}}>
+                  Comparteix aquest enllaç i el teu amic podrà afegir els seus propis grups sense res més que tocar el botó de dalt:
+                </div>
+                <div style={{display:"flex",gap:6}}>
+                  <input
+                    readOnly
+                    value={shareAppUrl}
+                    onClick={e=>{e.target.select();}}
+                    style={{...ss,boxSizing:"border-box",fontSize:12,fontFamily:"monospace",flex:1}}
+                  />
+                  <button
+                    onClick={()=>{
+                      if(navigator.share){navigator.share({title:"PatrolTrack",url:shareAppUrl}).catch(()=>{});}
+                      else if(navigator.clipboard){navigator.clipboard.writeText(shareAppUrl);alert("Enllaç copiat!");}
+                    }}
+                    style={{padding:"8px 14px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+                  >Compartir</button>
+                </div>
               </div>
             </div>
 
