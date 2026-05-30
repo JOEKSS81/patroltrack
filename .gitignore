@@ -12,3 +12,6 @@ backend/venv/
 frontend/node_modules/
 backend/venv/
 backend/venv/
+
+# Cloudflare account ID — local convenience file, no secret value
+cloudflare/.account-id.txt
