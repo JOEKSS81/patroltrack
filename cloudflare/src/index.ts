@@ -8,6 +8,7 @@ import { extractPatrolInfo } from "./extractor";
 export interface Env {
   DB: D1Database;
   INGEST_TOKEN?: string; // secret per autenticar /api/ingest (vegeu README)
+  TELEGRAM_WEBHOOK_SECRET?: string; // secret que valida que el webhook és de Telegram
 }
 
 // -- utilitats ------------------------------------------------------------
@@ -15,7 +16,7 @@ export interface Env {
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET,POST,OPTIONS",
-  "access-control-allow-headers": "content-type,x-ingest-token",
+  "access-control-allow-headers": "content-type,x-ingest-token,x-telegram-bot-api-secret-token",
   "access-control-max-age": "86400",
 };
 
@@ -131,17 +132,34 @@ async function handleProbability(env: Env, url: URL): Promise<Response> {
   });
 }
 
-// POST /api/ingest — endpoint per a Tasker. Cos JSON:
-//   { message: string, group_name?: string, source?: string }
-// Header obligatori: x-ingest-token: <secret>
+// POST /api/ingest — endpoint per a Tasker / PWA.
+// Token: header `x-ingest-token: <secret>` O bé query param `?token=<secret>`
+// Body: JSON `{message, group_name?, source?}` O form-encoded `message=X&group_name=Y&source=Z`
+// Per a Tasker HTTP Post legacy (sense suport per headers personalitzats),
+// usar la URL: /api/ingest?token=XXX amb body form-encoded.
 async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat al Worker" }, 500);
-  const token = req.headers.get("x-ingest-token");
+  const url = new URL(req.url);
+  const token = req.headers.get("x-ingest-token") || url.searchParams.get("token");
   if (token !== env.INGEST_TOKEN) return json({ ok: false, reason: "token invàlid" }, 401);
 
-  let body: { message?: string; group_name?: string; source?: string };
-  try { body = await req.json(); }
-  catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  // Accepta JSON o form-encoded
+  const ct = (req.headers.get("content-type") || "").toLowerCase();
+  let body: { message?: string; group_name?: string; source?: string } = {};
+  try {
+    if (ct.includes("application/json")) {
+      body = await req.json();
+    } else {
+      // form-urlencoded o sense Content-Type (Tasker legacy)
+      const text = await req.text();
+      const params = new URLSearchParams(text);
+      body = {
+        message: params.get("message") ?? undefined,
+        group_name: params.get("group_name") ?? undefined,
+        source: params.get("source") ?? undefined,
+      };
+    }
+  } catch { return json({ ok: false, reason: "cos invàlid" }, 400); }
 
   const message = (body.message ?? "").trim();
   if (!message) return json({ ok: false, reason: "missatge buit" }, 400);
@@ -176,6 +194,74 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   });
 }
 
+// POST /api/telegram-webhook — endpoint que rep updates del bot @Patrol_trackBot.
+// Telegram l'invoca cada cop que arriba un missatge a un grup on el bot és membre
+// (i amb privacy mode OFF al BotFather, també missatges no-comanda).
+//
+// Autenticació: Telegram envia el header `x-telegram-bot-api-secret-token` amb el
+// secret que s'ha registrat al setWebhook. El comparem amb env.TELEGRAM_WEBHOOK_SECRET.
+//
+// Identificació del grup: per chat.id (numèric estable), no per nom. El nom es
+// desa només per visualització i pot contenir emojis sense problema.
+async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> {
+  if (!env.TELEGRAM_WEBHOOK_SECRET) {
+    return json({ ok: false, reason: "TELEGRAM_WEBHOOK_SECRET no configurat" }, 500);
+  }
+  const got = req.headers.get("x-telegram-bot-api-secret-token");
+  if (got !== env.TELEGRAM_WEBHOOK_SECRET) {
+    // Important: 200 i ok:false perquè Telegram no reintenti en bucle.
+    return json({ ok: false, reason: "secret invàlid" }, 200);
+  }
+
+  let update: any;
+  try { update = await req.json(); }
+  catch { return json({ ok: true, ignored: "JSON invàlid" }); }
+
+  // Telegram envia diferents tipus d'updates. Ens interessen els que tenen text:
+  // message, edited_message, channel_post, edited_channel_post.
+  const msg = update?.message
+           || update?.edited_message
+           || update?.channel_post
+           || update?.edited_channel_post;
+  if (!msg) return json({ ok: true, ignored: "no és un missatge" });
+
+  const text: string = msg.text || msg.caption || "";
+  if (!text || text.trim().length < 5) return json({ ok: true, ignored: "missatge buit/curt" });
+
+  const chat = msg.chat || {};
+  const chatId: number | string = chat.id ?? "?";
+  const chatTitle: string = chat.title || chat.username || `chat:${chatId}`;
+  // Identifiquem el grup amb "Títol (chat_id)" per evitar col·lisions per emojis.
+  const groupName = `${chatTitle} (${chatId})`.slice(0, 200);
+
+  const info = extractPatrolInfo(text, "telegram");
+  if (!info) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
+
+  const now = new Date();
+  const { hour, dow } = lleidaHourAndDow(now);
+
+  const ins = await env.DB.prepare(`
+    INSERT INTO detections
+      (created_at, hour, day_of_week, zone, zone_norm, patrol_type,
+       source, group_name, raw_message, confidence, lat, lng)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    now.toISOString(), hour, dow,
+    info.zone, info.zone_norm, info.patrol_type,
+    info.source, groupName, text.slice(0, 1000),
+    info.confidence, info.lat, info.lng,
+  ).run();
+
+  return json({
+    ok: true,
+    stored: true,
+    id: ins.meta?.last_row_id ?? null,
+    patrol_type: info.patrol_type,
+    zone_norm: info.zone_norm,
+    chat_id: chatId,
+  });
+}
+
 // -- router ---------------------------------------------------------------
 
 export default {
@@ -190,6 +276,7 @@ export default {
       if (req.method === "GET" && path === "/api/detections") return await handleDetections(env, url);
       if (req.method === "GET" && path === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && path === "/api/ingest") return await handleIngest(env, req);
+      if (req.method === "POST" && path === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
 
       // Endpoint senzill per provar que el Worker corre
       if (path === "/") return json({ name: "PatrolTrack API", ok: true });
