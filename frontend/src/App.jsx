@@ -232,17 +232,10 @@ function useRadar(zoneData){
 }
 
 // ── Splash d'auto-activació ───────────────────────────────────────────────
-function Splash({onActivate,onSkip,wasActive,dogPhoto,dogName}){
+function Splash({onActivate,onSkip,wasActive,dogPhoto}){
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
-      {dogPhoto
-        ? <img src={dogPhoto} alt="" style={{width:120,height:120,borderRadius:"50%",objectFit:"cover",marginBottom:14,border:`3px solid ${C.accent}`,boxShadow:`0 0 24px ${C.accent}55`}}/>
-        : <div style={{fontSize:64,marginBottom:14}}>🐕</div>}
-      {dogPhoto&&dogName&&(
-        <div style={{fontSize:13,color:C.textDim,marginTop:-6,marginBottom:14,fontStyle:"italic",textAlign:"center"}}>
-          En memòria de <span style={{color:C.accent}}>{dogName}</span> 🤍
-        </div>
-      )}
+      <img src={dogPhoto} alt="PatrolTrack" style={{width:180,height:180,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:18,border:`3px solid ${C.accent}`,boxShadow:`0 0 32px ${C.accent}55`}}/>
       <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
       <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
         {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
@@ -261,7 +254,7 @@ function Splash({onActivate,onSkip,wasActive,dogPhoto,dogName}){
 }
 
 // ── Pestanya RADAR (pura UI) ──────────────────────────────────────────────
-function RadarTab({radar,dogPhoto}){
+function RadarTab({radar,dogPhoto="/dog.png"}){
   const {active,pos,err,nearby,sound,toggleSound,thresh,setThresh,start,stop}=radar;
   return(
     <div>
@@ -301,7 +294,7 @@ function RadarTab({radar,dogPhoto}){
           })}
         </div>
       )}
-      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}>{dogPhoto?<img src={dogPhoto} alt="" style={{width:80,height:80,borderRadius:"50%",objectFit:"cover",marginBottom:10,border:`2px solid ${C.accent}55`}}/>:<div style={{fontSize:36,marginBottom:8}}>🐕</div>}<div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
+      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><img src={dogPhoto} alt="" style={{width:96,height:96,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:12,border:`2px solid ${C.accent}55`}}/><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
     </div>
   );
@@ -572,39 +565,8 @@ export default function App(){
   const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
-  // Foto del gos personalitzada (base64 al localStorage) ---------------------
-  const [dogPhoto,setDogPhotoRaw]=useState(()=>{
-    try{return localStorage.getItem("pt_dog")||"";}catch{return "";}
-  });
-  const setDogPhoto=(dataUrl)=>{
-    setDogPhotoRaw(dataUrl);
-    try{ if(dataUrl) localStorage.setItem("pt_dog",dataUrl); else localStorage.removeItem("pt_dog"); }catch(e){alert("La foto és massa gran per desar-la al navegador. Prova'n una de més petita.");}
-  };
-  const handleDogUpload=(file)=>{
-    if(!file) return;
-    const img=new Image();
-    img.onload=()=>{
-      const max=320;
-      const ratio=Math.min(max/img.width,max/img.height,1);
-      const c=document.createElement("canvas");
-      c.width=img.width*ratio; c.height=img.height*ratio;
-      c.getContext("2d").drawImage(img,0,0,c.width,c.height);
-      setDogPhoto(c.toDataURL("image/jpeg",0.85));
-      URL.revokeObjectURL(img.src);
-    };
-    img.onerror=()=>alert("No s'ha pogut llegir la imatge.");
-    img.src=URL.createObjectURL(file);
-  };
-  // Nom del gos (per al record/avatar)
-  const [dogName,setDogNameRaw]=useState(()=>{
-    try{return localStorage.getItem("pt_dog_name")||"";}catch{return "";}
-  });
-  const setDogName=(n)=>{
-    const v=(n||"").trim().slice(0,40);
-    setDogNameRaw(v);
-    try{ if(v) localStorage.setItem("pt_dog_name",v); else localStorage.removeItem("pt_dog_name"); }catch{}
-  };
-  const [showDogMemorial,setShowDogMemorial]=useState(false);
+  // Foto del gos — hardcoded a /dog.png (sempre present, no personalitzable)
+  const dogPhoto = "/dog.png";
 
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
@@ -735,7 +697,7 @@ export default function App(){
 
   return(
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",display:"flex",flexDirection:"column"}}>
-      {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} dogName={dogName} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
+      {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
       {radar.alert&&(()=>{const z=radar.nearby.find(n=>n.prob>=radar.thresh);return(
         <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9998,background:C.danger,color:"#fff",padding:"12px 16px",textAlign:"center",boxShadow:`0 0 30px ${C.danger}88`,animation:"pulse 0.6s infinite alternate"}}>
           <div style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA · {z?.id} · {z?.dist} km</div>
@@ -749,55 +711,52 @@ export default function App(){
       )}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
-      {/* Header */}
-      <div style={{padding:dogPhoto?"12px 14px":"14px 16px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:newAlert?40:0,minHeight:dogPhoto?96:undefined}}>
-        <div style={{flex:1,minWidth:0}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,boxShadow:`0 0 8px ${C.accent}`,flexShrink:0}}/>
-            <span style={{fontSize:17,fontWeight:700,letterSpacing:"0.05em",color:C.accent}}>PATROL<span style={{color:C.textDim}}>TRACK</span></span>
-            <span style={{fontSize:11,color:C.textDim,background:C.border,padding:"2px 7px",borderRadius:4}}>Lleida · BETA</span>
-          </div>
-          <div style={{fontSize:11,color:C.textMuted,marginTop:3,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4,color:online?C.success:C.danger}}>
-              <span style={{width:6,height:6,borderRadius:"50%",background:online?C.success:C.danger,boxShadow:`0 0 6px ${online?C.success:C.danger}`}}/>
-              {online?"En línia":"Offline"}
-            </span>
-            <span>·</span>
-            <span>{sources.telegram&&"TG"}{sources.telegram&&sources.whatsapp&&" "}{sources.whatsapp&&"WA"}</span>
-            <span>·</span>
-            <span>{health?`${health.total} dets · 24h:${health.last_24h}`:(detections.length?`${detections.length} dets (cache)`:"Sense dades")}</span>
-            {!online&&lastSync&&<span style={{color:C.warning}}>· últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</span>}
-          </div>
-        </div>
+      {/* Header — la foto del gos és la PROTAGONISTA al centre */}
+      {(()=>{
+        const HEADER_H=130; // alçada total del header
+        const DOG_H=Math.round(HEADER_H*0.68); // foto = 68% de l'alçada
+        return(
+          <div style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginTop:newAlert?40:0,height:HEADER_H,boxSizing:"border-box"}}>
+            <div style={{flex:"0 1 auto",minWidth:0,maxWidth:"30%"}}>
+              <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                <div style={{width:8,height:8,borderRadius:"50%",background:C.accent,boxShadow:`0 0 8px ${C.accent}`,flexShrink:0}}/>
+                <span style={{fontSize:15,fontWeight:700,letterSpacing:"0.03em",color:C.accent}}>PATROL<span style={{color:C.textDim}}>TRACK</span></span>
+              </div>
+              <div style={{fontSize:10,color:C.textDim,marginTop:2}}>Lleida · BETA</div>
+              <div style={{fontSize:10,color:C.textMuted,marginTop:4,lineHeight:1.4}}>
+                <div style={{color:online?C.success:C.danger,display:"flex",alignItems:"center",gap:3}}>
+                  <span style={{width:5,height:5,borderRadius:"50%",background:online?C.success:C.danger,boxShadow:`0 0 4px ${online?C.success:C.danger}`}}/>
+                  {online?"En línia":"Offline"}
+                </div>
+                <div>{health?`${health.total} dets · 24h:${health.last_24h}`:(detections.length?`${detections.length} dets`:"—")}</div>
+              </div>
+            </div>
 
-        {/* Foto del gos — centrada, gran, focus a la cara */}
-        {dogPhoto&&(
-          <button
-            onClick={()=>setShowDogMemorial(true)}
-            title={dogName?`En memòria de ${dogName}`:"En memòria"}
-            style={{padding:0,margin:0,background:"none",border:"none",cursor:"pointer",lineHeight:0,flexShrink:0}}
-          >
-            <img
-              src={dogPhoto}
-              alt={dogName||"En memòria"}
-              style={{
-                width:78,height:78,
-                borderRadius:"50%",
-                objectFit:"cover",
-                objectPosition:"center 25%", /* focus a la zona dels ulls/morro */
-                border:`3px solid ${C.accent}`,
-                boxShadow:`0 0 16px ${C.accent}66`,
-                display:"block",
-              }}
-            />
-          </button>
-        )}
+            {/* Foto del gos — centrada, gran, ample tot el que pot */}
+            <div style={{flex:"1 1 auto",display:"flex",justifyContent:"center",alignItems:"center",height:"100%",minWidth:0}}>
+              <img
+                src={dogPhoto}
+                alt="PatrolTrack"
+                style={{
+                  height:DOG_H,
+                  maxWidth:"100%",
+                  width:"auto",
+                  objectFit:"contain",
+                  objectPosition:"center",
+                  filter:`drop-shadow(0 0 12px ${C.accent}88)`,
+                  display:"block",
+                }}
+              />
+            </div>
 
-        <div style={{textAlign:"right",flexShrink:0}}>
-          <div style={{fontSize:20,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
-          <div style={{fontSize:11,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
-        </div>
-      </div>
+            <div style={{flex:"0 1 auto",textAlign:"right",flexShrink:0,maxWidth:"22%"}}>
+              <div style={{fontSize:18,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
+              <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
+              {!online&&lastSync&&<div style={{fontSize:9,color:C.warning,whiteSpace:"nowrap",marginTop:2}}>últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>}
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={{flex:1,padding:"12px 12px 76px",overflowY:"auto"}}>
 
@@ -947,45 +906,6 @@ export default function App(){
         {/* CONFIG */}
         {tab==="config"&&(
           <div>
-            {/* 🐕 Foto personalitzada */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🐕 El teu gos</div>
-              <div style={{fontSize:14,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                La foto apareix a la pantalla d'entrada, al Radar i sempre visible a la barra superior. Es desa només al teu navegador.
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:14,marginBottom:14}}>
-                <div style={{width:80,height:80,borderRadius:"50%",border:`2px solid ${C.border}`,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",background:C.bg,flexShrink:0}}>
-                  {dogPhoto
-                    ? <img src={dogPhoto} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                    : <span style={{fontSize:38}}>🐕</span>}
-                </div>
-                <div style={{flex:1}}>
-                  <label style={{display:"inline-block",padding:"10px 14px",background:C.accent,color:"#000",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                    {dogPhoto?"Canviar foto":"Pujar foto"}
-                    <input type="file" accept="image/*" onChange={e=>handleDogUpload(e.target.files?.[0])} style={{display:"none"}}/>
-                  </label>
-                  {dogPhoto&&(
-                    <button onClick={()=>setDogPhoto("")} style={{marginLeft:8,padding:"10px 14px",background:"transparent",color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                      Treure
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom (opcional, per al record):</div>
-              <input
-                value={dogName}
-                onChange={e=>setDogName(e.target.value)}
-                placeholder="Ex: Roc"
-                style={{...ss,boxSizing:"border-box",fontSize:14,padding:"10px 12px"}}
-              />
-              {dogName&&(
-                <div style={{fontSize:12,color:C.textMuted,marginTop:6,fontStyle:"italic"}}>
-                  Apareixerà com "En memòria de {dogName} 🤍" a la pantalla d'entrada.
-                </div>
-              )}
-            </div>
-
             {/* 🔑 Token per reportar */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
               <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token per reportar</div>
@@ -1128,21 +1048,6 @@ export default function App(){
           </div>
         )}
       </div>
-
-      {/* Modal "in memoriam" del gos (apareix en tocar l'avatar del header) */}
-      {showDogMemorial&&dogPhoto&&(
-        <div onClick={()=>setShowDogMemorial(false)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:9700,display:"flex",alignItems:"center",justifyContent:"center",padding:24}}>
-          <div onClick={e=>e.stopPropagation()} style={{maxWidth:340,width:"100%",background:C.surface,borderRadius:16,padding:24,textAlign:"center",border:`1px solid ${C.accent}55`,boxShadow:`0 0 40px ${C.accent}33`}}>
-            <img src={dogPhoto} alt="" style={{width:140,height:140,borderRadius:"50%",objectFit:"cover",margin:"0 auto 14px",border:`3px solid ${C.accent}`,boxShadow:`0 0 24px ${C.accent}55`}}/>
-            <div style={{fontSize:13,color:C.textDim,marginBottom:4,letterSpacing:"0.05em"}}>EN MEMÒRIA DE</div>
-            <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:10}}>{dogName||"el meu millor amic"} 🤍</div>
-            <div style={{fontSize:13,color:C.text,fontStyle:"italic",lineHeight:1.6,marginBottom:18}}>
-              Aquesta app porta el seu nom i el seu lladruc per protegir-nos a la carretera.
-            </div>
-            <button onClick={()=>setShowDogMemorial(false)} style={{padding:"10px 22px",background:"transparent",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Tancar</button>
-          </div>
-        </div>
-      )}
 
       {/* Modal de detall d'una detecció */}
       {selectedDet&&(()=>{
