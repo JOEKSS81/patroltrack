@@ -271,6 +271,32 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   });
 }
 
+// POST /api/detections/delete-by-group — esborra TOTES les deteccions d'un grup.
+// Body: { group_name: string }
+// Header obligatori: x-ingest-token: <secret> (només el propietari)
+async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
+  if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
+  const url = new URL(req.url);
+  const token = req.headers.get("x-ingest-token") || url.searchParams.get("token");
+  if (token !== env.INGEST_TOKEN) return json({ ok: false, reason: "token invàlid" }, 401);
+
+  let body: { group_name?: string };
+  try { body = await req.json(); }
+  catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+
+  const groupName = (body.group_name ?? "").trim();
+  if (!groupName) return json({ ok: false, reason: "group_name buit" }, 400);
+
+  const res = await env.DB.prepare("DELETE FROM detections WHERE group_name = ?")
+    .bind(groupName).run();
+
+  return json({
+    ok: true,
+    deleted: res.meta?.changes ?? 0,
+    group_name: groupName,
+  });
+}
+
 // -- router ---------------------------------------------------------------
 
 export default {
@@ -286,6 +312,7 @@ export default {
       if (req.method === "GET" && path === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && path === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "POST" && path === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
+      if (req.method === "POST" && path === "/api/detections/delete-by-group") return await handleDeleteByGroup(env, req);
 
       // Endpoint senzill per provar que el Worker corre
       if (path === "/") return json({ name: "PatrolTrack API", ok: true });

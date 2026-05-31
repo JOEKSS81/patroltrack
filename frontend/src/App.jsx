@@ -301,7 +301,7 @@ function RadarTab({radar,dogPhoto="/dog.png"}){
 }
 
 // ── Pestanya ESTADÍSTIQUES ────────────────────────────────────────────────
-function StatsTab({detections}){
+function StatsTab({detections,onZoneTap}){
   const [selDay,setSelDay]=useState(-1);// -1 = tots
   const [selHour,setSelHour]=useState(-1);
 
@@ -370,12 +370,15 @@ function StatsTab({detections}){
         {selDay>=0&&<div style={{fontSize:12,color:C.accent,marginTop:6,textAlign:"center"}}>Filtrant per {DAYS_FULL[selDay]} · {byDay[selDay]} deteccions — Toca per treure el filtre</div>}
       </div>
 
-      {/* Top zones */}
+      {/* Top zones — clicables per obrir el detall */}
       <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.accent,marginBottom:10}}>Zones més actives</div>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+          <div style={{fontSize:14,fontWeight:700,color:C.accent}}>Zones més actives</div>
+          <div style={{fontSize:10,color:C.textMuted}}>toca per veure detall</div>
+        </div>
         {topZones.length===0?<div style={{fontSize:13,color:C.textDim,textAlign:"center"}}>Sense dades</div>:
         topZones.map(([zone,count],i)=>(
-          <div key={i} style={{marginBottom:8}}>
+          <div key={i} onClick={()=>onZoneTap&&onZoneTap(zone)} style={{marginBottom:8,padding:"6px 8px",margin:"0 -8px 4px",borderRadius:6,cursor:"pointer"}}>
             <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:14,color:C.text}}>{zone}</span><span style={{fontSize:14,fontWeight:700,color:C.accent}}>{count}</span></div>
             <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${(count/topZones[0][1])*100}%`,background:C.accent,borderRadius:3}}/></div>
           </div>
@@ -662,6 +665,66 @@ export default function App(){
 
   useEffect(()=>{setHourlyData(getHourly(selectedZone));},[selectedZone]);
 
+  // Estat: grup seleccionat per veure detall + zona seleccionada per detall
+  const [selectedGroup,setSelectedGroup]=useState(null);
+  const [zoneDetail,setZoneDetail]=useState(null);
+  const [deletingGroup,setDeletingGroup]=useState(null); // estat de "carregant" durant DELETE
+  const [refreshTick,setRefreshTick]=useState(0); // per forçar re-fetch immediat
+
+  // Agregació de grups derivada de les deteccions actuals (memoritzada implícitament)
+  const groupsAggregate = (()=>{
+    const map = {};
+    for(const d of detections){
+      const g = d.group_name && d.group_name.trim() ? d.group_name : "(sense grup)";
+      if(!map[g]) map[g] = {name:g, count:0, latest:null, sources:new Set(), detections:[]};
+      const entry = map[g];
+      entry.count++;
+      entry.sources.add(d.source||"unknown");
+      entry.detections.push(d);
+      if(!entry.latest || (d.created_at && d.created_at > entry.latest)) entry.latest = d.created_at;
+    }
+    return Object.values(map).sort((a,b)=>(b.latest||"").localeCompare(a.latest||""));
+  })();
+
+  const deleteGroupDetections = async (groupName) => {
+    if(!apiToken){ alert("Configura el token API a Config primer."); return; }
+    if(!confirm(`Esborrar TOTES les deteccions del grup "${groupName}"?\n\nNo s'esborra el bot del grup — això s'ha de fer manualment des de Telegram.`)) return;
+    setDeletingGroup(groupName);
+    try{
+      const r = await fetch(`${API}/api/detections/delete-by-group`, {
+        method:"POST",
+        headers:{"content-type":"application/json","x-ingest-token":apiToken},
+        body:JSON.stringify({group_name:groupName}),
+      });
+      const data = await r.json().catch(()=>({}));
+      if(!r.ok || !data.ok){
+        alert(`Error: ${data.reason || `HTTP ${r.status}`}`);
+      } else {
+        alert(`✓ Esborrades ${data.deleted} deteccions del grup.`);
+        setSelectedGroup(null);
+        // Forcem refresc de la llista
+        setRefreshTick(t=>t+1);
+      }
+    }catch(e){ alert(`Error de xarxa: ${e.message}`); }
+    finally{ setDeletingGroup(null); }
+  };
+
+  // Re-fetch quan refreshTick canvia (després d'una eliminació)
+  useEffect(()=>{
+    if(refreshTick===0)return;
+    let alive=true;
+    fetch(`${API}/api/detections?limit=50`,{cache:"no-store"})
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{
+        if(alive && Array.isArray(d)){
+          setDetections(d);
+          try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
+          prevCount.current=d.length;
+        }
+      }).catch(()=>{});
+    return()=>{alive=false;};
+  },[refreshTick]);
+
   const [querying,setQuerying]=useState(false);
   const handleQuery=async()=>{
     setQuerying(true);
@@ -778,9 +841,12 @@ export default function App(){
         {tab==="dashboard"&&(
           <div>
             <MapSVG zoneData={zoneProbs} onSelect={setSelectedZone} selected={selectedZone}/>
-            <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
+            <div onClick={()=>setZoneDetail(selectedZone)} style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10,cursor:"pointer",position:"relative"}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                <div><div style={{fontSize:15,fontWeight:700}}>{selectedZone}</div><div style={{fontSize:13,color:C.textDim,marginTop:2}}>Ara · {curH}:00h</div></div>
+                <div>
+                  <div style={{fontSize:15,fontWeight:700}}>{selectedZone}</div>
+                  <div style={{fontSize:13,color:C.textDim,marginTop:2}}>Ara · {curH}:00h · <span style={{color:C.accent}}>toca per detall</span></div>
+                </div>
                 <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
               </div>
               <ProbBar value={curP*0.7} type="mossos"/>
@@ -814,7 +880,7 @@ export default function App(){
         )}
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
-        {tab==="stats"&&<StatsTab detections={detections}/>}
+        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)}/>}
         {tab==="calendar"&&<CalendarTab detections={detections}/>}
 
         {/* QUERY */}
@@ -1005,6 +1071,55 @@ export default function App(){
               </div>
             </div>
 
+            {/* 📡 Grups connectats */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
+                <div style={{fontSize:17,fontWeight:700,color:C.accent}}>📡 Grups connectats</div>
+                <div style={{fontSize:12,color:C.textDim}}>{groupsAggregate.length} grup{groupsAggregate.length===1?"":"s"}</div>
+              </div>
+              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Cada grup de Telegram o WhatsApp que hagi enviat com a mínim una detecció. Toca un grup per veure'n els missatges i tenir l'opció d'esborrar-los.
+              </div>
+              {groupsAggregate.length===0?(
+                <div style={{padding:14,background:C.bg,borderRadius:8,border:`1px dashed ${C.border}`,textAlign:"center",fontSize:13,color:C.textDim}}>
+                  Encara no hi ha cap detecció amb grup. Afegeix el bot a un grup de Telegram amb el botó de dalt.
+                </div>
+              ):(
+                groupsAggregate.map((g,i)=>{
+                  const isTopic = g.name.includes("› topic#");
+                  const sourceList = [...g.sources].map(s=>s.toUpperCase()).join("·");
+                  const time = g.latest?new Date(g.latest).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+                  return(
+                    <div
+                      key={i}
+                      onClick={()=>setSelectedGroup(g)}
+                      style={{
+                        background:C.bg,
+                        border:`1px solid ${C.border}`,
+                        borderLeft:`3px solid ${isTopic?C.warning:C.success}`,
+                        borderRadius:8,
+                        padding:"10px 12px",
+                        marginBottom:6,
+                        cursor:"pointer",
+                        display:"flex",
+                        justifyContent:"space-between",
+                        alignItems:"center",
+                        gap:10,
+                      }}
+                    >
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:700,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{g.name}</div>
+                        <div style={{fontSize:11,color:C.textDim,marginTop:2}}>
+                          {sourceList} · <span style={{color:C.accent,fontWeight:700}}>{g.count}</span> dets · última {time}
+                        </div>
+                      </div>
+                      <div style={{fontSize:18,color:C.textMuted,flexShrink:0}}>›</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
               <div style={{fontSize:17,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
               {(()=>{
@@ -1055,6 +1170,150 @@ export default function App(){
           </div>
         )}
       </div>
+
+      {/* Modal de detall d'un grup connectat */}
+      {selectedGroup&&(()=>{
+        const g = selectedGroup;
+        const isTopic = g.name.includes("› topic#");
+        const isTg = [...g.sources].some(s=>s==="telegram");
+        return(
+          <div onClick={()=>setSelectedGroup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9600,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:600,maxHeight:"88vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${isTopic?C.warning:C.success}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.7)`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:4}}>GRUP CONNECTAT</div>
+                  <div style={{fontSize:16,fontWeight:800,color:C.text,wordBreak:"break-word"}}>{g.name}</div>
+                  <div style={{fontSize:12,color:C.textDim,marginTop:6}}>
+                    {[...g.sources].map(s=>s.toUpperCase()).join(" · ")} · <span style={{color:C.accent,fontWeight:700}}>{g.count}</span> deteccions
+                  </div>
+                </div>
+                <button onClick={()=>setSelectedGroup(null)} style={{background:"none",border:"none",color:C.textDim,fontSize:24,cursor:"pointer",lineHeight:1,flexShrink:0}}>✕</button>
+              </div>
+
+              <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,marginTop:6}}>Últims missatges</div>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:14}}>
+                {g.detections.slice(0,15).map((d,i)=>{
+                  const ptype=PT[d.patrol_type]||PT.unknown;
+                  const time=d.created_at?new Date(d.created_at).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"??";
+                  return(
+                    <div key={i} onClick={()=>{setSelectedGroup(null);setSelectedDet(d);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderBottom:i<Math.min(g.detections.length,15)-1?`1px solid ${C.border}`:"none",cursor:"pointer",borderLeft:`3px solid ${ptype.color}`}}>
+                      <span style={{fontSize:10,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 5px",borderRadius:3,flexShrink:0,minWidth:34,textAlign:"center"}}>{ptype.short}</span>
+                      <span style={{fontSize:11,color:C.text,flexShrink:0,fontWeight:600}}>{d.zone_norm||d.zone}</span>
+                      <span style={{fontSize:10,color:C.textDim,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:"italic"}}>{d.raw_message||"—"}</span>
+                      <span style={{fontSize:10,color:C.accent,flexShrink:0,fontWeight:600}}>{time}</span>
+                    </div>
+                  );
+                })}
+                {g.detections.length>15&&<div style={{padding:"6px 10px",fontSize:11,color:C.textMuted,textAlign:"center",fontStyle:"italic"}}>...i {g.detections.length-15} més</div>}
+              </div>
+
+              {isTg&&(
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:12,marginBottom:12,fontSize:12,color:C.textDim,lineHeight:1.5}}>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text,marginBottom:6}}>🤖 Treure el bot d'aquest grup</div>
+                  Cal fer-ho <b>manualment des de Telegram</b>: obre el grup → toca el nom del grup a dalt → membres → @Patrol_trackBot → "Eliminar del grup". A partir d'aquell moment ja no arribaran missatges nous d'aquest grup.
+                </div>
+              )}
+
+              <button
+                onClick={()=>deleteGroupDetections(g.name)}
+                disabled={deletingGroup===g.name||!apiToken}
+                style={{
+                  width:"100%",padding:12,
+                  background:deletingGroup===g.name?C.border:`${C.danger}22`,
+                  color:deletingGroup===g.name?C.textDim:C.danger,
+                  border:`1px solid ${C.danger}`,
+                  borderRadius:8,fontSize:13,fontWeight:700,
+                  cursor:apiToken&&!deletingGroup?"pointer":"not-allowed",
+                  fontFamily:"inherit",
+                  opacity:apiToken?1:0.5,
+                }}
+              >
+                {deletingGroup===g.name?"Esborrant…":`🗑 Buidar ${g.count} deteccions d'aquest grup`}
+              </button>
+              {!apiToken&&<div style={{fontSize:11,color:C.warning,marginTop:6,textAlign:"center"}}>⚠ Necessites el token API a Config per esborrar</div>}
+
+              <button onClick={()=>setSelectedGroup(null)} style={{width:"100%",marginTop:10,padding:12,background:"transparent",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Tancar</button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal de detall d'una zona (apareix tocant zones del mapa o del top-zones) */}
+      {zoneDetail&&(()=>{
+        const zoneName = zoneDetail;
+        const zoneDets = detections.filter(d=>(d.zone_norm||d.zone)===zoneName);
+        const byHour = Array(24).fill(0);
+        zoneDets.forEach(d=>{if(d.created_at)byHour[new Date(d.created_at).getHours()]++;});
+        const maxH = Math.max(...byHour, 1);
+        const byType = {mossos:0,guardia:0,local:0,unknown:0};
+        zoneDets.forEach(d=>{byType[d.patrol_type]=(byType[d.patrol_type]||0)+1;});
+        const mapZone = MAP_ZONES.find(z=>z.id===zoneName);
+        return(
+          <div onClick={()=>setZoneDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9600,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+            <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:600,maxHeight:"88vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${C.accent}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.7)`}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14}}>
+                <div>
+                  <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:4}}>ZONA</div>
+                  <div style={{fontSize:20,fontWeight:800,color:C.accent}}>{zoneName}</div>
+                  <div style={{fontSize:13,color:C.textDim,marginTop:4}}>
+                    <span style={{color:C.text,fontWeight:700}}>{zoneDets.length}</span> deteccions registrades
+                  </div>
+                </div>
+                <button onClick={()=>setZoneDetail(null)} style={{background:"none",border:"none",color:C.textDim,fontSize:24,cursor:"pointer",lineHeight:1}}>✕</button>
+              </div>
+
+              {/* Mini gràfic per hora */}
+              {zoneDets.length>0&&(<>
+                <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Distribució per hora</div>
+                <div style={{display:"flex",gap:2,alignItems:"flex-end",height:48,background:C.bg,padding:"6px 8px",borderRadius:8,border:`1px solid ${C.border}`,marginBottom:14}}>
+                  {byHour.map((n,h)=>{
+                    const v=n/maxH;
+                    const col=v>0.66?C.danger:v>0.33?C.warning:C.success;
+                    return(<div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                      <div style={{width:"100%",height:Math.round(v*36)+2,background:n>0?col:C.border,opacity:n>0?0.85:0.3,borderRadius:"2px 2px 0 0"}}/>
+                      {h%6===0&&<span style={{fontSize:8,color:C.textMuted}}>{h}</span>}
+                    </div>);
+                  })}
+                </div>
+
+                {/* Per tipus de patrulla */}
+                <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Per tipus</div>
+                <div style={{display:"flex",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+                  {Object.entries(byType).filter(([,n])=>n>0).map(([t,n])=>{
+                    const pt=PT[t]||PT.unknown;
+                    return(<div key={t} style={{background:`${pt.color}22`,color:pt.color,padding:"5px 10px",borderRadius:6,fontSize:12,fontWeight:700}}>{pt.short} · {n}</div>);
+                  })}
+                </div>
+              </>)}
+
+              <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6}}>Deteccions ({zoneDets.length})</div>
+              {zoneDets.length===0?(
+                <div style={{padding:14,background:C.bg,border:`1px dashed ${C.border}`,borderRadius:8,textAlign:"center",fontSize:13,color:C.textDim,marginBottom:14}}>Cap detecció encara en aquesta zona</div>
+              ):(
+                <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,overflow:"hidden",marginBottom:14}}>
+                  {zoneDets.slice(0,12).map((d,i)=>{
+                    const ptype=PT[d.patrol_type]||PT.unknown;
+                    const time=d.created_at?new Date(d.created_at).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"??";
+                    return(<div key={i} onClick={()=>{setZoneDetail(null);setSelectedDet(d);}} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 10px",borderBottom:i<Math.min(zoneDets.length,12)-1?`1px solid ${C.border}`:"none",cursor:"pointer",borderLeft:`3px solid ${ptype.color}`}}>
+                      <span style={{fontSize:10,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 5px",borderRadius:3,flexShrink:0,minWidth:34,textAlign:"center"}}>{ptype.short}</span>
+                      <span style={{fontSize:10,color:C.textDim,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontStyle:"italic"}}>{d.raw_message||"—"}</span>
+                      <span style={{fontSize:10,color:C.accent,flexShrink:0,fontWeight:600}}>{time}</span>
+                    </div>);
+                  })}
+                </div>
+              )}
+
+              {mapZone&&(
+                <a href={`https://www.openstreetmap.org/?mlat=${mapZone.lat}&mlon=${mapZone.lng}&zoom=12`} target="_blank" rel="noopener noreferrer"
+                  style={{display:"block",padding:12,background:C.bg,border:`1px solid ${C.accent}55`,borderRadius:8,color:C.accent,textDecoration:"none",fontSize:13,fontWeight:700,textAlign:"center",marginBottom:10}}>
+                  📍 Veure {zoneName} a OpenStreetMap
+                </a>
+              )}
+              <button onClick={()=>setZoneDetail(null)} style={{width:"100%",padding:12,background:"transparent",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,cursor:"pointer",fontFamily:"inherit"}}>Tancar</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal de detall d'una detecció */}
       {selectedDet&&(()=>{
