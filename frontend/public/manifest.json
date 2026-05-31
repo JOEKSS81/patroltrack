@@ -1,6 +1,6 @@
 {
-  "name": "PatrolTrack",
-  "short_name": "PatrolTrack",
+  "name": "Patrol Tracker",
+  "short_name": "Patrol Tracker",
   "description": "Detector de patrulles a Lleida",
   "start_url": "/",
   "display": "standalone",
