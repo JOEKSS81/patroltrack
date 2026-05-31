@@ -1025,17 +1025,41 @@ export default function App(){
 
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
               <div style={{fontSize:17,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
-              {[{key:"telegram",label:"Telegram",icon:"✈",status:"Configurat · en espera",sc:C.warning},{key:"whatsapp",label:"WhatsApp",icon:"◎",status:"Connectat via Web",sc:C.success}].map(s=>(
-                <div key={s.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.border}`}}>
-                  <div style={{display:"flex",gap:12,alignItems:"center"}}>
-                    <div style={{width:40,height:40,borderRadius:8,background:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20}}>{s.icon}</div>
-                    <div><div style={{fontSize:16,fontWeight:600}}>{s.label}</div><div style={{fontSize:14,color:s.sc}}>{s.status}</div></div>
-                  </div>
-                  <div onClick={()=>setSources(p=>({...p,[s.key]:!p[s.key]}))} style={{width:48,height:26,borderRadius:13,background:sources[s.key]?C.accent:C.border,position:"relative",cursor:"pointer",transition:"background 0.2s"}}>
-                    <div style={{position:"absolute",top:2,left:sources[s.key]?24:2,width:22,height:22,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
-                  </div>
-                </div>
-              ))}
+              {(()=>{
+                // Recompte real per font llegit de les deteccions
+                const counts={};
+                const latest={};
+                for(const d of detections){
+                  const s=(d.source||"unknown").toLowerCase();
+                  counts[s]=(counts[s]||0)+1;
+                  if(!latest[s]||(d.created_at&&d.created_at>latest[s]))latest[s]=d.created_at;
+                }
+                const fmt=(iso)=>iso?new Date(iso).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+                const items=[
+                  {key:"telegram",label:"Telegram",icon:"✈"},
+                  {key:"whatsapp",label:"WhatsApp",icon:"◎"},
+                  {key:"manual",  label:"Reports manuals",icon:"✋"},
+                ];
+                return items.map(s=>{
+                  const n=counts[s.key]||0;
+                  const active=n>0;
+                  const status=active?`✓ Actiu · ${n} dets · última ${fmt(latest[s.key])}`:"En espera (sense missatges encara)";
+                  return(
+                    <div key={s.key} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.border}`,gap:10}}>
+                      <div style={{display:"flex",gap:12,alignItems:"center",flex:1,minWidth:0}}>
+                        <div style={{width:40,height:40,borderRadius:8,background:active?`${C.success}22`:C.border,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0,color:active?C.success:C.textDim}}>{s.icon}</div>
+                        <div style={{minWidth:0,flex:1}}>
+                          <div style={{fontSize:16,fontWeight:600}}>{s.label}</div>
+                          <div style={{fontSize:12,color:active?C.success:C.textDim,overflow:"hidden",textOverflow:"ellipsis"}}>{status}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+              <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5,fontStyle:"italic"}}>
+                "Actiu" significa que ja hi ha hagut missatges arribant per aquesta via. "En espera" vol dir que el camí està obert però encara ningú no n'ha enviat cap.
+              </div>
             </div>
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
               <div style={{fontSize:17,fontWeight:700,marginBottom:12,color:C.accent}}>Estat del sistema</div>
