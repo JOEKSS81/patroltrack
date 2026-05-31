@@ -774,17 +774,6 @@ export default function App(){
   return(
     <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",display:"flex",flexDirection:"column"}}>
       {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
-      {radar.alert&&(()=>{const z=radar.nearby.find(n=>n.prob>=radar.thresh);return(
-        <div style={{position:"fixed",top:0,left:0,right:0,zIndex:9998,background:C.danger,color:"#fff",padding:"12px 16px",textAlign:"center",boxShadow:`0 0 30px ${C.danger}88`,animation:"pulse 0.6s infinite alternate"}}>
-          <div style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA · {z?.id} · {z?.dist} km</div>
-        </div>
-      );})()}
-      {newAlert&&(
-        <div style={{position:"fixed",top:radar.alert?44:0,left:0,right:0,zIndex:9999,background:C.danger,color:"#fff",padding:"10px 16px",fontSize:14,fontWeight:700,display:"flex",justifyContent:"space-between"}}>
-          <span>🚨 NOVA DETECCIÓ: {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
-          <span style={{opacity:0.8}}>{newAlert.source?.toUpperCase()}</span>
-        </div>
-      )}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
       {/* Header — la foto del gos al centre, mida moderada perquè la resta respiri */}
@@ -792,7 +781,7 @@ export default function App(){
         const HEADER_H=110; // alçada total del header (compacta)
         const DOG_H=Math.round(HEADER_H*0.85); // foto = ~93px d'alt
         return(
-          <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:newAlert?40:0,height:HEADER_H,boxSizing:"border-box"}}>
+          <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,height:HEADER_H,boxSizing:"border-box"}}>
             <div style={{flex:"0 1 auto",minWidth:0,maxWidth:"28%"}}>
               <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
                 <div style={{width:7,height:7,borderRadius:"50%",background:C.accent,boxShadow:`0 0 6px ${C.accent}`,flexShrink:0}}/>
@@ -835,7 +824,29 @@ export default function App(){
         );
       })()}
 
-      <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto"}}>
+      <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto",position:"relative"}}>
+
+        {/* Avisos sticky integrats sota el header (no fixed → no tapen el gos) */}
+        {(radar.alert||newAlert)&&(()=>{
+          const z=radar.alert?radar.nearby.find(n=>n.prob>=radar.thresh):null;
+          return(
+            <div style={{position:"sticky",top:-2,zIndex:50,marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
+              {radar.alert&&(
+                <div style={{background:C.danger,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 18px ${C.danger}66, 0 0 0 1px ${C.danger}`,animation:"pulse 0.6s infinite alternate",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <span style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA</span>
+                  <span style={{fontSize:12,fontWeight:700,opacity:0.95}}>{z?.id} · {z?.dist} km</span>
+                </div>
+              )}
+              {newAlert&&(
+                <div style={{background:`${C.danger}ee`,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 14px ${C.danger}55, 0 0 0 1px ${C.danger}88`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                  <span style={{fontSize:13,fontWeight:700}}>🔔 NOVA · {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
+                  <span style={{fontSize:11,opacity:0.85}}>{newAlert.source?.toUpperCase()}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
 
         {/* DASHBOARD */}
         {tab==="dashboard"&&(
