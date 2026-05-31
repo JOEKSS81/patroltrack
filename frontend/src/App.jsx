@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 // API URL — prioritats:
 //   1) VITE_API_URL (env var de build, p.ex. https://patroltrack-api.xxx.workers.dev)
@@ -11,13 +11,70 @@ const API = (
         : "")
 );
 
-const C = {
-  bg: "#0a0c10", surface: "#111318", border: "#2a3340",
-  accent: "#ffb84d", accentDim: "#ffb84d2a", accentGlow: "#ffb84d66",
-  mossos: "#60a5fa", guardia: "#4ade80", local: "#c084fc",
-  text: "#f5f7fb", textDim: "#b8c0cc", textMuted: "#8a92a3",
-  danger: "#ff5757", warning: "#ffb020", success: "#22d97a",
+// ── SKINS / TEMES VISUALS ─────────────────────────────────────────────────
+// Cada tema defineix la mateixa estructura de variables de color. La lectura
+// (contrast text↔fons) està garantida en tots ells. Algun pot tenir un
+// `pattern` opcional (background-image) per al fons del root.
+
+const THEMES = {
+  normal: {
+    label:"Normal", emoji:"🟠",
+    bg:"#0a0c10", surface:"#111318", border:"#2a3340",
+    accent:"#ffb84d", accentDim:"#ffb84d2a", accentGlow:"#ffb84d66",
+    mossos:"#60a5fa", guardia:"#4ade80", local:"#c084fc",
+    text:"#f5f7fb", textDim:"#b8c0cc", textMuted:"#8a92a3",
+    danger:"#ff5757", warning:"#ffb020", success:"#22d97a",
+  },
+  terror: {
+    label:"Terror", emoji:"💀",
+    bg:"#0a0303", surface:"#170808", border:"#3a1414",
+    accent:"#dc2626", accentDim:"#dc262622", accentGlow:"#dc262677",
+    mossos:"#a78bfa", guardia:"#84cc16", local:"#ec4899",
+    text:"#f0e8e0", textDim:"#b8a098", textMuted:"#7a5f55",
+    danger:"#ef4444", warning:"#f59e0b", success:"#84cc16",
+  },
+  camo: {
+    label:"Camuflatge", emoji:"🪖",
+    bg:"#1f2818", surface:"#2c3823", border:"#4d5e36",
+    accent:"#c5d18a", accentDim:"#c5d18a22", accentGlow:"#c5d18a66",
+    mossos:"#9ccc65", guardia:"#bcaaa4", local:"#d7ccc8",
+    text:"#f0f2dc", textDim:"#c4c8a8", textMuted:"#929679",
+    danger:"#d84747", warning:"#e8a52c", success:"#aed581",
+    pattern: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><rect width='160' height='160' fill='%231f2818'/><path d='M20,20 q30,-10 60,5 t60,15 q-30,20 -70,10 t-50,-30z' fill='%232c3823' opacity='0.6'/><path d='M-10,90 q40,-20 80,0 t80,10 q-30,30 -90,15 t-70,-25z' fill='%23394a23' opacity='0.5'/><ellipse cx='130' cy='130' rx='35' ry='20' fill='%23475a39' opacity='0.4'/><ellipse cx='40' cy='130' rx='25' ry='15' fill='%231a2210' opacity='0.5'/></svg>")`,
+  },
+  candy: {
+    label:"Candy", emoji:"🍭",
+    bg:"#1a0a14", surface:"#2a1528", border:"#5e3252",
+    accent:"#ff5fb3", accentDim:"#ff5fb322", accentGlow:"#ff5fb377",
+    mossos:"#fbb6ce", guardia:"#c4b5fd", local:"#fde68a",
+    text:"#ffe4f1", textDim:"#f9a8d4", textMuted:"#b87aa0",
+    danger:"#f43f5e", warning:"#fb923c", success:"#5eead4",
+  },
+  neon: {
+    label:"Futurista", emoji:"🛸",
+    bg:"#040618", surface:"#0c1230", border:"#1e2a60",
+    accent:"#00f0ff", accentDim:"#00f0ff22", accentGlow:"#00f0ff88",
+    mossos:"#5eaaff", guardia:"#39ff14", local:"#bf5cff",
+    text:"#e0f7ff", textDim:"#7fc8e5", textMuted:"#5183a8",
+    danger:"#ff2d75", warning:"#ffd60a", success:"#00ff88",
+  },
+  hacker: {
+    label:"Hacker", emoji:"💻",
+    bg:"#000000", surface:"#050a05", border:"#114411",
+    accent:"#00ff41", accentDim:"#00ff4122", accentGlow:"#00ff4188",
+    mossos:"#00d4ff", guardia:"#88ff00", local:"#ff8800",
+    text:"#a0ffa0", textDim:"#5fbf5f", textMuted:"#3a7f3a",
+    danger:"#ff3333", warning:"#ffcc00", success:"#00ff66",
+  },
 };
+
+// ThemeContext — per defecte el tema normal. Cada component fa `const C = useC()`.
+const ThemeContext = createContext(THEMES.normal);
+const useC = () => useContext(ThemeContext);
+
+// Compatibilitat: si algun codi referencia el `C` de module-scope (no embolcallat
+// pel Provider), agafa el tema normal com a fallback.
+const C = THEMES.normal;
 
 const ZONES = [
   "N-II","C-13","C-14","C-26","C-12","C-25","C-28","A-2","N-260",
@@ -90,6 +147,7 @@ function playBark(ctx){
 }
 
 function ProbBar({value,type}){
+  const C=useC();
   const color=PT[type]?.color||C.textDim;
   const pct=Math.round((value||0)*100);
   return(
@@ -106,6 +164,7 @@ function ProbBar({value,type}){
 }
 
 function HourlyChart({data}){
+  const C=useC();
   if(!data)return null;
   const now=new Date().getHours();
   return(
@@ -128,6 +187,7 @@ function HourlyChart({data}){
 }
 
 function MapSVG({zoneData,onSelect,selected}){
+  const C=useC();
   return(
     <div style={{position:"relative",width:"100%",paddingBottom:"72%",background:"#0d1117",borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:10}}>
       <svg viewBox="0 0 100 80" style={{position:"absolute",inset:0,width:"100%",height:"100%"}}>
@@ -233,6 +293,7 @@ function useRadar(zoneData){
 
 // ── Splash d'auto-activació ───────────────────────────────────────────────
 function Splash({onActivate,onSkip,wasActive,dogPhoto}){
+  const C=useC();
   return(
     <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
       <img src={dogPhoto} alt="PatrolTrack" style={{maxWidth:"min(85vw,360px)",maxHeight:"50vh",width:"auto",height:"auto",marginBottom:20,filter:`drop-shadow(0 0 28px ${C.accent}66)`,display:"block"}}/>
@@ -255,6 +316,7 @@ function Splash({onActivate,onSkip,wasActive,dogPhoto}){
 
 // ── Pestanya RADAR (pura UI) ──────────────────────────────────────────────
 function RadarTab({radar,dogPhoto="/dog.png"}){
+  const C=useC();
   const {active,pos,err,nearby,sound,toggleSound,thresh,setThresh,start,stop}=radar;
   return(
     <div>
@@ -302,6 +364,7 @@ function RadarTab({radar,dogPhoto="/dog.png"}){
 
 // ── Pestanya ESTADÍSTIQUES ────────────────────────────────────────────────
 function StatsTab({detections,onZoneTap}){
+  const C=useC();
   const [selDay,setSelDay]=useState(-1);// -1 = tots
   const [selHour,setSelHour]=useState(-1);
 
@@ -418,6 +481,7 @@ function StatsTab({detections,onZoneTap}){
 
 // ── Pestanya CALENDARI ────────────────────────────────────────────────────
 function CalendarTab({detections}){
+  const C=useC();
   const today=new Date();
   const [year,setYear]=useState(today.getFullYear());
   const [month,setMonth]=useState(today.getMonth());
@@ -543,6 +607,17 @@ export default function App(){
   const [online,setOnline]=useState(true);
   const [lastSync,setLastSync]=useState(null);
   const prevCount=useRef(0);
+
+  // Tema / skin actiu
+  const [themeName,setThemeName]=useState(()=>{
+    try{return localStorage.getItem("pt_theme")||"normal";}catch{return "normal";}
+  });
+  useEffect(()=>{try{localStorage.setItem("pt_theme",themeName);}catch{}},[themeName]);
+  const currentTheme = THEMES[themeName] || THEMES.normal;
+  // C local: dins App podem usar directament el tema actual (no cal useC perquè
+  // App és qui munta el Provider).
+  const C = currentTheme;
+
   const radar=useRadar(zoneProbs);
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
   const [showSplash,setShowSplash]=useState(true);
@@ -772,7 +847,17 @@ export default function App(){
   const ss={width:"100%",padding:"10px 12px",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:15,fontFamily:"inherit",outline:"none"};
 
   return(
-    <div style={{minHeight:"100vh",background:C.bg,color:C.text,fontFamily:"'DM Mono','Courier New',monospace",display:"flex",flexDirection:"column"}}>
+    <ThemeContext.Provider value={currentTheme}>
+    <div style={{
+      minHeight:"100vh",
+      background:C.bg,
+      backgroundImage:currentTheme.pattern||"none",
+      backgroundSize:currentTheme.pattern?"160px 160px":undefined,
+      color:C.text,
+      fontFamily:"'DM Mono','Courier New',monospace",
+      display:"flex",flexDirection:"column",
+      transition:"background-color 0.3s ease",
+    }}>
       {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
@@ -997,6 +1082,55 @@ export default function App(){
         {/* CONFIG */}
         {tab==="config"&&(
           <div>
+            {/* 🎨 Skin / Tema */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🎨 Skin de l'app</div>
+              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Tria l'aspecte. El canvi és instantani i es desa al navegador.
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:8}}>
+                {Object.entries(THEMES).map(([key,t])=>{
+                  const isActive = themeName===key;
+                  return(
+                    <button
+                      key={key}
+                      onClick={()=>setThemeName(key)}
+                      style={{
+                        position:"relative",
+                        padding:"12px 10px",
+                        background:t.bg,
+                        backgroundImage:t.pattern||"none",
+                        backgroundSize:t.pattern?"160px 160px":undefined,
+                        color:t.text,
+                        border:`2px solid ${isActive?t.accent:t.border}`,
+                        borderRadius:10,
+                        cursor:"pointer",
+                        fontFamily:"inherit",
+                        textAlign:"left",
+                        overflow:"hidden",
+                        boxShadow:isActive?`0 0 14px ${t.accentGlow}`:"none",
+                        transition:"all 0.2s",
+                      }}
+                    >
+                      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6}}>
+                        <span style={{fontSize:18}}>{t.emoji}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:t.accent}}>{t.label}</span>
+                        {isActive&&<span style={{marginLeft:"auto",fontSize:11,color:t.accent}}>✓</span>}
+                      </div>
+                      {/* Mostra-li els colors clau perquè es vegi de què va */}
+                      <div style={{display:"flex",gap:4}}>
+                        <div style={{flex:1,height:8,borderRadius:2,background:t.accent}}/>
+                        <div style={{flex:1,height:8,borderRadius:2,background:t.mossos}}/>
+                        <div style={{flex:1,height:8,borderRadius:2,background:t.guardia}}/>
+                        <div style={{flex:1,height:8,borderRadius:2,background:t.local}}/>
+                        <div style={{flex:1,height:8,borderRadius:2,background:t.danger}}/>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* 🔑 Token per reportar */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
               <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token per reportar</div>
@@ -1502,5 +1636,6 @@ export default function App(){
         })}
       </div>
     </div>
+    </ThemeContext.Provider>
   );
 }
