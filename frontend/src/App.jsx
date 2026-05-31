@@ -685,12 +685,12 @@ export default function App(){
 
   const tabs=[
     {id:"dashboard",icon:"◉",label:"Mapa"},
-    {id:"radar",    icon:"🐕",label:"Radar"},
+    {id:"radar",    icon:"◎",label:"Radar"},
     {id:"query",    icon:"⊙",label:"Consulta"},
-    {id:"stats",    icon:"📊",label:"Stats"},
-    {id:"calendar", icon:"📅",label:"Calendari"},
-    {id:"history",  icon:"≡", label:"Historial"},
-    {id:"config",   icon:"⚙", label:"Config"},
+    {id:"stats",    icon:"▤",label:"Stats"},
+    {id:"calendar", icon:"▦",label:"Calendari"},
+    {id:"history",  icon:"≡",label:"Historial"},
+    {id:"config",   icon:"⚙",label:"Config"},
   ];
 
   const ss={width:"100%",padding:"10px 12px",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:15,fontFamily:"inherit",outline:"none"};
@@ -759,7 +759,7 @@ export default function App(){
         );
       })()}
 
-      <div style={{flex:1,padding:"12px 12px 76px",overflowY:"auto"}}>
+      <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto"}}>
 
         {/* DASHBOARD */}
         {tab==="dashboard"&&(
@@ -1236,12 +1236,12 @@ export default function App(){
         </div>
       )}
 
-      {/* Bottom nav */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"6px 0 10px",overflowX:"auto"}}>
+      {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, sense overflow */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"6px 0 max(10px, env(safe-area-inset-bottom))"}}>
         {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"0 0 auto",minWidth:50,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 8px"}}>
-            <span style={{fontSize:tab===t.id?20:17,color:tab===t.id?C.accent:C.textMuted}}>{t.icon}</span>
-            <span style={{fontSize:11,color:tab===t.id?C.accent:C.textMuted,letterSpacing:"0.04em",whiteSpace:"nowrap"}}>{t.label}</span>
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 2px"}}>
+            <span style={{fontSize:tab===t.id?18:15,lineHeight:1,color:tab===t.id?C.accent:C.textMuted}}>{t.icon}</span>
+            <span style={{fontSize:10,color:tab===t.id?C.accent:C.textMuted,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{t.label}</span>
           </button>
         ))}
       </div>
