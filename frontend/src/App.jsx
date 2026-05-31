@@ -571,8 +571,6 @@ export default function App(){
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
 
-  // Estat per a la card desplegable d'ajuda del bot --------------------------
-  const [showBotHelp,setShowBotHelp]=useState(false);
   const [showReport,setShowReport]=useState(false);
   const [reportMsg,setReportMsg]=useState("");
   const [reportGroup,setReportGroup]=useState("");
@@ -684,14 +682,29 @@ export default function App(){
   const filtDets=filterType==="all"?detections:detections.filter(d=>d.patrol_type===filterType);
 
   const tabs=[
-    {id:"dashboard",icon:"◉",label:"Mapa"},
-    {id:"radar",    icon:"◎",label:"Radar"},
-    {id:"query",    icon:"⊙",label:"Consulta"},
-    {id:"stats",    icon:"▤",label:"Stats"},
-    {id:"calendar", icon:"▦",label:"Calendari"},
-    {id:"history",  icon:"≡",label:"Historial"},
-    {id:"config",   icon:"⚙",label:"Config"},
+    {id:"dashboard",label:"Mapa"},
+    {id:"radar",    label:"Radar"},
+    {id:"query",    label:"Consulta"},
+    {id:"stats",    label:"Stats"},
+    {id:"calendar", label:"Calendari"},
+    {id:"history",  label:"Historial"},
+    {id:"config",   label:"Config"},
   ];
+
+  // Icones modernes SVG (Feather Icons, MIT). No escalades per l'OS.
+  const TabIcon = ({id,color,size=22}) => {
+    const props={width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:2,strokeLinecap:"round",strokeLinejoin:"round"};
+    switch(id){
+      case "dashboard": return(<svg {...props}><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>);
+      case "radar":     return(<svg {...props}><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>);
+      case "query":     return(<svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>);
+      case "stats":     return(<svg {...props}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
+      case "calendar":  return(<svg {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>);
+      case "history":   return(<svg {...props}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="12" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="18" r="1.5" fill={color} stroke="none"/></svg>);
+      case "config":    return(<svg {...props}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
+      default:          return null;
+    }
+  };
 
   const ss={width:"100%",padding:"10px 12px",background:C.bg,color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:15,fontFamily:"inherit",outline:"none"};
 
@@ -711,10 +724,10 @@ export default function App(){
       )}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
 
-      {/* Header — la foto del gos és la PROTAGONISTA gegant al centre */}
+      {/* Header — la foto del gos al centre, mida moderada perquè la resta respiri */}
       {(()=>{
-        const HEADER_H=200; // alçada total del header
-        const DOG_H=Math.round(HEADER_H*0.95); // foto = 95% de l'alçada
+        const HEADER_H=110; // alçada total del header (compacta)
+        const DOG_H=Math.round(HEADER_H*0.85); // foto = ~93px d'alt
         return(
           <div style={{padding:"6px 10px",borderBottom:`1px solid ${C.border}`,background:C.surface,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8,marginTop:newAlert?40:0,height:HEADER_H,boxSizing:"border-box"}}>
             <div style={{flex:"0 1 auto",minWidth:0,maxWidth:"28%"}}>
@@ -957,37 +970,6 @@ export default function App(){
                 </div>
               </div>
 
-              {/* Card desplegable — només per al PROPIETARI (configuració inicial) */}
-              <div style={{background:C.bg,borderRadius:8,border:`1px solid ${C.border}`,marginBottom:14,overflow:"hidden"}}>
-                <button
-                  onClick={()=>setShowBotHelp(v=>!v)}
-                  style={{width:"100%",padding:"12px 14px",background:"transparent",color:C.textDim,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",textAlign:"left",display:"flex",justifyContent:"space-between",alignItems:"center"}}
-                >
-                  <span>🔧 Configuració tècnica inicial (només el propietari, un sol cop)</span>
-                  <span style={{fontSize:18,color:C.accent,transition:"transform 0.2s",transform:showBotHelp?"rotate(180deg)":"rotate(0deg)",flexShrink:0,marginLeft:6}}>▾</span>
-                </button>
-                {showBotHelp&&(
-                  <div style={{padding:"4px 14px 14px",fontSize:12,color:C.textDim,lineHeight:1.6,borderTop:`1px solid ${C.border}`}}>
-                    <div style={{fontSize:11,color:C.textMuted,marginBottom:10,fontStyle:"italic"}}>
-                      Si has rebut un enllaç d'un amic, <b>això NO et toca</b>. Salta directament al bloc verd de dalt.
-                    </div>
-                    {[
-                      {n:"1",t:"Crea el bot",b:"A Telegram, busca @BotFather → escriu /newbot → segueix-li les instruccions. Apunta el TOKEN que et donarà."},
-                      {n:"2",t:"Desactiva Privacy mode",b:"@BotFather → /mybots → tria el bot → Bot Settings → Group Privacy → Turn off. Imprescindible perquè el bot llegeixi els missatges normals dels grups."},
-                      {n:"3",t:"Registra el webhook (al teu Mac)",b:"Terminal: bash /tmp/setup_webhook.sh, enganxa el token quan te'l demani. Això connecta el bot amb el servidor."},
-                      {n:"4",t:"(Recomanat) Rota el token",b:"Quan tot funcioni, fes /revoke a @BotFather per tenir un token nou que només sàpigues tu. El bot segueix funcionant igual."},
-                    ].map(s=>(
-                      <div key={s.n} style={{display:"flex",gap:10,marginTop:10}}>
-                        <div style={{width:22,height:22,borderRadius:"50%",background:C.border,color:C.textDim,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,flexShrink:0}}>{s.n}</div>
-                        <div style={{flex:1}}>
-                          <div style={{color:C.text,fontWeight:700,marginBottom:2,fontSize:13}}>{s.t}</div>
-                          <div style={{fontSize:12}}>{s.b}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
 
               <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom del bot (sense @):</div>
               <input
@@ -1236,14 +1218,18 @@ export default function App(){
         </div>
       )}
 
-      {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, sense overflow */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"6px 0 max(10px, env(safe-area-inset-bottom))"}}>
-        {tabs.map(t=>(
-          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,padding:"4px 2px"}}>
-            <span style={{fontSize:tab===t.id?18:15,lineHeight:1,color:tab===t.id?C.accent:C.textMuted}}>{t.icon}</span>
-            <span style={{fontSize:10,color:tab===t.id?C.accent:C.textMuted,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{t.label}</span>
-          </button>
-        ))}
+      {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG */}
+      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))"}}>
+        {tabs.map(t=>{
+          const active=tab===t.id;
+          const col=active?C.accent:C.textMuted;
+          return(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"2px 2px"}}>
+              <TabIcon id={t.id} color={col} size={active?22:20}/>
+              <span style={{fontSize:10,color:col,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{t.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -231,8 +231,17 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const chat = msg.chat || {};
   const chatId: number | string = chat.id ?? "?";
   const chatTitle: string = chat.title || chat.username || `chat:${chatId}`;
-  // Identifiquem el grup amb "Títol (chat_id)" per evitar col·lisions per emojis.
-  const groupName = `${chatTitle} (${chatId})`.slice(0, 200);
+
+  // Suport per a grups "Forum" (supergroups amb topics).
+  // Si el missatge ve d'un topic, msg.message_thread_id té l'id del topic
+  // i msg.is_topic_message === true. El nom del topic no ve al webhook;
+  // l'ID és el que tenim.
+  const threadId = msg.message_thread_id;
+  const isTopic = !!msg.is_topic_message;
+  const topicSuffix = isTopic && threadId ? ` › topic#${threadId}` : "";
+
+  // Identifiquem el grup amb "Títol (chat_id)" — emojis sense problema.
+  const groupName = `${chatTitle} (${chatId})${topicSuffix}`.slice(0, 200);
 
   const info = extractPatrolInfo(text, "telegram");
   if (!info) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
