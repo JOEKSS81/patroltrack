@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 // API URL — prioritats:
 //   1) VITE_API_URL (env var de build, p.ex. https://patroltrack-api.xxx.workers.dev)
@@ -186,38 +188,78 @@ function HourlyChart({data}){
   );
 }
 
+// Sub-component que recentra el mapa quan canvia la zona seleccionada
+function MapRecenter({zone}){
+  const map = useMap();
+  useEffect(()=>{
+    if(zone){
+      const z = MAP_ZONES.find(x=>x.id===zone);
+      if(z) map.flyTo([z.lat, z.lng], Math.max(map.getZoom(), 11), {duration: 0.8});
+    }
+  },[zone, map]);
+  return null;
+}
+
+// Mapa Leaflet real amb tiles d'OpenStreetMap.
+// Manté la interfície del SVG anterior: zoneData{id→prob}, onSelect(id), selected.
 function MapSVG({zoneData,onSelect,selected}){
   const C=useC();
+  // Triem un tile-set fosc o normal segons el tema actiu
+  const isDark = ["normal","terror","camo","candy","neon","hacker"].includes(undefined) || true; // sempre fosc (CartoDB Dark)
+  const tileUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+  const tileAttr = '© <a href="https://www.openstreetmap.org/copyright">OSM</a> · © <a href="https://carto.com/">CARTO</a>';
+  // Centre per defecte: Lleida ciutat. Zoom 9 per veure tota la província.
+  const center = [41.78, 0.95];
   return(
-    <div style={{position:"relative",width:"100%",paddingBottom:"72%",background:"#0d1117",borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:10}}>
-      <svg viewBox="0 0 100 80" style={{position:"absolute",inset:0,width:"100%",height:"100%"}}>
-        {Array.from({length:11},(_,i)=><line key={`h${i}`} x1="0" y1={i*8} x2="100" y2={i*8} stroke="#ffffff04" strokeWidth="0.3"/>)}
-        {Array.from({length:13},(_,i)=><line key={`v${i}`} x1={i*8} y1="0" x2={i*8} y2="80" stroke="#ffffff04" strokeWidth="0.3"/>)}
-        <line x1="10" y1="58" x2="90" y2="52" stroke="#ffffff0a" strokeWidth="1.8"/>
-        <line x1="50" y1="8"  x2="52" y2="76" stroke="#ffffff0a" strokeWidth="1.4"/>
-        <line x1="45" y1="55" x2="75" y2="35" stroke="#ffffff07" strokeWidth="1.1"/>
-        <line x1="28" y1="62" x2="68" y2="42" stroke="#ffffff07" strokeWidth="1.1"/>
-        <line x1="52" y1="28" x2="72" y2="18" stroke="#ffffff06" strokeWidth="0.9"/>
-        {MAP_ZONES.map(z=>{
-          const p=zoneData[z.id]||0,isSel=selected===z.id;
-          const col=p>0.6?C.danger:p>0.35?C.warning:C.success;
-          const bigR=z.r*(p>0.5?1.15:1);
-          return(
-            <g key={z.id} onClick={()=>onSelect(z.id)} style={{cursor:"pointer"}}>
-              {p>0.35&&(
-                <circle cx={z.x} cy={z.y} r={bigR+5} fill="none" stroke={col} strokeWidth="0.6" opacity="0.25">
-                  <animate attributeName="r" values={`${bigR+3};${bigR+9};${bigR+3}`} dur="2.5s" repeatCount="indefinite"/>
-                  <animate attributeName="opacity" values="0.3;0;0.3" dur="2.5s" repeatCount="indefinite"/>
-                </circle>
-              )}
-              <circle cx={z.x} cy={z.y} r={bigR} fill={isSel?`${col}40`:`${col}18`} stroke={isSel?col:`${col}60`} strokeWidth={isSel?1.8:0.9}/>
-              <text x={z.x} y={z.y-1.5} textAnchor="middle" dominantBaseline="middle" fill={C.text} fontSize="2.9" fontWeight="700" style={{pointerEvents:"none"}}>{z.label}</text>
-              <text x={z.x} y={z.y+3.8} textAnchor="middle" dominantBaseline="middle" fill={col} fontSize="2.6" fontWeight="600" style={{pointerEvents:"none"}}>{Math.round(p*100)}%</text>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{position:"absolute",bottom:6,left:8,display:"flex",gap:10,fontSize:12}}>
+    <div style={{position:"relative",width:"100%",paddingBottom:"75%",borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:10,background:C.surface}}>
+      <div style={{position:"absolute",inset:0}}>
+        <MapContainer
+          center={center}
+          zoom={9}
+          minZoom={7}
+          maxZoom={16}
+          scrollWheelZoom={true}
+          style={{width:"100%",height:"100%",background:C.bg}}
+          attributionControl={true}
+        >
+          <TileLayer url={tileUrl} attribution={tileAttr}/>
+          <MapRecenter zone={selected}/>
+          {MAP_ZONES.map(z=>{
+            const p=zoneData[z.id]||0;
+            const isSel=selected===z.id;
+            const col=p>0.6?C.danger:p>0.35?C.warning:C.success;
+            // Mida del marker en píxels — més probabilitat = més gran
+            const baseR = 8 + Math.round(p*16); // 8-24px
+            const r = isSel ? baseR + 4 : baseR;
+            return(
+              <CircleMarker
+                key={z.id}
+                center={[z.lat, z.lng]}
+                radius={r}
+                pathOptions={{
+                  color: col,
+                  fillColor: col,
+                  fillOpacity: isSel ? 0.55 : 0.35,
+                  weight: isSel ? 3 : 1.5,
+                  opacity: 0.9,
+                }}
+                eventHandlers={{
+                  click: () => onSelect(z.id),
+                }}
+              >
+                <Tooltip direction="top" offset={[0,-r]} opacity={0.95} permanent={p>0.5||isSel}>
+                  <div style={{fontFamily:"'DM Mono','Courier New',monospace",fontSize:11,fontWeight:700,color:"#111",lineHeight:1.3,textAlign:"center"}}>
+                    {z.label}<br/>
+                    <span style={{color:p>0.6?"#b91c1c":p>0.35?"#b45309":"#15803d"}}>{Math.round(p*100)}%</span>
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
+        </MapContainer>
+      </div>
+      {/* Llegenda */}
+      <div style={{position:"absolute",bottom:8,left:8,display:"flex",gap:8,fontSize:11,background:`${C.bg}cc`,padding:"4px 8px",borderRadius:6,border:`1px solid ${C.border}`,backdropFilter:"blur(4px)",zIndex:500}}>
         {[[C.danger,">60%"],[C.warning,"35-60%"],[C.success,"<35%"]].map(([col,lbl])=>(
           <div key={lbl} style={{display:"flex",alignItems:"center",gap:4}}>
             <div style={{width:8,height:8,borderRadius:"50%",background:col}}/>
