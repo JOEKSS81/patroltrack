@@ -363,10 +363,11 @@ function RadarTab({radar,dogPhoto="/dog.png"}){
   );
 }
 
-// ── Pestanya ESTADÍSTIQUES ────────────────────────────────────────────────
+// ── Pestanya ESTADÍSTIQUES (Distribució + Calendari fusionats) ────────────
 function StatsTab({detections,onZoneTap}){
   const C=useC();
-  const [selDay,setSelDay]=useState(-1);// -1 = tots
+  const [view,setView]=useState("dist");          // "dist" | "cal"
+  const [selDay,setSelDay]=useState(-1);          // -1 = tots
   const [selHour,setSelHour]=useState(-1);
 
   const filtered=detections.filter(d=>{
@@ -396,8 +397,112 @@ function StatsTab({detections,onZoneTap}){
   const typeCount={mossos:0,guardia:0,local:0,unknown:0};
   detections.forEach(d=>{typeCount[d.patrol_type]=(typeCount[d.patrol_type]||0)+1;});
 
+  // ── Estat del calendari (només actiu si view === "cal") ─────────────────
+  const today=new Date();
+  const [calYear,setCalYear]=useState(today.getFullYear());
+  const [calMonth,setCalMonth]=useState(today.getMonth());
+  const [calDate,setCalDate]=useState(null);
+
+  const detsByDate={};
+  detections.forEach(d=>{
+    if(!d.created_at)return;
+    const dt=new Date(d.created_at);
+    const key=`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
+    detsByDate[key]=(detsByDate[key]||[]);
+    detsByDate[key].push(d);
+  });
+  const firstDay=new Date(calYear,calMonth,1).getDay();
+  const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<firstDay;i++)cells.push(null);
+  for(let d=1;d<=daysInMonth;d++)cells.push(d);
+  const selKey=calDate?`${calYear}-${calMonth}-${calDate}`:null;
+  const selDets=selKey?detsByDate[selKey]||[]:[];
+  const prevMonth=()=>{if(calMonth===0){setCalMonth(11);setCalYear(y=>y-1);}else setCalMonth(m=>m-1);setCalDate(null);};
+  const nextMonth=()=>{if(calMonth===11){setCalMonth(0);setCalYear(y=>y+1);}else setCalMonth(m=>m+1);setCalDate(null);};
+
   return(
     <div>
+      {/* Toggle Distribució / Calendari */}
+      <div style={{display:"flex",gap:6,marginBottom:10,background:C.surface,padding:4,borderRadius:10,border:`1px solid ${C.border}`}}>
+        {[["dist","📊 Distribució"],["cal","📅 Calendari"]].map(([k,l])=>(
+          <button key={k} onClick={()=>setView(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:view===k?C.accent:"transparent",color:view===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+        ))}
+      </div>
+
+      {view==="cal"&&(<>
+        {/* Capçalera mes */}
+        <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+            <button onClick={prevMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>‹</button>
+            <span style={{fontSize:16,fontWeight:700,color:C.accent}}>{MONTHS[calMonth]} {calYear}</span>
+            <button onClick={nextMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>›</button>
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+            {DAYS_SHORT.map(d=><div key={d} style={{textAlign:"center",fontSize:12,color:C.textDim,padding:"2px 0"}}>{d}</div>)}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
+            {cells.map((day,i)=>{
+              if(!day)return<div key={i}/>;
+              const key=`${calYear}-${calMonth}-${day}`;
+              const dets=detsByDate[key]||[];
+              const isToday=day===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+              const isSel=calDate===day;
+              const hasHigh=dets.some(d=>d.confidence==="alta");
+              const hasMid=dets.some(d=>d.confidence==="mitja");
+              const dotCol=hasHigh?C.danger:hasMid?C.warning:C.success;
+              return(
+                <div key={i} onClick={()=>setCalDate(isSel?null:day)} style={{
+                  textAlign:"center",padding:"6px 2px",borderRadius:6,cursor:"pointer",
+                  background:isSel?C.accentDim:isToday?`${C.accent}15`:"transparent",
+                  border:`1px solid ${isSel?C.accent:isToday?`${C.accent}44`:C.border}`,
+                  position:"relative",
+                }}>
+                  <span style={{fontSize:15,color:isToday?C.accent:isSel?C.accent:C.text,fontWeight:isToday||isSel?700:400}}>{day}</span>
+                  {dets.length>0&&(
+                    <div style={{position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)",display:"flex",gap:1}}>
+                      <div style={{width:5,height:5,borderRadius:"50%",background:dotCol}}/>
+                      {dets.length>1&&<div style={{width:5,height:5,borderRadius:"50%",background:dotCol,opacity:0.6}}/>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {calDate&&(
+          <div>
+            <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>
+              {selDets.length>0?`${selDets.length} deteccions el ${calDate} de ${MONTHS[calMonth]}`:`Cap detecció el ${calDate} de ${MONTHS[calMonth]}`}
+            </div>
+            {selDets.length===0?(
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}>
+                <div style={{fontSize:14,color:C.textDim}}>Dia tranquil ✓</div>
+              </div>
+            ):selDets.map((d,i)=>{
+              const ptype=PT[d.patrol_type]||PT.unknown;
+              const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??";
+              return(
+                <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8}}>
+                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                    <span style={{fontSize:12,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span>
+                    <span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span>
+                  </div>
+                  <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}</div>
+                  {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,65)}"</div>}
+                  <div style={{display:"flex",gap:8}}>
+                    <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
+                    <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>)}
+
+      {view==="dist"&&(<>
       {/* Gràfic per hora */}
       <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
         <div style={{fontSize:14,fontWeight:700,color:C.accent,marginBottom:10}}>Deteccions per hora</div>
@@ -476,115 +581,7 @@ function StatsTab({detections,onZoneTap}){
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Pestanya CALENDARI ────────────────────────────────────────────────────
-function CalendarTab({detections}){
-  const C=useC();
-  const today=new Date();
-  const [year,setYear]=useState(today.getFullYear());
-  const [month,setMonth]=useState(today.getMonth());
-  const [selDate,setSelDate]=useState(null);
-
-  const detsByDate={};
-  detections.forEach(d=>{
-    if(!d.created_at)return;
-    const dt=new Date(d.created_at);
-    const key=`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
-    detsByDate[key]=(detsByDate[key]||[]);
-    detsByDate[key].push(d);
-  });
-
-  const firstDay=new Date(year,month,1).getDay();
-  const daysInMonth=new Date(year,month+1,0).getDate();
-  const cells=[];
-  for(let i=0;i<firstDay;i++)cells.push(null);
-  for(let d=1;d<=daysInMonth;d++)cells.push(d);
-
-  const selKey=selDate?`${year}-${month}-${selDate}`:null;
-  const selDets=selKey?detsByDate[selKey]||[]:[];
-
-  const prevMonth=()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);setSelDate(null);};
-  const nextMonth=()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);setSelDate(null);};
-
-  return(
-    <div>
-      {/* Capçalera mes */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <button onClick={prevMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>‹</button>
-          <span style={{fontSize:16,fontWeight:700,color:C.accent}}>{MONTHS[month]} {year}</span>
-          <button onClick={nextMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>›</button>
-        </div>
-
-        {/* Dies de la setmana */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
-          {DAYS_SHORT.map(d=><div key={d} style={{textAlign:"center",fontSize:12,color:C.textDim,padding:"2px 0"}}>{d}</div>)}
-        </div>
-
-        {/* Dies */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
-          {cells.map((day,i)=>{
-            if(!day)return<div key={i}/>;
-            const key=`${year}-${month}-${day}`;
-            const dets=detsByDate[key]||[];
-            const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
-            const isSel=selDate===day;
-            const hasHigh=dets.some(d=>d.confidence==="alta");
-            const hasMid=dets.some(d=>d.confidence==="mitja");
-            const dotCol=hasHigh?C.danger:hasMid?C.warning:C.success;
-            return(
-              <div key={i} onClick={()=>setSelDate(isSel?null:day)} style={{
-                textAlign:"center",padding:"6px 2px",borderRadius:6,cursor:"pointer",
-                background:isSel?C.accentDim:isToday?`${C.accent}15`:"transparent",
-                border:`1px solid ${isSel?C.accent:isToday?`${C.accent}44`:C.border}`,
-                position:"relative",
-              }}>
-                <span style={{fontSize:15,color:isToday?C.accent:isSel?C.accent:C.text,fontWeight:isToday||isSel?700:400}}>{day}</span>
-                {dets.length>0&&(
-                  <div style={{position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)",display:"flex",gap:1}}>
-                    <div style={{width:5,height:5,borderRadius:"50%",background:dotCol}}/>
-                    {dets.length>1&&<div style={{width:5,height:5,borderRadius:"50%",background:dotCol,opacity:0.6}}/>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Deteccions del dia seleccionat */}
-      {selDate&&(
-        <div>
-          <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>
-            {selDets.length>0?`${selDets.length} deteccions el ${selDate} de ${MONTHS[month]}`:`Cap detecció el ${selDate} de ${MONTHS[month]}`}
-          </div>
-          {selDets.length===0?(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}>
-              <div style={{fontSize:14,color:C.textDim}}>Dia tranquil ✓</div>
-            </div>
-          ):selDets.map((d,i)=>{
-            const ptype=PT[d.patrol_type]||PT.unknown;
-            const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??";
-            return(
-              <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                  <span style={{fontSize:12,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span>
-                  <span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span>
-                </div>
-                <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}</div>
-                {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,65)}"</div>}
-                <div style={{display:"flex",gap:8}}>
-                  <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
-                  <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      </>)}
     </div>
   );
 }
@@ -826,7 +823,6 @@ export default function App(){
     {id:"radar",    label:"Radar"},
     {id:"query",    label:"Consulta"},
     {id:"stats",    label:"Stats"},
-    {id:"calendar", label:"Calendari"},
     {id:"history",  label:"Historial"},
     {id:"config",   label:"Config"},
   ];
@@ -988,13 +984,14 @@ export default function App(){
               selected={selectedZone}
               onSelect={setSelectedZone}
               theme={currentTheme}
+              detections={detections}
+              radarPos={radar.active?radar.pos:null}
             />
           </div>
         )}
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
         {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)}/>}
-        {tab==="calendar"&&<CalendarTab detections={detections}/>}
 
         {/* QUERY */}
         {tab==="query"&&(
