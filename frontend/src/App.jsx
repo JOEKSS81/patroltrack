@@ -364,7 +364,7 @@ function RadarTab({radar,dogPhoto="/dog.png"}){
 }
 
 // ── Pestanya ESTADÍSTIQUES (Distribució + Calendari fusionats) ────────────
-function StatsTab({detections,onZoneTap}){
+function StatsTab({detections,onZoneTap,onDetTap}){
   const C=useC();
   const [view,setView]=useState("dist");          // "dist" | "cal"
   const [selDay,setSelDay]=useState(-1);          // -1 = tots
@@ -471,35 +471,91 @@ function StatsTab({detections,onZoneTap}){
           </div>
         </div>
 
-        {calDate&&(
+        {calDate&&(()=>{
+          // Mini-resum del dia: per tipus + per hora
+          const byTypeDay={mossos:0,guardia:0,local:0,unknown:0};
+          selDets.forEach(d=>{byTypeDay[d.patrol_type]=(byTypeDay[d.patrol_type]||0)+1;});
+          const byHourDay=Array(24).fill(0);
+          selDets.forEach(d=>{if(d.created_at)byHourDay[new Date(d.created_at).getHours()]++;});
+          const maxHDay=Math.max(...byHourDay,1);
+          const topZonesDay={};
+          selDets.forEach(d=>{const z=d.zone_norm||d.zone||"?";topZonesDay[z]=(topZonesDay[z]||0)+1;});
+          const topZonesArr=Object.entries(topZonesDay).sort((a,b)=>b[1]-a[1]).slice(0,3);
+          const dayLabel=`${calDate} de ${MONTHS[calMonth]}`;
+          return(
           <div>
-            <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>
-              {selDets.length>0?`${selDets.length} deteccions el ${calDate} de ${MONTHS[calMonth]}`:`Cap detecció el ${calDate} de ${MONTHS[calMonth]}`}
-            </div>
             {selDets.length===0?(
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}>
-                <div style={{fontSize:14,color:C.textDim}}>Dia tranquil ✓</div>
+                <div style={{fontSize:14,color:C.textDim}}>Cap detecció el {dayLabel}</div>
+                <div style={{fontSize:13,color:C.success,marginTop:4}}>Dia tranquil ✓</div>
               </div>
-            ):selDets.map((d,i)=>{
-              const ptype=PT[d.patrol_type]||PT.unknown;
-              const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??";
-              return(
-                <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                    <span style={{fontSize:12,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span>
-                    <span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span>
-                  </div>
-                  <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}</div>
-                  {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,65)}"</div>}
-                  <div style={{display:"flex",gap:8}}>
-                    <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
-                    <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
-                  </div>
+            ):(<>
+              {/* Resum del dia */}
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,padding:14,marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+                  <span style={{fontSize:14,fontWeight:700,color:C.accent}}>📅 {dayLabel}</span>
+                  <span style={{fontSize:13,color:C.text,fontWeight:700}}>{selDets.length} {selDets.length===1?"detecció":"deteccions"}</span>
                 </div>
-              );
-            })}
+
+                {/* Per tipus */}
+                <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+                  {Object.entries(byTypeDay).filter(([,n])=>n>0).map(([t,n])=>{
+                    const pt=PT[t]||PT.unknown;
+                    return(<div key={t} style={{background:`${pt.color}22`,color:pt.color,padding:"4px 10px",borderRadius:6,fontSize:12,fontWeight:700}}>{pt.short} · {n}</div>);
+                  })}
+                </div>
+
+                {/* Mini gràfic per hora */}
+                <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Distribució per hora</div>
+                <div style={{display:"flex",gap:2,alignItems:"flex-end",height:42,background:C.bg,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`,marginBottom:10}}>
+                  {byHourDay.map((n,h)=>{
+                    const v=n/maxHDay;
+                    const col=v>0.66?C.danger:v>0.33?C.warning:C.success;
+                    return(<div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1,position:"relative"}}>
+                      <div title={n>0?`${h}h: ${n}`:`${h}h`} style={{width:"100%",height:Math.round(v*32)+2,background:n>0?col:C.border,opacity:n>0?0.85:0.25,borderRadius:"2px 2px 0 0"}}/>
+                      {h%6===0&&<span style={{fontSize:8,color:C.textMuted}}>{h}</span>}
+                    </div>);
+                  })}
+                </div>
+
+                {/* Top zones del dia */}
+                {topZonesArr.length>0&&(<>
+                  <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:5}}>Zones del dia</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:3}}>
+                    {topZonesArr.map(([z,n])=>(
+                      <div key={z} onClick={()=>onZoneTap&&onZoneTap(z)} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",fontSize:13,cursor:"pointer"}}>
+                        <span style={{color:C.text}}>{z}</span>
+                        <span style={{color:C.accent,fontWeight:700}}>{n}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>)}
+              </div>
+
+              {/* Llista de deteccions clicables */}
+              <div style={{fontSize:11,color:C.textMuted,marginBottom:6,textAlign:"right"}}>Toca una detecció per veure el detall complet</div>
+              {selDets.map((d,i)=>{
+                const ptype=PT[d.patrol_type]||PT.unknown;
+                const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??";
+                return(
+                  <div key={i} onClick={()=>onDetTap&&onDetTap(d)} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8,cursor:"pointer",transition:"background .15s"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+                      <span style={{fontSize:12,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span>
+                      <span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span>
+                    </div>
+                    <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}</div>
+                    {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,65)}"</div>}
+                    <div style={{display:"flex",gap:8}}>
+                      <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
+                      <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </>)}
           </div>
-        )}
+          );
+        })()}
       </>)}
 
       {view==="dist"&&(<>
@@ -707,7 +763,7 @@ export default function App(){
       try{
         const[hr,dr]=await Promise.all([
           fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
-          fetch(`${API}/api/detections?limit=50`,{cache:"no-store"}).catch(()=>null),
+          fetch(`${API}/api/detections?limit=500`,{cache:"no-store"}).catch(()=>null),
         ]);
         const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
         const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
@@ -786,7 +842,7 @@ export default function App(){
   useEffect(()=>{
     if(refreshTick===0)return;
     let alive=true;
-    fetch(`${API}/api/detections?limit=50`,{cache:"no-store"})
+    fetch(`${API}/api/detections?limit=500`,{cache:"no-store"})
       .then(r=>r.ok?r.json():null)
       .then(d=>{
         if(alive && Array.isArray(d)){
@@ -991,7 +1047,7 @@ export default function App(){
         )}
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
-        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)}/>}
+        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
         {tab==="query"&&(

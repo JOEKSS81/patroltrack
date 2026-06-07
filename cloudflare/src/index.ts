@@ -63,7 +63,7 @@ async function handleHealth(env: Env): Promise<Response> {
 }
 
 async function handleDetections(env: Env, url: URL): Promise<Response> {
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "30", 10), 200);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "30", 10), 2000);
   const rs = await env.DB.prepare(
     "SELECT * FROM detections ORDER BY created_at DESC LIMIT ?"
   ).bind(limit).all();

@@ -125,18 +125,50 @@ export default function MapTab({
       .slice(0, 80);
   }, [detections, zones]);
 
-  // Locate me
+  const [locating, setLocating] = useState(false);
+
+  const errMsg = (e) => {
+    if (!e) return "Error desconegut";
+    if (e.code === 1) return "Permís d'ubicació denegat";
+    if (e.code === 2) return "Posició no disponible (GPS apagat?)";
+    if (e.code === 3) return "Temps esgotat — torna a provar";
+    return e.message || "Error de GPS";
+  };
+
+  // Locate me — estratègia "two-shot": fix ràpid per resposta immediata + fix fresc d'alta precisió per refinar
   const locate = () => {
-    if (!navigator.geolocation) { setLocErr("GPS no disponible"); return; }
+    if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
+    setLocating(true);
+    let resolvedQuick = false;
+    const finish = () => setLocating(false);
+
+    // 1) Fix ràpid (accepta cache fins 30s) — centra el mapa de seguida si en té un
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        if (resolvedQuick) return;
+        resolvedQuick = true;
+        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        setUserPos(np);
+        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], np.acc < 200 ? 15 : 13, { duration: 0.7 });
+      },
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 30000, timeout: 4000 }
+    );
+
+    // 2) Fix fresc d'alta precisió (ignora cache, pot trigar més)
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], 13, { duration: 0.9 });
+        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], np.acc < 100 ? 16 : np.acc < 500 ? 14 : 12, { duration: 0.9 });
+        finish();
       },
-      () => setLocErr("Permet l'accés a la ubicació"),
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
+      (e) => {
+        if (!resolvedQuick) setLocErr(errMsg(e));
+        finish();
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
   };
 
@@ -146,7 +178,7 @@ export default function MapTab({
       setFollowing(false);
       return;
     }
-    if (!navigator.geolocation) { setLocErr("GPS no disponible"); return; }
+    if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
     setFollowing(true);
     watchRef.current = navigator.geolocation.watchPosition(
@@ -155,8 +187,8 @@ export default function MapTab({
         setUserPos(np);
         if (mapInstance) mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.6 });
       },
-      () => { setLocErr("Permet l'accés a la ubicació"); setFollowing(false); },
-      { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+      (e) => { setLocErr(errMsg(e)); setFollowing(false); },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
   };
 
@@ -241,6 +273,9 @@ export default function MapTab({
                 <b>📍 La teva posició</b><br />
                 {userPos.lat.toFixed(5)}, {userPos.lng.toFixed(5)}<br />
                 <span style={{ fontSize: 11, opacity: 0.85 }}>Precisió ±{Math.round(userPos.acc || 0)}m</span>
+                {userPos.acc > 500 && (
+                  <><br /><span style={{ fontSize: 11, color: t.warning || "#ffb020", fontWeight: 700 }}>⚠ Precisió baixa — activa el GPS al telèfon</span></>
+                )}
               </Popup>
             </Marker>
           </Fragment>
@@ -249,7 +284,9 @@ export default function MapTab({
 
       {/* Controls flotants — top-right */}
       <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6 }}>
-        <button className="pt-mapbtn" onClick={locate} title="Localitza'm">📍 Jo</button>
+        <button className="pt-mapbtn" onClick={locate} disabled={locating} title="Localitza'm (forçant fix fresc d'alta precisió)">
+          {locating ? "⏳ Buscant…" : "📍 Jo"}
+        </button>
         <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow} title="Segueix-me">
           {following ? "● Seguint" : "○ Seguir"}
         </button>
@@ -261,8 +298,15 @@ export default function MapTab({
 
       {/* Error de localització */}
       {locErr && (
-        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 500, background: t.danger, color: "#fff", padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.4)" }}>
+        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 500, background: t.danger, color: "#fff", padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.4)", maxWidth: 240 }}>
           ⚠ {locErr}
+        </div>
+      )}
+
+      {/* Badge precisió */}
+      {userPos && !locErr && (
+        <div style={{ position: "absolute", top: 10, left: 10, zIndex: 500, background: t.surface, border: `1px solid ${userPos.acc > 500 ? (t.warning || "#ffb020") : userPos.acc > 100 ? t.border : (t.success || "#22d97a")}`, color: userPos.acc > 500 ? (t.warning || "#ffb020") : t.textDim, padding: "5px 9px", borderRadius: 8, fontSize: 11, fontWeight: 700, boxShadow: "0 2px 8px rgba(0,0,0,.4)" }}>
+          GPS ±{Math.round(userPos.acc)}m{userPos.acc > 500 ? " ⚠" : ""}
         </div>
       )}
 
