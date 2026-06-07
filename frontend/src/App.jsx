@@ -230,29 +230,57 @@ function MapSVG({zoneData,onSelect,selected}){
   );
 }
 
-// ── Hook RADAR (estat compartit App + Splash + Tab) ───────────────────────
-function useRadar(zoneData){
+// ── Hook RADAR — alerta basada en DETECCIONS REALS dins un radi i finestra de temps ──
+// `detections` = llista del backend. Una alerta es dispara quan hi ha una detecció amb
+// coords (reals o de zona) dins `alertRadiusKm` km de la teva posició, ocorreguda fa
+// menys de `windowMin` minuts. Ja no usem probabilitats sintètiques.
+function useRadar(detections){
   const [active,setActive]=useState(false);
   const [pos,setPos]=useState(null);
   const [err,setErr]=useState(null);
-  const [nearby,setNearby]=useState([]);
-  const [alert,setAlert]=useState(false);
+  const [nearby,setNearby]=useState([]);            // deteccions recents enriquides amb _dist i _ageMin
+  const [alert,setAlert]=useState(null);            // {det, dist} | null
   const [sound,setSound]=useState(true);
-  const [thresh,setThresh]=useState(0.4);
+  const [alertRadiusKm,setAlertRadiusKm]=useState(()=>{
+    try{const v=Number(localStorage.getItem("pt_radar_radius"));return v>=1&&v<=20?v:5;}catch{return 5;}
+  });
+  const [windowMin,setWindowMin]=useState(()=>{
+    try{const v=Number(localStorage.getItem("pt_radar_window"));return v>=15&&v<=240?v:60;}catch{return 60;}
+  });
   const [lastBark,setLastBark]=useState(0);
   const audioRef=useRef(null);
   const watchRef=useRef(null);
 
+  useEffect(()=>{try{localStorage.setItem("pt_radar_radius",String(alertRadiusKm));}catch{}},[alertRadiusKm]);
+  useEffect(()=>{try{localStorage.setItem("pt_radar_window",String(windowMin));}catch{}},[windowMin]);
+
   const initAudio=()=>{if(!audioRef.current)audioRef.current=new(window.AudioContext||window.webkitAudioContext)();};
 
+  // Resol coords per una detecció: reals si en té, si no usa la zona del mapa
+  const resolveCoords=(d)=>{
+    if(d.lat!=null&&d.lng!=null)return{lat:d.lat,lng:d.lng,exact:true};
+    const z=MAP_ZONES.find(z=>z.id===(d.zone_norm||d.zone));
+    if(z)return{lat:z.lat,lng:z.lng,exact:false};
+    return null;
+  };
+
   const check=useCallback((lat,lng)=>{
-    const nb=MAP_ZONES.map(z=>({...z,dist:Math.round(distKm(lat,lng,z.lat,z.lng)*10)/10,prob:zoneData[z.id]||0}))
-      .filter(z=>z.dist<z.rKm+8).sort((a,b)=>a.dist-b.dist);
-    setNearby(nb);
-    const danger=nb.find(z=>z.dist<z.rKm&&z.prob>=thresh);
-    setAlert(!!danger);
+    const cutoff=Date.now()-windowMin*60*1000;
+    const enriched=[];
+    for(const d of detections){
+      const ts=d.created_at?new Date(d.created_at).getTime():0;
+      if(ts<cutoff)continue;
+      const c=resolveCoords(d);
+      if(!c)continue;
+      const dist=Math.round(distKm(lat,lng,c.lat,c.lng)*10)/10;
+      enriched.push({...d,_lat:c.lat,_lng:c.lng,_exact:c.exact,_dist:dist,_ageMin:Math.round((Date.now()-ts)/60000)});
+    }
+    enriched.sort((a,b)=>a._dist-b._dist);
+    setNearby(enriched.slice(0,20));
+    const danger=enriched.find(d=>d._dist<=alertRadiusKm);
+    setAlert(danger?{det:danger,dist:danger._dist,ageMin:danger._ageMin}:null);
     if(danger&&sound&&Date.now()-lastBark>10000){initAudio();playBark(audioRef.current);setLastBark(Date.now());}
-  },[zoneData,thresh,sound,lastBark]);
+  },[detections,alertRadiusKm,windowMin,sound,lastBark]);
 
   const start=useCallback(()=>{
     initAudio();
@@ -262,34 +290,29 @@ function useRadar(zoneData){
     watchRef.current=navigator.geolocation.watchPosition(
       p=>{setPos({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy});check(p.coords.latitude,p.coords.longitude);},
       ()=>{setErr("Permet l'accés a la ubicació al navegador");setActive(false);},
-      {enableHighAccuracy:true,maximumAge:5000,timeout:10000}
+      {enableHighAccuracy:true,maximumAge:0,timeout:15000}
     );
   },[check]);
 
   const stop=useCallback(()=>{
     if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    setActive(false);setPos(null);setNearby([]);setAlert(false);
+    setActive(false);setPos(null);setNearby([]);setAlert(null);
     try{localStorage.removeItem("pt_auto");}catch{}
   },[]);
 
-  // Apaga/encén el so: suspèn l'AudioContext perquè qualsevol lladruc
-  // ja planificat (i no només els futurs) s'aturi a l'instant.
   const toggleSound=useCallback(()=>{
     setSound(prev=>{
       const next=!prev;
       const ctx=audioRef.current;
-      if(ctx){
-        if(next)ctx.resume().catch(()=>{});
-        else ctx.suspend().catch(()=>{});
-      }
+      if(ctx){ if(next)ctx.resume().catch(()=>{}); else ctx.suspend().catch(()=>{}); }
       return next;
     });
   },[]);
 
   useEffect(()=>()=>{if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);},[]);
-  useEffect(()=>{if(pos)check(pos.lat,pos.lng);},[zoneData,check,pos]);
+  useEffect(()=>{if(pos)check(pos.lat,pos.lng);},[detections,check,pos]);
 
-  return {active,pos,err,nearby,alert,sound,toggleSound,thresh,setThresh,start,stop};
+  return {active,pos,err,nearby,alert,sound,toggleSound,alertRadiusKm,setAlertRadiusKm,windowMin,setWindowMin,start,stop};
 }
 
 // ── Splash d'auto-activació ───────────────────────────────────────────────
@@ -316,9 +339,9 @@ function Splash({onActivate,onSkip,wasActive,dogPhoto}){
 }
 
 // ── Pestanya RADAR (pura UI) ──────────────────────────────────────────────
-function RadarTab({radar,dogPhoto="/dog.png"}){
+function RadarTab({radar,dogPhoto="/dog.png",onDetTap}){
   const C=useC();
-  const {active,pos,err,nearby,sound,toggleSound,thresh,setThresh,start,stop}=radar;
+  const {active,pos,err,nearby,sound,toggleSound,alertRadiusKm,setAlertRadiusKm,windowMin,setWindowMin,start,stop}=radar;
   return(
     <div>
       <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
@@ -334,30 +357,50 @@ function RadarTab({radar,dogPhoto="/dog.png"}){
             <div style={{position:"absolute",top:2,left:sound?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
           </div>
         </div>
+        <div style={{marginBottom:10}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:14,color:C.textDim}}>Radi d'alerta</span><span style={{fontSize:14,color:C.accent,fontWeight:700}}>{alertRadiusKm} km</span></div>
+          <input type="range" min={1} max={20} value={alertRadiusKm} onChange={e=>setAlertRadiusKm(Number(e.target.value))} style={{width:"100%",accentColor:C.accent}}/>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Just al costat</span><span>Comarca sencera</span></div>
+        </div>
         <div>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:14,color:C.textDim}}>Llindar d'alerta</span><span style={{fontSize:14,color:C.accent}}>{Math.round(thresh*100)}%</span></div>
-          <input type="range" min={10} max={90} value={Math.round(thresh*100)} onChange={e=>setThresh(Number(e.target.value)/100)} style={{width:"100%",accentColor:C.accent}}/>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Sensible</span><span>Estricte</span></div>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:14,color:C.textDim}}>Finestra recent</span><span style={{fontSize:14,color:C.accent,fontWeight:700}}>{windowMin} min</span></div>
+          <input type="range" min={15} max={240} step={15} value={windowMin} onChange={e=>setWindowMin(Number(e.target.value))} style={{width:"100%",accentColor:C.accent}}/>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>15 min</span><span>4h</span></div>
+        </div>
+        <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5}}>
+          ↳ Alerta quan una <b style={{color:C.textDim}}>detecció real</b> apareix dins de <b style={{color:C.textDim}}>{alertRadiusKm} km</b> teus en els darrers <b style={{color:C.textDim}}>{windowMin} min</b>.
         </div>
       </div>
       {active&&(
         <div>
-          <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em"}}>Zones properes</div>
+          <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em",display:"flex",justifyContent:"space-between"}}>
+            <span>Deteccions recents prop teu</span>
+            <span style={{color:C.textMuted,letterSpacing:0}}>{nearby.length} en {windowMin} min</span>
+          </div>
           {nearby.length===0?(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}><div style={{fontSize:14,color:C.textDim}}>Cap zona a prop</div></div>
-          ):nearby.slice(0,5).map((z,i)=>{
-            const col=z.prob>0.6?C.danger:z.prob>0.35?C.warning:C.success;
-            const isDanger=z.dist<z.rKm&&z.prob>=thresh;
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}><div style={{fontSize:14,color:C.textDim}}>Cap detecció recent a la zona ✓</div></div>
+          ):nearby.slice(0,8).map((d,i)=>{
+            const ptype=PT[d.patrol_type]||PT.unknown;
+            const isDanger=d._dist<=alertRadiusKm;
+            const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"?";
             return(
-              <div key={i} style={{background:isDanger?`${C.danger}22`:C.surface,border:`1px solid ${isDanger?C.danger:C.border}`,borderLeft:`3px solid ${col}`,borderRadius:8,padding:"10px 12px",marginBottom:6,boxShadow:isDanger?`0 0 12px ${C.danger}44`:"none"}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:15,fontWeight:700,color:C.text}}>{z.id}</span><span style={{fontSize:16,fontWeight:800,color:col}}>{Math.round(z.prob*100)}%</span></div>
-                <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:13,color:C.textDim}}>{isDanger?"🚨 ":"📍 "}{z.dist} km</span>{isDanger&&<span style={{fontSize:13,color:C.danger,fontWeight:700}}>ZONA DE RISC</span>}</div>
+              <div key={i} onClick={()=>onDetTap&&onDetTap(d)} style={{background:isDanger?`${C.danger}22`:C.surface,border:`1px solid ${isDanger?C.danger:C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"10px 12px",marginBottom:6,boxShadow:isDanger?`0 0 12px ${C.danger}44`:"none",cursor:"pointer"}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4,gap:8}}>
+                  <span style={{fontSize:13,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 7px",borderRadius:3}}>{ptype.short}</span>
+                  <span style={{fontSize:15,fontWeight:800,color:isDanger?C.danger:C.text}}>{d._dist} km</span>
+                </div>
+                <div style={{fontSize:13,color:C.text,marginBottom:3}}>{d.zone_norm||d.zone||"?"}{!d._exact&&<span style={{fontSize:11,color:C.textMuted}}> · pos. aprox.</span>}</div>
+                {d.raw_message&&<div style={{fontSize:11,color:C.textDim,fontStyle:"italic",marginBottom:3,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>"{d.raw_message.substring(0,60)}"</div>}
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:11,color:C.textMuted}}>
+                  <span>{isDanger?"🚨 dins del radi":"📍 fora del radi"}</span>
+                  <span>fa {d._ageMin} min · {time}</span>
+                </div>
               </div>
             );
           })}
         </div>
       )}
-      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><img src={dogPhoto} alt="" style={{width:96,height:96,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:12,border:`2px solid ${C.accent}55`}}/><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
+      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><img src={dogPhoto} alt="" style={{width:96,height:96,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:12,border:`2px solid ${C.accent}55`}}/><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan una detecció REAL aparegui prop teu. Et lladrarà quan hi hagi perill!</div></div>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
     </div>
   );
@@ -672,7 +715,7 @@ export default function App(){
   // App és qui munta el Provider).
   const C = currentTheme;
 
-  const radar=useRadar(zoneProbs);
+  const radar=useRadar(detections);
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
   const [showSplash,setShowSplash]=useState(true);
 
@@ -756,8 +799,12 @@ export default function App(){
     }catch{}
   },[]);
 
+  // Ref al fetch2 perquè el puguem cridar des de visibility/focus listeners sense recrear-lo
+  const fetchRef=useRef(null);
+  const aliveRef=useRef(true);
+
   useEffect(()=>{
-    let alive=true;
+    aliveRef.current=true;
     const fetch2=async()=>{
       let ok=false;
       try{
@@ -767,10 +814,10 @@ export default function App(){
         ]);
         const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
         const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
-        if(!alive)return;
+        if(!aliveRef.current)return;
         if(h){setHealth(h);try{localStorage.setItem("pt_health",JSON.stringify(h));}catch{}; ok=true;}
         if(Array.isArray(d)){
-          if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>{if(alive)setNewAlert(null);},4000);}
+          if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>{if(aliveRef.current)setNewAlert(null);},4000);}
           prevCount.current=d.length;
           setDetections(d);
           try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
@@ -780,16 +827,34 @@ export default function App(){
           ok=true;
         }
       }catch{/* deixa l'estat anterior intacte */}
-      if(alive){
+      if(aliveRef.current){
         setOnline(ok);
         if(ok){const t=Date.now();setLastSync(t);try{localStorage.setItem("pt_lastSync",String(t));}catch{}}
       }
     };
+    fetchRef.current=fetch2;
     fetch2();
     if(Object.keys(zoneProbs).length===0)setZoneProbs(getZoneP());
     const t=setInterval(fetch2,15000);
-    return()=>{alive=false;clearInterval(t);};
+    return()=>{aliveRef.current=false;clearInterval(t);};
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
+  // Refresc immediat en tornar a obrir l'app (visibility) o focus de la finestra.
+  // setInterval queda pausat al mòbil quan l'app va a background → això resol "no s'actualitza".
+  useEffect(()=>{
+    const refresh=()=>{
+      if(document.visibilityState==="visible" && fetchRef.current){
+        fetchRef.current();
+      }
+    };
+    const onFocus=()=>{ if(fetchRef.current) fetchRef.current(); };
+    document.addEventListener("visibilitychange",refresh);
+    window.addEventListener("focus",onFocus);
+    return()=>{
+      document.removeEventListener("visibilitychange",refresh);
+      window.removeEventListener("focus",onFocus);
+    };
   },[]);
 
   useEffect(()=>{setHourlyData(getHourly(selectedZone));},[selectedZone]);
@@ -967,25 +1032,26 @@ export default function App(){
       <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto",position:"relative"}}>
 
         {/* Avisos sticky integrats sota el header (no fixed → no tapen el gos) */}
-        {(radar.alert||newAlert)&&(()=>{
-          const z=radar.alert?radar.nearby.find(n=>n.prob>=radar.thresh):null;
-          return(
-            <div style={{position:"sticky",top:-2,zIndex:50,marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
-              {radar.alert&&(
-                <div style={{background:C.danger,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 18px ${C.danger}66, 0 0 0 1px ${C.danger}`,animation:"pulse 0.6s infinite alternate",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        {(radar.alert||newAlert)&&(
+          <div style={{position:"sticky",top:-2,zIndex:50,marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
+            {radar.alert&&(()=>{
+              const d=radar.alert.det;
+              const ptype=PT[d.patrol_type]||PT.unknown;
+              return(
+                <div onClick={()=>setSelectedDet(d)} style={{background:C.danger,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 18px ${C.danger}66, 0 0 0 1px ${C.danger}`,animation:"pulse 0.6s infinite alternate",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}>
                   <span style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA</span>
-                  <span style={{fontSize:12,fontWeight:700,opacity:0.95}}>{z?.id} · {z?.dist} km</span>
+                  <span style={{fontSize:12,fontWeight:700,opacity:0.95}}>{ptype.short} · {d.zone_norm||d.zone||"?"} · {radar.alert.dist} km · fa {radar.alert.ageMin} min</span>
                 </div>
-              )}
-              {newAlert&&(
-                <div style={{background:`${C.danger}ee`,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 14px ${C.danger}55, 0 0 0 1px ${C.danger}88`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                  <span style={{fontSize:13,fontWeight:700}}>🔔 NOVA · {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
-                  <span style={{fontSize:11,opacity:0.85}}>{newAlert.source?.toUpperCase()}</span>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+              );
+            })()}
+            {newAlert&&(
+              <div onClick={()=>setSelectedDet(newAlert)} style={{background:`${C.danger}ee`,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 14px ${C.danger}55, 0 0 0 1px ${C.danger}88`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}>
+                <span style={{fontSize:13,fontWeight:700}}>🔔 NOVA · {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
+                <span style={{fontSize:11,opacity:0.85}}>{newAlert.source?.toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+        )}
 
 
         {/* DASHBOARD */}
@@ -1009,7 +1075,7 @@ export default function App(){
             {detections.length===0?(
               <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,textAlign:"center"}}>
                 <div style={{fontSize:14,color:C.textDim}}>Sense deteccions encara</div>
-                <div style={{fontSize:13,color:C.accent,marginTop:8}}>"Mossos a la N-II km 45, cuidado"</div>
+                <div style={{fontSize:12,color:C.textMuted,marginTop:6,lineHeight:1.5}}>Reenvia un missatge al bot @{botUsername} de Telegram o usa el botó <b style={{color:C.accent}}>+</b></div>
               </div>
             ):detections.slice(0,4).map((d,i)=>{
               const ptype=PT[d.patrol_type]||PT.unknown;
@@ -1031,22 +1097,21 @@ export default function App(){
         )}
 
         {tab==="osm"&&(
-          <div style={{height:"70vh",minHeight:420}}>
+          <div style={{height:"calc(100dvh - 280px)",minHeight:380,maxHeight:"calc(100vh - 220px)"}}>
             <MapTab
               zones={MAP_ZONES}
               probs={zoneProbs}
-              nearby={radar.nearby}
-              thresh={radar.thresh}
               selected={selectedZone}
               onSelect={setSelectedZone}
               theme={currentTheme}
+              themeName={themeName}
               detections={detections}
               radarPos={radar.active?radar.pos:null}
             />
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
         {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
@@ -1693,7 +1758,7 @@ export default function App(){
       )}
 
       {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))"}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
         {tabs.map(t=>{
           const active=tab===t.id;
           const col=active?C.accent:C.textMuted;

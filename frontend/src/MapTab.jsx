@@ -64,9 +64,31 @@ function MapHandle({ onReady }) {
   return null;
 }
 
+// Distància en km (haversine) — local perquè el component no depengui d'App.jsx
+function distKm(a1, o1, a2, o2) {
+  const R = 6371, d1 = (a2 - a1) * Math.PI / 180, d2 = (o2 - o1) * Math.PI / 180;
+  const a = Math.sin(d1 / 2) ** 2 + Math.cos(a1 * Math.PI / 180) * Math.cos(a2 * Math.PI / 180) * Math.sin(d2 / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Tile providers — tots gratuïts, sense API key
+const TILE_SETS = {
+  dark:     { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",      attr: "© OpenStreetMap, © CARTO", label: "Fosc",        emoji: "🌑" },
+  darkmin:  { url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", attr: "© OpenStreetMap, © CARTO", label: "Fosc mínim", emoji: "⚫" },
+  voyager:  { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", attr: "© OpenStreetMap, © CARTO", label: "Voyager", emoji: "🗺" },
+  positron: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",     attr: "© OpenStreetMap, © CARTO", label: "Clar",        emoji: "☀" },
+  osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                  attr: "© OpenStreetMap",            label: "OSM clàssic", emoji: "🌍" },
+};
+
+// Skin → tile preferit
+const THEME_TO_TILE = {
+  normal: "dark", terror: "dark", neon: "dark", candy: "dark",
+  hacker: "darkmin", camo: "voyager",
+};
+
 export default function MapTab({
-  zones = [], probs = {}, nearby = [], thresh = 0.5,
-  selected, onSelect, theme = FALLBACK,
+  zones = [], probs = {},
+  selected, onSelect, theme = FALLBACK, themeName = "normal",
   detections = [],          // deteccions reals (per la capa 24h)
   radarPos = null,           // posició del radar si està actiu (estalvia geo)
 }) {
@@ -74,7 +96,6 @@ export default function MapTab({
   const sel = zones.find((z) => z.id === selected);
   const target = sel ? [sel.lat, sel.lng] : null;
   const points = zones.map((z) => [z.lat, z.lng]);
-  const distOf = (id) => nearby.find((n) => n.id === id)?.dist;
 
   const [showDets, setShowDets] = useState(true);     // capa deteccions 24h
   const [showLegend, setShowLegend] = useState(true);
@@ -83,6 +104,34 @@ export default function MapTab({
   const [following, setFollowing] = useState(false);  // seguiment continu
   const [mapInstance, setMapInstance] = useState(null);
   const watchRef = useRef(null);
+
+  // Tile actiu: override de l'usuari (localStorage) o el per defecte del skin
+  const [tileKey, setTileKey] = useState(() => {
+    try {
+      const saved = localStorage.getItem("pt_map_tile");
+      if (saved && TILE_SETS[saved]) return saved;
+    } catch {}
+    return THEME_TO_TILE[themeName] || "dark";
+  });
+  // Quan canvia el skin i l'usuari no ha forçat tile, segueix el del skin
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("pt_map_tile");
+      if (!saved) setTileKey(THEME_TO_TILE[themeName] || "dark");
+    } catch {}
+  }, [themeName]);
+  const setTile = (k) => {
+    setTileKey(k);
+    try { localStorage.setItem("pt_map_tile", k); } catch {}
+  };
+  const resetTile = () => {
+    try { localStorage.removeItem("pt_map_tile"); } catch {}
+    setTileKey(THEME_TO_TILE[themeName] || "dark");
+  };
+  const [showTilePicker, setShowTilePicker] = useState(false);
+  const currentTile = TILE_SETS[tileKey] || TILE_SETS.dark;
+  // Distància de l'usuari a una zona (per al popup)
+  const distOf = (z) => userPos ? Math.round(distKm(userPos.lat, userPos.lng, z.lat, z.lng) * 10) / 10 : null;
 
   // Sincronitza amb la posició del radar si el radar està actiu
   useEffect(() => {
@@ -217,7 +266,7 @@ export default function MapTab({
       `}</style>
 
       <MapContainer center={[41.95, 0.95]} zoom={8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+        <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} />
         <MapHandle onReady={setMapInstance} />
         <FitAll points={points} />
         <FlyTo target={target} />
@@ -227,7 +276,7 @@ export default function MapTab({
           const pct = Math.round((probs[z.id] || 0) * 100);
           const risk = (probs[z.id] || 0) >= thresh;
           const c = [z.lat, z.lng];
-          const d = distOf(z.id);
+          const d = distOf(z);
           return (
             <Fragment key={z.id}>
               {risk && (
@@ -294,6 +343,23 @@ export default function MapTab({
         <button className={`pt-mapbtn${showDets ? " active" : ""}`} onClick={() => setShowDets((v) => !v)} title="Capa deteccions 24h">
           {showDets ? "● 24h" : "○ 24h"}
         </button>
+        <button className="pt-mapbtn" onClick={() => setShowTilePicker((v) => !v)} title="Estil del mapa">
+          {currentTile.emoji} {currentTile.label.length > 8 ? currentTile.label.substring(0, 7) + "…" : currentTile.label}
+        </button>
+        {showTilePicker && (
+          <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: 6, boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
+            {Object.entries(TILE_SETS).map(([k, ts]) => (
+              <button key={k} onClick={() => { setTile(k); setShowTilePicker(false); }}
+                style={{ background: tileKey === k ? t.accent : "transparent", color: tileKey === k ? t.bg : t.text, border: "none", padding: "6px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", display: "flex", gap: 6, alignItems: "center" }}>
+                <span>{ts.emoji}</span><span>{ts.label}</span>
+              </button>
+            ))}
+            <button onClick={() => { resetTile(); setShowTilePicker(false); }}
+              style={{ background: "transparent", color: t.textDim, border: `1px dashed ${t.border}`, padding: "5px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginTop: 2 }}>
+              ↻ Seguir el skin
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Error de localització */}
