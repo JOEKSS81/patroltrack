@@ -9,6 +9,30 @@ export interface Env {
   DB: D1Database;
   INGEST_TOKEN?: string; // secret per autenticar /api/ingest (vegeu README)
   TELEGRAM_WEBHOOK_SECRET?: string; // secret que valida que el webhook és de Telegram
+  TELEGRAM_BOT_TOKEN?: string; // token del bot (opcional) — necessari només per /api/telegram-status
+}
+
+// Registra un hit al webhook de Telegram per al panell de diagnòstic.
+// Best-effort: si el INSERT falla, ho ignorem (no volem que un error de log
+// trenqui la resposta al webhook).
+async function logTelegramHit(
+  env: Env,
+  outcome: string,
+  details: { reason?: string; chat_id?: string | number; chat_title?: string; text?: string } = {},
+): Promise<void> {
+  try {
+    await env.DB.prepare(`
+      INSERT INTO telegram_hits (received_at, outcome, reason, chat_id, chat_title, text_preview)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).bind(
+      new Date().toISOString(),
+      outcome,
+      details.reason ?? null,
+      details.chat_id != null ? String(details.chat_id) : null,
+      details.chat_title ?? null,
+      details.text ? details.text.slice(0, 100) : null,
+    ).run();
+  } catch { /* swallow */ }
 }
 
 // -- utilitats ------------------------------------------------------------
@@ -205,17 +229,22 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
 // desa només per visualització i pot contenir emojis sense problema.
 async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> {
   if (!env.TELEGRAM_WEBHOOK_SECRET) {
+    await logTelegramHit(env, "auth_missing");
     return json({ ok: false, reason: "TELEGRAM_WEBHOOK_SECRET no configurat" }, 500);
   }
   const got = req.headers.get("x-telegram-bot-api-secret-token");
   if (got !== env.TELEGRAM_WEBHOOK_SECRET) {
+    await logTelegramHit(env, "auth_fail", { reason: got ? "secret diferent" : "header absent" });
     // Important: 200 i ok:false perquè Telegram no reintenti en bucle.
     return json({ ok: false, reason: "secret invàlid" }, 200);
   }
 
   let update: any;
   try { update = await req.json(); }
-  catch { return json({ ok: true, ignored: "JSON invàlid" }); }
+  catch {
+    await logTelegramHit(env, "json_error");
+    return json({ ok: true, ignored: "JSON invàlid" });
+  }
 
   // Telegram envia diferents tipus d'updates. Ens interessen els que tenen text:
   // message, edited_message, channel_post, edited_channel_post.
@@ -223,10 +252,17 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
            || update?.edited_message
            || update?.channel_post
            || update?.edited_channel_post;
-  if (!msg) return json({ ok: true, ignored: "no és un missatge" });
+  if (!msg) {
+    await logTelegramHit(env, "ignored_no_msg", { reason: `update_keys=${Object.keys(update || {}).join(",")}` });
+    return json({ ok: true, ignored: "no és un missatge" });
+  }
 
   const text: string = msg.text || msg.caption || "";
-  if (!text || text.trim().length < 5) return json({ ok: true, ignored: "missatge buit/curt" });
+  const chatPreview = msg.chat?.title || msg.chat?.username || (msg.chat?.id ? `chat:${msg.chat.id}` : "?");
+  if (!text || text.trim().length < 5) {
+    await logTelegramHit(env, "ignored_short", { chat_id: msg.chat?.id, chat_title: chatPreview, text });
+    return json({ ok: true, ignored: "missatge buit/curt" });
+  }
 
   const chat = msg.chat || {};
   const chatId: number | string = chat.id ?? "?";
@@ -244,7 +280,10 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const groupName = `${chatTitle} (${chatId})${topicSuffix}`.slice(0, 200);
 
   const info = extractPatrolInfo(text, "telegram");
-  if (!info) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
+  if (!info) {
+    await logTelegramHit(env, "rejected_no_patrol", { chat_id: chatId, chat_title: chatTitle, text });
+    return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
+  }
 
   const now = new Date();
   const { hour, dow } = lleidaHourAndDow(now);
@@ -261,6 +300,8 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
     info.confidence, info.lat, info.lng,
   ).run();
 
+  await logTelegramHit(env, "stored", { chat_id: chatId, chat_title: chatTitle, text });
+
   return json({
     ok: true,
     stored: true,
@@ -268,6 +309,65 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
     patrol_type: info.patrol_type,
     zone_norm: info.zone_norm,
     chat_id: chatId,
+  });
+}
+
+// GET /api/telegram-status — panell de diagnòstic per al frontend.
+// Torna:
+//   - secret_configured: bool (TELEGRAM_WEBHOOK_SECRET present al worker)
+//   - bot_token_configured: bool (TELEGRAM_BOT_TOKEN present)
+//   - hits_24h: per outcome ({stored, rejected_no_patrol, auth_fail, ...})
+//   - last_hit: { received_at, outcome, chat_title } | null
+//   - webhook_info: resposta de l'API getWebhookInfo de Telegram (si tenim el bot token)
+async function handleTelegramStatus(env: Env): Promise<Response> {
+  const secretConfigured = !!env.TELEGRAM_WEBHOOK_SECRET;
+  const botTokenConfigured = !!env.TELEGRAM_BOT_TOKEN;
+
+  // Comptadors per outcome a les últimes 24h
+  const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const counts: Record<string, number> = {};
+  let lastHit: { received_at: string; outcome: string; chat_title: string | null; reason: string | null; text_preview: string | null } | null = null;
+  try {
+    const rs = await env.DB.prepare(
+      "SELECT outcome, COUNT(*) AS n FROM telegram_hits WHERE received_at > ? GROUP BY outcome"
+    ).bind(cutoff).all<{ outcome: string; n: number }>();
+    for (const r of rs.results ?? []) counts[r.outcome] = r.n;
+
+    const last = await env.DB.prepare(
+      "SELECT received_at, outcome, chat_title, reason, text_preview FROM telegram_hits ORDER BY received_at DESC LIMIT 1"
+    ).first<{ received_at: string; outcome: string; chat_title: string | null; reason: string | null; text_preview: string | null }>();
+    lastHit = last ?? null;
+  } catch (e) {
+    return json({ ok: false, reason: "DB error: " + (e as Error).message }, 500);
+  }
+
+  // Consulta a Telegram per saber l'estat del webhook (si tenim el token)
+  let webhookInfo: any = null;
+  let webhookError: string | null = null;
+  if (env.TELEGRAM_BOT_TOKEN) {
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`);
+      const data = await r.json() as any;
+      if (data?.ok) {
+        webhookInfo = data.result;
+      } else {
+        webhookError = data?.description || "Telegram API error";
+      }
+    } catch (e) {
+      webhookError = (e as Error).message;
+    }
+  } else {
+    webhookError = "TELEGRAM_BOT_TOKEN no configurat — afegeix-lo amb `wrangler secret put TELEGRAM_BOT_TOKEN`";
+  }
+
+  return json({
+    ok: true,
+    secret_configured: secretConfigured,
+    bot_token_configured: botTokenConfigured,
+    hits_24h: counts,
+    last_hit: lastHit,
+    webhook_info: webhookInfo,
+    webhook_error: webhookError,
   });
 }
 
@@ -312,6 +412,7 @@ export default {
       if (req.method === "GET" && path === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && path === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "POST" && path === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
+      if (req.method === "GET" && path === "/api/telegram-status") return await handleTelegramStatus(env);
       if (req.method === "POST" && path === "/api/detections/delete-by-group") return await handleDeleteByGroup(env, req);
 
       // Endpoint senzill per provar que el Worker corre

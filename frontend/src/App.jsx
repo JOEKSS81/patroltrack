@@ -752,6 +752,20 @@ export default function App(){
   const [reporting,setReporting]=useState(false);
   const [reportResult,setReportResult]=useState(null);
 
+  // Diagnòstic Telegram
+  const [tgStatus,setTgStatus]=useState(null);
+  const [tgLoading,setTgLoading]=useState(false);
+  const checkTelegramStatus=async()=>{
+    setTgLoading(true);
+    try{
+      const r=await fetch(`${API}/api/telegram-status`,{cache:"no-store"});
+      const data=await r.json();
+      setTgStatus(data);
+    }catch(e){
+      setTgStatus({ok:false,reason:e.message||"Error de xarxa"});
+    }finally{setTgLoading(false);}
+  };
+
   const sendReport=async()=>{
     if(!apiToken){setReportResult({ok:false,reason:"Configura el token a la pestanya Configuració primer"});return;}
     if(!reportMsg.trim()){setReportResult({ok:false,reason:"Escriu o enganxa un missatge"});return;}
@@ -1397,6 +1411,115 @@ export default function App(){
                     </div>
                   );
                 })
+              )}
+            </div>
+
+            {/* 🔍 Estat Telegram — diagnòstic */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:17,fontWeight:700,color:C.accent}}>🔍 Estat Telegram</div>
+                <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
+                  {tgLoading?"Comprovant…":"Comprovar"}
+                </button>
+              </div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:tgStatus?12:0,lineHeight:1.5}}>
+                Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Comprova hits del webhook, secret i configuració.
+              </div>
+              {tgStatus&&(
+                tgStatus.ok===false?(
+                  <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,fontSize:13,color:C.danger}}>
+                    ✗ Error: {tgStatus.reason||"desconegut"}
+                  </div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {/* Configuració */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Configuració del worker</div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+                        <span style={{color:C.textDim}}>Webhook secret</span>
+                        <span style={{color:tgStatus.secret_configured?C.success:C.danger,fontWeight:700}}>{tgStatus.secret_configured?"✓ configurat":"✗ falta"}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                        <span style={{color:C.textDim}}>Bot token</span>
+                        <span style={{color:tgStatus.bot_token_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.bot_token_configured?"✓ configurat":"⚠ falta"}</span>
+                      </div>
+                      {!tgStatus.bot_token_configured&&(
+                        <div style={{fontSize:11,color:C.warning,marginTop:8,lineHeight:1.5}}>
+                          Per veure l'estat del webhook a Telegram, afegeix el token del bot com a secret:<br/>
+                          <code style={{background:C.surface,padding:"2px 5px",borderRadius:3,fontSize:11,color:C.text}}>wrangler secret put TELEGRAM_BOT_TOKEN</code>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hits 24h */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Hits al webhook (últimes 24h)</div>
+                      {Object.keys(tgStatus.hits_24h||{}).length===0?(
+                        <div style={{fontSize:13,color:C.danger}}>⚠ Cap hit en 24h — Telegram no està arribant al worker</div>
+                      ):(
+                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                          {Object.entries(tgStatus.hits_24h).map(([outcome,n])=>{
+                            const labels={stored:["✓ Guardats",C.success],rejected_no_patrol:["⊘ Rebutjats (no parlen de patrulles)",C.warning],ignored_short:["… Missatges molt curts",C.textDim],ignored_no_msg:["… Updates sense text",C.textDim],auth_fail:["✗ Secret invàlid",C.danger],auth_missing:["✗ Secret no configurat",C.danger],json_error:["✗ JSON invàlid",C.danger]};
+                            const[lbl,col]=labels[outcome]||[outcome,C.textDim];
+                            return(
+                              <div key={outcome} style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                                <span style={{color:col}}>{lbl}</span>
+                                <span style={{color:col,fontWeight:700}}>{n}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {tgStatus.last_hit&&(
+                        <div style={{fontSize:11,color:C.textMuted,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                          Últim hit: {new Date(tgStatus.last_hit.received_at).toLocaleString("ca-ES")} · <b style={{color:C.textDim}}>{tgStatus.last_hit.outcome}</b>
+                          {tgStatus.last_hit.chat_title&&<><br/>Grup: {tgStatus.last_hit.chat_title}</>}
+                          {tgStatus.last_hit.text_preview&&<><br/><i>"{tgStatus.last_hit.text_preview}"</i></>}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Webhook info */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Webhook registrat a Telegram</div>
+                      {tgStatus.webhook_info?(
+                        <div style={{fontSize:13,display:"flex",flexDirection:"column",gap:3}}>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>URL</span>
+                            <span style={{color:tgStatus.webhook_info.url?C.success:C.danger,fontWeight:700,fontSize:11,wordBreak:"break-all",textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.url||"(cap)"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Pending updates</span>
+                            <span style={{color:tgStatus.webhook_info.pending_update_count>0?C.warning:C.text,fontWeight:700}}>{tgStatus.webhook_info.pending_update_count||0}</span>
+                          </div>
+                          {tgStatus.webhook_info.last_error_date&&(
+                            <div style={{display:"flex",justifyContent:"space-between"}}>
+                              <span style={{color:C.danger}}>Últim error</span>
+                              <span style={{color:C.danger,fontWeight:700,fontSize:11,textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.last_error_message||"?"}</span>
+                            </div>
+                          )}
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Allowed updates</span>
+                            <span style={{color:C.text,fontSize:11,textAlign:"right"}}>{(tgStatus.webhook_info.allowed_updates||[]).join(", ")||"(tots)"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Té secret</span>
+                            <span style={{color:tgStatus.webhook_info.has_custom_certificate||tgStatus.secret_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.secret_configured?"✓":"⚠ comprova"}</span>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{fontSize:12,color:C.warning,lineHeight:1.5}}>{tgStatus.webhook_error||"no disponible"}</div>
+                      )}
+                    </div>
+
+                    {/* Pista útil */}
+                    {tgStatus.hits_24h&&!tgStatus.hits_24h.stored&&!tgStatus.hits_24h.rejected_no_patrol&&!tgStatus.hits_24h.ignored_short&&(
+                      <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,fontSize:12,color:C.warning,lineHeight:1.5}}>
+                        💡 <b>El webhook no està rebent missatges normals.</b> Causa més probable: <b>privacy mode</b> del bot. Ves a <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={{color:C.warning,textDecoration:"underline"}}>@BotFather</a> → /mybots → @{botUsername} → Bot Settings → Group Privacy → <b>Disable</b>. Després envia /promote o treu i torna a afegir el bot al grup perquè es refresqui.
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </div>
 
