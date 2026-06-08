@@ -70,6 +70,35 @@ export default function App(){
     setApiTokenRaw(t);
     try{ if(t) localStorage.setItem("pt_token",t); else localStorage.removeItem("pt_token"); }catch{}
   };
+  const [showToken,setShowToken]=useState(false);
+  const [tokenCopied,setTokenCopied]=useState(false);
+
+  // Genera un token nou de 64 caràcters hex (256 bits) via Web Crypto API.
+  // Es desa al localStorage automàticament. L'usuari haurà de plantar-lo al
+  // worker amb `npx wrangler secret put INGEST_TOKEN`.
+  const generateNewToken=()=>{
+    const arr=new Uint8Array(32);
+    crypto.getRandomValues(arr);
+    const hex=Array.from(arr).map(b=>b.toString(16).padStart(2,"0")).join("");
+    setApiToken(hex);
+    setShowToken(true);
+    // Auto-copia per facilitar el setup
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(hex).then(()=>{
+        setTokenCopied(true);
+        setTimeout(()=>setTokenCopied(false),2500);
+      }).catch(()=>{});
+    }
+  };
+  const copyToken=()=>{
+    if(!apiToken)return;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(apiToken).then(()=>{
+        setTokenCopied(true);
+        setTimeout(()=>setTokenCopied(false),2500);
+      }).catch(()=>{});
+    }
+  };
 
   // Telegram bot username ---------------------------------------------------
   const [botUsername,setBotUsernameRaw]=useState(()=>{
@@ -713,21 +742,73 @@ export default function App(){
               </div>
             </div>
 
-            {/* 🔑 Token per reportar */}
+            {/* 🔑 Token API — un sol token per a "+ Reportar", esborrar grups, i integracions externes (WhatsApp via Tasker, etc.) */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token per reportar</div>
-              <div style={{fontSize:14,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                Necessari per al botó "+ Reportar". És el token que vas configurar al Worker amb <code style={{background:C.bg,padding:"2px 6px",borderRadius:3,fontSize:13}}>npm run secret:set</code>. Es guarda només al teu navegador.
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token API</div>
+              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                Un únic token autentica totes les escriptures al backend: el botó "+", esborrar grups, integracions externes (WhatsApp, Tasker, Zapier…). Es guarda només al teu navegador.
               </div>
               <input
-                type="password"
+                type={showToken?"text":"password"}
                 value={apiToken}
                 onChange={e=>setApiToken(e.target.value)}
-                placeholder="Enganxa aquí el token (64 caràcters hex)"
-                style={{...ss,boxSizing:"border-box",fontFamily:"monospace",fontSize:14,padding:"12px 14px"}}
+                placeholder="Enganxa aquí el token o genera'n un de nou"
+                style={{...ss,boxSizing:"border-box",fontFamily:"monospace",fontSize:13,padding:"12px 14px",letterSpacing:apiToken?"-0.02em":"normal"}}
               />
-              <div style={{fontSize:13,color:apiToken?C.success:C.warning,marginTop:8}}>
-                {apiToken?`✓ Token configurat (${apiToken.length} caràcters)`:"⚠ Sense token: el botó de reportar no funcionarà"}
+              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                <button onClick={generateNewToken} style={{flex:"1 1 130px",padding:"10px 12px",background:C.accent,color:C.bg,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  ✨ Generar nou
+                </button>
+                <button onClick={()=>setShowToken(v=>!v)} disabled={!apiToken} style={{flex:"1 1 100px",padding:"10px 12px",background:"transparent",color:apiToken?C.text:C.textMuted,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:apiToken?"pointer":"not-allowed",fontFamily:"inherit"}}>
+                  {showToken?"🙈 Amagar":"👁 Mostrar"}
+                </button>
+                <button onClick={copyToken} disabled={!apiToken} style={{flex:"1 1 100px",padding:"10px 12px",background:tokenCopied?C.success:"transparent",color:tokenCopied?"#fff":apiToken?C.text:C.textMuted,border:`1px solid ${tokenCopied?C.success:C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:apiToken?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s"}}>
+                  {tokenCopied?"✓ Copiat":"📋 Copiar"}
+                </button>
+              </div>
+              <div style={{fontSize:13,color:apiToken?C.success:C.warning,marginTop:10}}>
+                {apiToken?`✓ Token configurat al navegador (${apiToken.length} car.)`:"⚠ Sense token: el botó + i les integracions externes no funcionaran"}
+              </div>
+              {apiToken&&(
+                <div style={{marginTop:10,padding:10,background:`${C.warning}11`,border:`1px dashed ${C.warning}55`,borderRadius:8,fontSize:11,color:C.textDim,lineHeight:1.5}}>
+                  <b style={{color:C.warning}}>Pas important:</b> per què el backend l'accepti, has de plantar-lo també al worker un sol cop:
+                  <div style={{marginTop:6,padding:"6px 8px",background:C.bg,borderRadius:4,fontFamily:"monospace",fontSize:11,color:C.text,wordBreak:"break-all"}}>
+                    cd cloudflare && npx wrangler secret put INGEST_TOKEN
+                  </div>
+                  <div style={{marginTop:4}}>Quan ho demani, enganxa el token (el de dalt; toca "📋 Copiar" primer).</div>
+                </div>
+              )}
+            </div>
+
+            {/* 📱 Integració WhatsApp / Tasker */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>📱 WhatsApp / Tasker</div>
+              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
+                WhatsApp <b>no</b> té webhook gratuït com Telegram. Per automatitzar-ho cal una app intermèdia al telèfon que detecti notificacions de WhatsApp i faci una crida POST al worker. Opcions:
+              </div>
+              <ul style={{margin:"0 0 12px 18px",padding:0,fontSize:13,color:C.text,lineHeight:1.6}}>
+                <li><b>HTTP Shortcuts</b> (F-Droid, recomanat per al teu Huawei sense Play) — botó manual al telèfon per enviar el text seleccionat.</li>
+                <li><b>Tasker</b> (APK del web oficial) — automàtic per cada notificació de WhatsApp.</li>
+                <li><b>Manual</b> — botó "+" dins l'app (copia-enganxa el missatge).</li>
+              </ul>
+
+              <div style={{fontSize:12,color:C.textDim,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Configuració de la crida POST</div>
+              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10,fontSize:11,fontFamily:"monospace",color:C.text,lineHeight:1.5,overflowX:"auto",whiteSpace:"pre",wordBreak:"normal"}}>
+{`POST ${API||"https://patroltrack-api.patroltrack.workers.dev"}/api/ingest
+
+Headers:
+  content-type: application/json
+  x-ingest-token: ${apiToken?(showToken?apiToken:apiToken.substring(0,8)+"…"+apiToken.substring(apiToken.length-4)):"<el-teu-token>"}
+
+Body (JSON):
+  {
+    "message": "Mossos a la N-II km 45",
+    "source": "whatsapp",
+    "group_name": "Nom del grup"
+  }`}
+              </div>
+              <div style={{fontSize:11,color:C.textMuted,marginTop:8,lineHeight:1.5,fontStyle:"italic"}}>
+                Si la resposta és <b style={{color:C.success}}>{`{"ok":true,"stored":true}`}</b> el missatge s'ha desat. Si surt <b style={{color:C.warning}}>"stored":false</b> amb reason "no és una alerta de patrulla", l'extractor no l'ha reconegut (ha de contenir paraules clau com mossos, patrulla, km, rotonda, nom de zona…).
               </div>
             </div>
 
