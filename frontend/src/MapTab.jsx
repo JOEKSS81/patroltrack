@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, useMemo } from "react";
+import { Fragment, useEffect, useRef, useState, useMemo } from "react"; // eslint-disable-line no-unused-vars
 import { MapContainer, TileLayer, Marker, Popup, Circle, CircleMarker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -71,13 +71,15 @@ function distKm(a1, o1, a2, o2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Tile providers — tots gratuïts, sense API key
+// Tile providers — tots gratuïts, sense API key.
+// Sense `{r}` per evitar URLs malformades en navegadors que no actualitzen Leaflet:
+// el placeholder {r} només es substitueix si `detectRetina` està activat al TileLayer.
 const TILE_SETS = {
-  dark:     { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",      attr: "© OpenStreetMap, © CARTO", label: "Fosc",        emoji: "🌑" },
-  darkmin:  { url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", attr: "© OpenStreetMap, © CARTO", label: "Fosc mínim", emoji: "⚫" },
-  voyager:  { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", attr: "© OpenStreetMap, © CARTO", label: "Voyager", emoji: "🗺" },
-  positron: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",     attr: "© OpenStreetMap, © CARTO", label: "Clar",        emoji: "☀" },
-  osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                  attr: "© OpenStreetMap",            label: "OSM clàssic", emoji: "🌍" },
+  dark:     { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",      attr: "© OpenStreetMap, © CARTO", label: "Fosc",        emoji: "🌑" },
+  darkmin:  { url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png", attr: "© OpenStreetMap, © CARTO", label: "Fosc mínim", emoji: "⚫" },
+  voyager:  { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", attr: "© OpenStreetMap, © CARTO", label: "Voyager", emoji: "🗺" },
+  positron: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",     attr: "© OpenStreetMap, © CARTO", label: "Clar",        emoji: "☀" },
+  osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                attr: "© OpenStreetMap",            label: "OSM clàssic", emoji: "🌍" },
 };
 
 // Skin → tile preferit
@@ -89,8 +91,9 @@ const THEME_TO_TILE = {
 export default function MapTab({
   zones = [], probs = {},
   selected, onSelect, theme = FALLBACK, themeName = "normal",
-  detections = [],          // deteccions reals (per la capa 24h)
+  detections = [],           // deteccions reals (per la capa 24h)
   radarPos = null,           // posició del radar si està actiu (estalvia geo)
+  riskThreshold = 0.5,        // probabilitat (0..1) sobre la qual la zona es marca com a risc
 }) {
   const t = { ...FALLBACK, ...theme };
   const sel = zones.find((z) => z.id === selected);
@@ -266,7 +269,7 @@ export default function MapTab({
       `}</style>
 
       <MapContainer center={[41.95, 0.95]} zoom={8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
-        <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} />
+        <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} detectRetina={true} maxZoom={19} />
         <MapHandle onReady={setMapInstance} />
         <FitAll points={points} />
         <FlyTo target={target} />
@@ -274,7 +277,7 @@ export default function MapTab({
         {/* Pin zones + risc */}
         {zones.map((z) => {
           const pct = Math.round((probs[z.id] || 0) * 100);
-          const risk = (probs[z.id] || 0) >= thresh;
+          const risk = (probs[z.id] || 0) >= riskThreshold;
           const c = [z.lat, z.lng];
           const d = distOf(z);
           return (
@@ -385,7 +388,7 @@ export default function MapTab({
           <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", background: t.danger, display: "inline-block" }} />
-              <span>Zona de risc (≥{Math.round(thresh * 100)}%)</span>
+              <span>Zona de risc (≥{Math.round(riskThreshold * 100)}%)</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", background: t.accent, display: "inline-block" }} />
