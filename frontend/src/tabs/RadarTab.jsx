@@ -2,13 +2,16 @@ import { useC } from "../lib/themes";
 import { ptWith } from "../lib/constants";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
-export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
+export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap, riskThreshold = 0.4, setRiskThreshold }) {
   const C = useC();
   const PT = ptWith(C);
   const {
     active, pos, err, nearby, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, windowMin, setWindowMin, start, stop,
+    alertRadiusKm, windowMin, start, stop,
   } = radar;
+
+  const threshPct = Math.round(riskThreshold * 100);
+  const threshCol = riskThreshold > 0.6 ? C.danger : riskThreshold > 0.35 ? C.warning : C.success;
 
   return (
     <div>
@@ -27,34 +30,35 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
             <div style={{ color: C.textDim, marginTop: 2 }}>Precisió: ±{Math.round(pos.acc)}m</div>
           </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <span style={{ fontSize: 14, color: C.textDim }}>🔊 Lladruc d'alerta</span>
           <div onClick={toggleSound} style={{ width: 44, height: 24, borderRadius: 12, background: sound ? C.accent : C.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
             <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
           </div>
         </div>
-        <div style={{ marginBottom: 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Radi d'alerta</span>
-            <span style={{ fontSize: 14, color: C.accent, fontWeight: 700 }}>{alertRadiusKm} km</span>
-          </div>
-          <input type="range" min={1} max={20} value={alertRadiusKm} onChange={e => setAlertRadiusKm(Number(e.target.value))} style={{ width: "100%", accentColor: C.accent }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>Just al costat</span><span>Comarca sencera</span>
-          </div>
-        </div>
+
+        {/* Llindar de risc (% probabilitat per marcar zones en vermell al mapa) */}
         <div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Finestra recent</span>
-            <span style={{ fontSize: 14, color: C.accent, fontWeight: 700 }}>{windowMin} min</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <span style={{ fontSize: 14, color: C.textDim }}>Llindar de risc al mapa</span>
+            <span style={{ fontSize: 18, fontWeight: 900, color: threshCol }}>{threshPct}%</span>
           </div>
-          <input type="range" min={15} max={240} step={15} value={windowMin} onChange={e => setWindowMin(Number(e.target.value))} style={{ width: "100%", accentColor: C.accent }} />
+          <input
+            type="range" min={10} max={80} step={5}
+            value={threshPct}
+            onChange={e => setRiskThreshold && setRiskThreshold(Number(e.target.value) / 100)}
+            style={{ width: "100%", accentColor: threshCol }}
+          />
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>15 min</span><span>4h</span>
+            <span>Molt sensible (10%)</span><span>Molt estricte (80%)</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.textDim, marginTop: 8, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "6px 10px" }}>
+            Les zones del mapa es marquen en <b style={{ color: C.danger }}>vermell</b> quan la probabilitat de patrulla supera el <b style={{ color: threshCol }}>{threshPct}%</b>. Baixa el percentatge per rebre alertes més aviat; puja'l per filtrar les zones amb poca activitat.
           </div>
         </div>
+
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-          ↳ Alerta quan una <b style={{ color: C.textDim }}>detecció real</b> apareix dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> teus en els darrers <b style={{ color: C.textDim }}>{windowMin} min</b>.
+          ↳ El radar activa el lladruc quan una <b style={{ color: C.textDim }}>detecció real</b> apareix a menys de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> teus en els darrers <b style={{ color: C.textDim }}>{windowMin} min</b>.
         </div>
       </div>
 

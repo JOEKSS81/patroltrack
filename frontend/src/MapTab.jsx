@@ -179,6 +179,23 @@ export default function MapTab({
   }, [detections, zones]);
 
   const [locating, setLocating] = useState(false);
+  const autoLocatedRef = useRef(false);
+
+  // Auto-centra al GPS de l'usuari quan el mapa és llest (una sola vegada, silenciós si falla)
+  useEffect(() => {
+    if (!mapInstance || autoLocatedRef.current || !navigator.geolocation) return;
+    autoLocatedRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        setUserPos(np);
+        const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
+        mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 1.2 });
+      },
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
+    );
+  }, [mapInstance]);
 
   const errMsg = (e) => {
     if (!e) return "Error desconegut";
