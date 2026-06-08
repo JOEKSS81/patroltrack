@@ -101,7 +101,8 @@ export default function MapTab({
   const points = zones.map((z) => [z.lat, z.lng]);
 
   const [showDets, setShowDets] = useState(true);     // capa deteccions 24h
-  const [showLegend, setShowLegend] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);    // per defecte plegada, ocupa menys
+  const [showTools, setShowTools] = useState(false);      // barra d'eines plegada per defecte
   const [userPos, setUserPos] = useState(null);       // {lat,lng,acc}
   const [locErr, setLocErr] = useState(null);
   const [following, setFollowing] = useState(false);  // seguiment continu
@@ -323,41 +324,53 @@ export default function MapTab({
         )}
       </MapContainer>
 
-      {/* Controls flotants — top-right. Etiquetes en català per ser autoexplicatives. */}
-      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch" }}>
-        <button className="pt-mapbtn" onClick={locate} disabled={locating}
-          title="Centra el mapa a la teva posició GPS actual">
-          {locating ? <><span>⏳</span><span>Buscant GPS…</span></> : <><span>📍</span><span>On soc</span></>}
+      {/* Barra d'eines — col·lapsada per defecte (només el botó ≡), s'expandeix al tocar.
+          Així el mapa té tota la pantalla per ell i les eines no l'envaeixen. */}
+      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+        <button
+          className={`pt-mapbtn${showTools ? " active" : ""}`}
+          onClick={() => setShowTools((v) => !v)}
+          title="Eines del mapa"
+          aria-label="Eines del mapa"
+          style={{ minWidth: 38, justifyContent: "center" }}
+        >
+          {showTools ? "✕" : "≡"}
         </button>
-        <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow}
-          title={following ? "Para de seguir-te" : "El mapa et seguirà mentre et mous"}>
-          {following ? <><span>●</span><span>Seguint</span></> : <><span>○</span><span>Seguir-me</span></>}
-        </button>
-        <button className="pt-mapbtn" onClick={fitAll}
-          title="Enquadra el mapa per veure totes les zones de Lleida">
-          <span>⤢</span><span>Veure-ho tot</span>
-        </button>
-        <button className={`pt-mapbtn${showDets ? " active" : ""}`} onClick={() => setShowDets((v) => !v)}
-          title="Mostra els punts de les deteccions reals de les últimes 24 hores">
-          <span>{showDets ? "●" : "○"}</span><span>Avui (24h)</span>
-        </button>
-        <button className="pt-mapbtn" onClick={() => setShowTilePicker((v) => !v)}
-          title="Canvia l'estil del mapa (fosc, clar, etc.)">
-          <span>{currentTile.emoji}</span><span>Estil mapa</span>
-        </button>
-        {showTilePicker && (
-          <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: 6, boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
-            {Object.entries(TILE_SETS).map(([k, ts]) => (
-              <button key={k} onClick={() => { setTile(k); setShowTilePicker(false); }}
-                style={{ background: tileKey === k ? t.accent : "transparent", color: tileKey === k ? t.bg : t.text, border: "none", padding: "6px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", display: "flex", gap: 6, alignItems: "center" }}>
-                <span>{ts.emoji}</span><span>{ts.label}</span>
-              </button>
-            ))}
-            <button onClick={() => { resetTile(); setShowTilePicker(false); }}
-              style={{ background: "transparent", color: t.textDim, border: `1px dashed ${t.border}`, padding: "5px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginTop: 2 }}>
-              ↻ Auto (segons skin)
+        {showTools && (
+          <>
+            <button className="pt-mapbtn" onClick={locate} disabled={locating} title="Centra el mapa a la teva posició GPS actual">
+              {locating ? "⏳ Buscant…" : "📍 Jo"}
             </button>
-          </div>
+            <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow}
+              title={following ? "Para de seguir-te" : "El mapa et seguirà mentre et mous"}>
+              {following ? "● Seguint" : "○ Seguir"}
+            </button>
+            <button className="pt-mapbtn" onClick={fitAll} title="Enquadra el mapa per veure totes les zones de Lleida">
+              ⤢ Tot
+            </button>
+            <button className={`pt-mapbtn${showDets ? " active" : ""}`} onClick={() => setShowDets((v) => !v)}
+              title="Mostra/amaga les deteccions reals de les últimes 24h">
+              {showDets ? "● 24h" : "○ 24h"}
+            </button>
+            <button className="pt-mapbtn" onClick={() => setShowTilePicker((v) => !v)}
+              title="Canvia l'estil del mapa (fosc, clar, voyager…)">
+              {currentTile.emoji} Estil
+            </button>
+            {showTilePicker && (
+              <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: 6, boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
+                {Object.entries(TILE_SETS).map(([k, ts]) => (
+                  <button key={k} onClick={() => { setTile(k); setShowTilePicker(false); }}
+                    style={{ background: tileKey === k ? t.accent : "transparent", color: tileKey === k ? t.bg : t.text, border: "none", padding: "6px 8px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", textAlign: "left", display: "flex", gap: 6, alignItems: "center" }}>
+                    <span>{ts.emoji}</span><span>{ts.label}</span>
+                  </button>
+                ))}
+                <button onClick={() => { resetTile(); setShowTilePicker(false); }}
+                  style={{ background: "transparent", color: t.textDim, border: `1px dashed ${t.border}`, padding: "5px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginTop: 2 }}>
+                  ↻ Auto (segons skin)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -375,13 +388,14 @@ export default function MapTab({
         </div>
       )}
 
-      {/* Llegenda — bottom-left, plegable */}
-      <div style={{ position: "absolute", bottom: 10, left: 10, zIndex: 500, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: showLegend ? "8px 10px" : "6px 10px", fontSize: 11, color: t.textDim, boxShadow: "0 2px 8px rgba(0,0,0,.4)", maxWidth: 200 }}>
+      {/* Llegenda — bottom-left, plegable. Inclou explicació dels colors I dels botons. */}
+      <div style={{ position: "absolute", bottom: 10, left: 10, zIndex: 500, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: showLegend ? "8px 10px" : "6px 10px", fontSize: 11, color: t.textDim, boxShadow: "0 2px 8px rgba(0,0,0,.4)", maxWidth: 220 }}>
         <div onClick={() => setShowLegend((v) => !v)} style={{ cursor: "pointer", fontWeight: 700, color: t.text, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <span>Llegenda</span><span style={{ opacity: 0.6 }}>{showLegend ? "▼" : "▲"}</span>
+          <span>{showLegend ? "Llegenda" : "ⓘ Llegenda"}</span><span style={{ opacity: 0.6 }}>{showLegend ? "▼" : "▲"}</span>
         </div>
         {showLegend && (
           <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+            {/* Colors al mapa */}
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 10, height: 10, borderRadius: "50% 50% 50% 0", transform: "rotate(-45deg)", background: t.danger, display: "inline-block" }} />
               <span>Zona de risc (≥{Math.round(riskThreshold * 100)}%)</span>
@@ -416,6 +430,15 @@ export default function MapTab({
                 </div>
               </>
             )}
+
+            {/* Què fan els botons (≡ a dalt a la dreta) */}
+            <div style={{ height: 1, background: t.border, margin: "4px 0" }} />
+            <div style={{ fontWeight: 700, color: t.text, marginBottom: 2 }}>≡ Eines (a dalt a la dreta)</div>
+            <div><b style={{ color: t.text }}>📍 Jo</b> — centra al teu GPS</div>
+            <div><b style={{ color: t.text }}>○ Seguir</b> — segueix-te mentre et mous</div>
+            <div><b style={{ color: t.text }}>⤢ Tot</b> — veure totes les zones</div>
+            <div><b style={{ color: t.text }}>● 24h</b> — marca deteccions d'avui</div>
+            <div><b style={{ color: t.text }}>{currentTile.emoji} Estil</b> — canvia l'aspecte</div>
           </div>
         )}
       </div>
