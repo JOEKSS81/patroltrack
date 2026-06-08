@@ -72,6 +72,11 @@ export default function App(){
   };
   const [showToken,setShowToken]=useState(false);
   const [tokenCopied,setTokenCopied]=useState(false);
+  const [cmdCopied,setCmdCopied]=useState(false);
+  const [configCopied,setConfigCopied]=useState(false);
+  // Estat del test del token: null=no provat, "ok"=acceptat, "wrong"=rebutjat, "err"=xarxa, "testing"=loading
+  const [tokenTest,setTokenTest]=useState(null);
+  const [tokenTestMsg,setTokenTestMsg]=useState("");
 
   // Genera un token nou de 64 caràcters hex (256 bits) via Web Crypto API.
   // Es desa al localStorage automàticament. L'usuari haurà de plantar-lo al
@@ -97,6 +102,44 @@ export default function App(){
         setTokenCopied(true);
         setTimeout(()=>setTokenCopied(false),2500);
       }).catch(()=>{});
+    }
+  };
+  // Helper genèric per copiar al porta-retalls i mostrar feedback
+  const copyToClipboard=(text,setFlag)=>{
+    if(!text||!navigator.clipboard||!navigator.clipboard.writeText)return;
+    navigator.clipboard.writeText(text).then(()=>{
+      setFlag(true);
+      setTimeout(()=>setFlag(false),2500);
+    }).catch(()=>{});
+  };
+  // Prova que el token actual estigui acceptat pel worker. Envia un missatge
+  // de prova que NO serà classificat com a patrulla; si el token val tornarà
+  // ok:true,stored:false. Si no val tornarà 401.
+  const testToken=async()=>{
+    if(!apiToken){setTokenTest("wrong");setTokenTestMsg("Primer configura un token al pas 1");return;}
+    setTokenTest("testing");setTokenTestMsg("");
+    try{
+      const r=await fetch(`${API}/api/ingest`,{
+        method:"POST",
+        headers:{"content-type":"application/json","x-ingest-token":apiToken},
+        body:JSON.stringify({message:"ping de prova patroltrack",group_name:"test-config",source:"test"}),
+      });
+      if(r.status===401){
+        setTokenTest("wrong");
+        setTokenTestMsg("El servidor rebutja el token. Has fet el pas 2 amb el token actual?");
+        return;
+      }
+      const data=await r.json().catch(()=>null);
+      if(r.ok&&data&&data.ok){
+        setTokenTest("ok");
+        setTokenTestMsg("Tot correcte. Ja pots passar al pas 4.");
+      }else{
+        setTokenTest("err");
+        setTokenTestMsg(`Resposta inesperada: ${data?.reason||`HTTP ${r.status}`}`);
+      }
+    }catch(e){
+      setTokenTest("err");
+      setTokenTestMsg(`Error de xarxa: ${e.message||e}`);
     }
   };
 
@@ -742,75 +785,153 @@ export default function App(){
               </div>
             </div>
 
-            {/* 🔑 Token API — un sol token per a "+ Reportar", esborrar grups, i integracions externes (WhatsApp via Tasker, etc.) */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🔑 Token API</div>
-              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                Un únic token autentica totes les escriptures al backend: el botó "+", esborrar grups, integracions externes (WhatsApp, Tasker, Zapier…). Es guarda només al teu navegador.
-              </div>
-              <input
-                type={showToken?"text":"password"}
-                value={apiToken}
-                onChange={e=>setApiToken(e.target.value)}
-                placeholder="Enganxa aquí el token o genera'n un de nou"
-                style={{...ss,boxSizing:"border-box",fontFamily:"monospace",fontSize:13,padding:"12px 14px",letterSpacing:apiToken?"-0.02em":"normal"}}
-              />
-              <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
-                <button onClick={generateNewToken} style={{flex:"1 1 130px",padding:"10px 12px",background:C.accent,color:C.bg,border:"none",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                  ✨ Generar nou
-                </button>
-                <button onClick={()=>setShowToken(v=>!v)} disabled={!apiToken} style={{flex:"1 1 100px",padding:"10px 12px",background:"transparent",color:apiToken?C.text:C.textMuted,border:`1px solid ${C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:apiToken?"pointer":"not-allowed",fontFamily:"inherit"}}>
-                  {showToken?"🙈 Amagar":"👁 Mostrar"}
-                </button>
-                <button onClick={copyToken} disabled={!apiToken} style={{flex:"1 1 100px",padding:"10px 12px",background:tokenCopied?C.success:"transparent",color:tokenCopied?"#fff":apiToken?C.text:C.textMuted,border:`1px solid ${tokenCopied?C.success:C.border}`,borderRadius:8,fontSize:13,fontWeight:600,cursor:apiToken?"pointer":"not-allowed",fontFamily:"inherit",transition:"all .15s"}}>
-                  {tokenCopied?"✓ Copiat":"📋 Copiar"}
-                </button>
-              </div>
-              <div style={{fontSize:13,color:apiToken?C.success:C.warning,marginTop:10}}>
-                {apiToken?`✓ Token configurat al navegador (${apiToken.length} car.)`:"⚠ Sense token: el botó + i les integracions externes no funcionaran"}
-              </div>
-              {apiToken&&(
-                <div style={{marginTop:10,padding:10,background:`${C.warning}11`,border:`1px dashed ${C.warning}55`,borderRadius:8,fontSize:11,color:C.textDim,lineHeight:1.5}}>
-                  <b style={{color:C.warning}}>Pas important:</b> per què el backend l'accepti, has de plantar-lo també al worker un sol cop:
-                  <div style={{marginTop:6,padding:"6px 8px",background:C.bg,borderRadius:4,fontFamily:"monospace",fontSize:11,color:C.text,wordBreak:"break-all"}}>
-                    cd cloudflare && npx wrangler secret put INGEST_TOKEN
+            {/* 🔧 ASSISTENT — Configurar reports i WhatsApp en 4 passos */}
+            {(()=>{
+              // Estats per al wizard (derivats)
+              const step1Done = !!apiToken;                                  // token al navegador
+              const step3Done = tokenTest === "ok";                          // backend l'accepta
+              const wrangerCmd = "cd cloudflare && npx wrangler secret put INGEST_TOKEN";
+              const apiBase = API || "https://patroltrack-api.patroltrack.workers.dev";
+              const httpShortcutsConfig = `${apiBase}/api/ingest`;
+              const httpBody = `{"message":"%s","source":"whatsapp","group_name":"WhatsApp"}`;
+              // Estil reusable per a les targetes de pas
+              const stepCard = (n,title,done,disabled,children)=>(
+                <div style={{
+                  background:disabled?`${C.surface}88`:C.surface,
+                  borderRadius:12,padding:14,
+                  border:`1px solid ${done?C.success:C.border}`,
+                  marginBottom:10,
+                  opacity:disabled?0.55:1,
+                  transition:"all .2s",
+                }}>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:children?10:0}}>
+                    <div style={{
+                      width:28,height:28,borderRadius:"50%",flexShrink:0,
+                      background:done?C.success:disabled?C.border:C.accent,
+                      color:done||!disabled?C.bg:C.textDim,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:14,fontWeight:800,fontFamily:"inherit",
+                    }}>{done?"✓":n}</div>
+                    <div style={{fontSize:15,fontWeight:700,color:done?C.success:disabled?C.textDim:C.text,flex:1}}>{title}</div>
                   </div>
-                  <div style={{marginTop:4}}>Quan ho demani, enganxa el token (el de dalt; toca "📋 Copiar" primer).</div>
+                  {children}
                 </div>
-              )}
-            </div>
+              );
+              return(
+                <div style={{marginBottom:12}}>
+                  <div style={{fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,paddingLeft:4}}>
+                    🛠 Assistent · Reports manuals i WhatsApp
+                  </div>
 
-            {/* 📱 Integració WhatsApp / Tasker */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>📱 WhatsApp / Tasker</div>
-              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                WhatsApp <b>no</b> té webhook gratuït com Telegram. Per automatitzar-ho cal una app intermèdia al telèfon que detecti notificacions de WhatsApp i faci una crida POST al worker. Opcions:
-              </div>
-              <ul style={{margin:"0 0 12px 18px",padding:0,fontSize:13,color:C.text,lineHeight:1.6}}>
-                <li><b>HTTP Shortcuts</b> (F-Droid, recomanat per al teu Huawei sense Play) — botó manual al telèfon per enviar el text seleccionat.</li>
-                <li><b>Tasker</b> (APK del web oficial) — automàtic per cada notificació de WhatsApp.</li>
-                <li><b>Manual</b> — botó "+" dins l'app (copia-enganxa el missatge).</li>
-              </ul>
+                  {/* PAS 1 — Token al navegador */}
+                  {stepCard(1,"Crear el teu token secret",step1Done,false,(<>
+                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                      Aquest token és una contrasenya que protegeix el teu backend perquè ningú més no et pugui omplir l'app de deteccions falses. Es guarda només al teu navegador.
+                    </div>
+                    {!apiToken?(
+                      <button onClick={generateNewToken} style={{width:"100%",padding:"14px",background:C.accent,color:C.bg,border:"none",borderRadius:10,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 0 16px ${C.accent}55`}}>
+                        ✨ Generar el meu token
+                      </button>
+                    ):(<>
+                      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontFamily:"monospace",fontSize:12,color:C.text,wordBreak:"break-all",marginBottom:8}}>
+                        {showToken?apiToken:"•".repeat(Math.min(apiToken.length,48))}
+                      </div>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        <button onClick={()=>setShowToken(v=>!v)} style={{flex:"1 1 90px",padding:"8px 10px",background:"transparent",color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                          {showToken?"🙈 Amagar":"👁 Veure"}
+                        </button>
+                        <button onClick={copyToken} style={{flex:"1 1 90px",padding:"8px 10px",background:tokenCopied?C.success:"transparent",color:tokenCopied?"#fff":C.text,border:`1px solid ${tokenCopied?C.success:C.border}`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
+                          {tokenCopied?"✓ Copiat":"📋 Copiar"}
+                        </button>
+                        <button onClick={generateNewToken} style={{flex:"1 1 110px",padding:"8px 10px",background:"transparent",color:C.warning,border:`1px solid ${C.warning}66`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                          🔄 Generar nou
+                        </button>
+                      </div>
+                      <div style={{fontSize:11,color:C.success,marginTop:8}}>✓ Token guardat al navegador ({apiToken.length} caràcters)</div>
+                    </>)}
+                  </>))}
 
-              <div style={{fontSize:12,color:C.textDim,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.05em"}}>Configuració de la crida POST</div>
-              <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10,fontSize:11,fontFamily:"monospace",color:C.text,lineHeight:1.5,overflowX:"auto",whiteSpace:"pre",wordBreak:"normal"}}>
-{`POST ${API||"https://patroltrack-api.patroltrack.workers.dev"}/api/ingest
+                  {/* PAS 2 — Plantar al servidor (només si pas 1 fet) */}
+                  {stepCard(2,"Dir-li el token al servidor",false,!step1Done,(<>
+                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                      El servidor (Cloudflare Worker) ha de saber el mateix token que tu. Cal fer-ho un sol cop des d'un terminal del Mac.
+                    </div>
+                    <div style={{fontSize:12,color:C.text,marginBottom:6}}><b>1.</b> Copia aquesta comanda:</div>
+                    <div style={{display:"flex",gap:6,marginBottom:10}}>
+                      <div style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontFamily:"monospace",fontSize:11,color:C.text,wordBreak:"break-all"}}>
+                        {wrangerCmd}
+                      </div>
+                      <button onClick={()=>copyToClipboard(wrangerCmd,setCmdCopied)} style={{padding:"10px 12px",background:cmdCopied?C.success:C.accent,color:cmdCopied?"#fff":C.bg,border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0,transition:"all .15s",minWidth:80}}>
+                        {cmdCopied?"✓ Fet":"📋 Copiar"}
+                      </button>
+                    </div>
+                    <div style={{fontSize:12,color:C.text,marginBottom:6,lineHeight:1.5}}>
+                      <b>2.</b> Obre el Terminal del Mac (Cmd+Espai → "Terminal"), enganxa la comanda dins la carpeta del projecte i prem Enter.
+                    </div>
+                    <div style={{fontSize:12,color:C.text,marginBottom:6,lineHeight:1.5}}>
+                      <b>3.</b> Et demanarà el token. Toca <b>📋 Copiar</b> del pas 1, ve al Terminal, enganxa'l (Cmd+V) i prem Enter.
+                    </div>
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:8,fontStyle:"italic"}}>
+                      Quan vegis "Success! Uploaded secret for service patroltrack-api", passa al pas 3 per comprovar-ho.
+                    </div>
+                  </>))}
 
-Headers:
-  content-type: application/json
-  x-ingest-token: ${apiToken?(showToken?apiToken:apiToken.substring(0,8)+"…"+apiToken.substring(apiToken.length-4)):"<el-teu-token>"}
+                  {/* PAS 3 — Provar (només si pas 1 fet) */}
+                  {stepCard(3,"Comprovar que tot funciona",step3Done,!step1Done,(<>
+                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                      Envia una crida de prova al backend per confirmar que reconeix el teu token. Si fa mesos has fet el pas 2, no l'has de tornar a fer.
+                    </div>
+                    <button onClick={testToken} disabled={tokenTest==="testing"} style={{width:"100%",padding:"12px",background:tokenTest==="testing"?C.border:tokenTest==="ok"?C.success:tokenTest==="wrong"||tokenTest==="err"?C.danger:C.accent,color:tokenTest==="testing"?C.textDim:tokenTest==="ok"||tokenTest==="wrong"||tokenTest==="err"?"#fff":C.bg,border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:tokenTest==="testing"?"wait":"pointer",fontFamily:"inherit",transition:"all .15s"}}>
+                      {tokenTest==="testing"?"⏳ Comprovant…":tokenTest==="ok"?"✓ Funciona — prova un altre cop":"▶ Provar ara"}
+                    </button>
+                    {tokenTestMsg&&(
+                      <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,fontSize:12,lineHeight:1.5,
+                        background:tokenTest==="ok"?`${C.success}22`:`${C.danger}22`,
+                        border:`1px solid ${tokenTest==="ok"?C.success:C.danger}55`,
+                        color:tokenTest==="ok"?C.success:C.danger}}>
+                        {tokenTest==="ok"?"✓ ":"✗ "}{tokenTestMsg}
+                      </div>
+                    )}
+                  </>))}
 
-Body (JSON):
-  {
-    "message": "Mossos a la N-II km 45",
-    "source": "whatsapp",
-    "group_name": "Nom del grup"
-  }`}
-              </div>
-              <div style={{fontSize:11,color:C.textMuted,marginTop:8,lineHeight:1.5,fontStyle:"italic"}}>
-                Si la resposta és <b style={{color:C.success}}>{`{"ok":true,"stored":true}`}</b> el missatge s'ha desat. Si surt <b style={{color:C.warning}}>"stored":false</b> amb reason "no és una alerta de patrulla", l'extractor no l'ha reconegut (ha de contenir paraules clau com mossos, patrulla, km, rotonda, nom de zona…).
-              </div>
-            </div>
+                  {/* PAS 4 — WhatsApp (només si pas 3 fet) */}
+                  {stepCard(4,"Reenviar des de WhatsApp (opcional)",false,!step3Done,(<>
+                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                      WhatsApp no et pot enviar missatges directament a l'app (no té bots oberts com Telegram). La forma més senzilla al teu Huawei és <b>HTTP Shortcuts</b>:
+                    </div>
+                    <ol style={{margin:"0 0 12px 18px",padding:0,fontSize:12,color:C.text,lineHeight:1.7}}>
+                      <li>Instal·la <b>HTTP Shortcuts</b> des de F-Droid (és gratis i sense Google).</li>
+                      <li>Crea un Shortcut nou amb la configuració d'aquí sota.</li>
+                      <li>Quan vegis un missatge de patrulla a WhatsApp, copia'l (mantenir premut → Copiar) i toca el Shortcut.</li>
+                      <li>El Shortcut t'obrirà un quadre per enganxar el text i enviar-lo a l'app.</li>
+                    </ol>
+
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>Configuració del Shortcut</div>
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10,fontSize:11,fontFamily:"monospace",color:C.text,lineHeight:1.6,marginBottom:8}}>
+                      <div><span style={{color:C.textMuted}}>Mètode:</span> POST</div>
+                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>URL:</span> {httpShortcutsConfig}</div>
+                      <div><span style={{color:C.textMuted}}>Header 1:</span> content-type · application/json</div>
+                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>Header 2:</span> x-ingest-token · {showToken?apiToken:(apiToken?apiToken.substring(0,8)+"…"+apiToken.substring(apiToken.length-4):"<token>")}</div>
+                      <div><span style={{color:C.textMuted}}>Body type:</span> Custom text (JSON)</div>
+                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>Body:</span> {httpBody}</div>
+                      <div style={{fontSize:10,color:C.textMuted,marginTop:6}}>↳ HTTP Shortcuts substitueix <b>%s</b> pel text que enganxis al moment.</div>
+                    </div>
+
+                    <button onClick={()=>copyToClipboard(JSON.stringify({
+                      method:"POST",url:httpShortcutsConfig,
+                      headers:{"content-type":"application/json","x-ingest-token":apiToken},
+                      body:httpBody,
+                    },null,2),setConfigCopied)} style={{width:"100%",padding:"10px",background:configCopied?C.success:"transparent",color:configCopied?"#fff":C.accent,border:`1px solid ${configCopied?C.success:C.accent}`,borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
+                      {configCopied?"✓ Configuració copiada":"📋 Copiar configuració JSON"}
+                    </button>
+
+                    <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5,fontStyle:"italic"}}>
+                      Alternativa: <b>Tasker</b> (APK del web oficial) pot detectar automàticament cada notificació de WhatsApp i fer la crida sense que premis res — més potent però més complicat de configurar.
+                    </div>
+                  </>))}
+                </div>
+              );
+            })()}
 
             {/* ✈️ Telegram */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
