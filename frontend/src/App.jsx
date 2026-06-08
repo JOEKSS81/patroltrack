@@ -77,6 +77,13 @@ export default function App(){
   // Estat del test del token: null=no provat, "ok"=acceptat, "wrong"=rebutjat, "err"=xarxa, "testing"=loading
   const [tokenTest,setTokenTest]=useState(null);
   const [tokenTestMsg,setTokenTestMsg]=useState("");
+  // Fingerprint que el servidor té al INGEST_TOKEN. Es carrega automàticament
+  // quan el test falla, per veure si coincideix amb el del navegador.
+  const [serverFp,setServerFp]=useState(null);
+  // Fingerprint del token actual del navegador (mateix format: 4 primers + … + 4 últims)
+  const browserFp = apiToken && apiToken.length >= 8
+    ? `${apiToken.substring(0,4)}…${apiToken.substring(apiToken.length-4)}`
+    : null;
 
   // Genera un token nou de 64 caràcters hex (256 bits) via Web Crypto API.
   // Es desa al localStorage automàticament. L'usuari haurà de plantar-lo al
@@ -117,7 +124,7 @@ export default function App(){
   // ok:true,stored:false. Si no val tornarà 401.
   const testToken=async()=>{
     if(!apiToken){setTokenTest("wrong");setTokenTestMsg("Primer configura un token al pas 1");return;}
-    setTokenTest("testing");setTokenTestMsg("");
+    setTokenTest("testing");setTokenTestMsg("");setServerFp(null);
     try{
       const r=await fetch(`${API}/api/ingest`,{
         method:"POST",
@@ -126,7 +133,12 @@ export default function App(){
       });
       if(r.status===401){
         setTokenTest("wrong");
-        setTokenTestMsg("El servidor rebutja el token. Has fet el pas 2 amb el token actual?");
+        setTokenTestMsg("El servidor té un token diferent del que tens al navegador.");
+        // Carrega el fingerprint del servidor per ajudar a diagnosticar
+        try{
+          const fr=await fetch(`${API}/api/ingest-fingerprint`);
+          if(fr.ok){const fd=await fr.json();if(fd&&fd.ok)setServerFp(fd);}
+        }catch{}
         return;
       }
       const data=await r.json().catch(()=>null);
@@ -885,11 +897,41 @@ export default function App(){
                       {tokenTest==="testing"?"⏳ Comprovant…":tokenTest==="ok"?"✓ Funciona — prova un altre cop":"▶ Provar ara"}
                     </button>
                     {tokenTestMsg&&(
-                      <div style={{marginTop:8,padding:"8px 10px",borderRadius:8,fontSize:12,lineHeight:1.5,
+                      <div style={{marginTop:8,padding:"10px 12px",borderRadius:8,fontSize:12,lineHeight:1.5,
                         background:tokenTest==="ok"?`${C.success}22`:`${C.danger}22`,
                         border:`1px solid ${tokenTest==="ok"?C.success:C.danger}55`,
                         color:tokenTest==="ok"?C.success:C.danger}}>
                         {tokenTest==="ok"?"✓ ":"✗ "}{tokenTestMsg}
+                      </div>
+                    )}
+
+                    {/* Comparació visual quan el servidor rebutja */}
+                    {tokenTest==="wrong"&&serverFp&&(
+                      <div style={{marginTop:8,padding:"12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8}}>
+                        <div style={{fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔍 Diagnòstic</div>
+                        <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                            <span style={{color:C.textDim}}>📱 Al teu navegador</span>
+                            <span style={{fontFamily:"monospace",color:C.text,background:C.surface,padding:"2px 8px",borderRadius:4,fontWeight:700}}>{browserFp||"(buit)"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+                            <span style={{color:C.textDim}}>☁ Al servidor</span>
+                            <span style={{fontFamily:"monospace",color:C.text,background:C.surface,padding:"2px 8px",borderRadius:4,fontWeight:700}}>
+                              {serverFp.configured?serverFp.fingerprint:"(no configurat)"}
+                            </span>
+                          </div>
+                        </div>
+                        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:12,color:C.text,lineHeight:1.5}}>
+                          {!serverFp.configured?(
+                            <>El servidor no té cap token configurat. Has d'executar la comanda del <b>pas 2</b>.</>
+                          ):browserFp===serverFp.fingerprint?(
+                            <>Els fingerprints semblen iguals però el token complet no coincideix. Pot ser per espais o salts de línia al pegar. <b>Torna a fer el pas 2</b> amb cura.</>
+                          ):(
+                            <><b style={{color:C.warning}}>Són diferents</b> → tens un token al navegador que mai no has plantat al servidor. <br/>
+                            <b>Solució A</b> (recomanada): copia el token del pas 1 i torna a fer el pas 2 al Terminal. <br/>
+                            <b>Solució B</b>: si vols mantenir el token del servidor (<code style={{fontSize:11,background:C.surface,padding:"1px 4px",borderRadius:3}}>{serverFp.fingerprint}</code>), enganxa el seu valor complet al camp del pas 1 (l'has de tenir guardat d'algun lloc).</>
+                          )}
+                        </div>
                       </div>
                     )}
                   </>))}

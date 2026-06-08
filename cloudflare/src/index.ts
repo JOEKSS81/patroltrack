@@ -218,6 +218,20 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   });
 }
 
+// GET /api/ingest-fingerprint — diagnòstic. Torna els primers 4 + últims 4
+// caràcters del INGEST_TOKEN configurat al servidor, més la seva longitud.
+// Cap auth: filtrar 8 chars d'un token de 64 deixa 56 chars d'entropia (>2^224),
+// completament impossible d'endevinar. Serveix perquè l'usuari pugui comparar
+// el que té el navegador amb el que té el worker i detectar desincronia.
+async function handleIngestFingerprint(env: Env): Promise<Response> {
+  const t = env.INGEST_TOKEN;
+  if (!t) return json({ ok: true, configured: false });
+  const fp = t.length >= 8
+    ? `${t.substring(0, 4)}…${t.substring(t.length - 4)}`
+    : "(token massa curt)";
+  return json({ ok: true, configured: true, fingerprint: fp, length: t.length });
+}
+
 // POST /api/telegram-webhook — endpoint que rep updates del bot @Patrol_trackBot.
 // Telegram l'invoca cada cop que arriba un missatge a un grup on el bot és membre
 // (i amb privacy mode OFF al BotFather, també missatges no-comanda).
@@ -411,6 +425,7 @@ export default {
       if (req.method === "GET" && path === "/api/detections") return await handleDetections(env, url);
       if (req.method === "GET" && path === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && path === "/api/ingest") return await handleIngest(env, req);
+      if (req.method === "GET"  && path === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "POST" && path === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
       if (req.method === "GET" && path === "/api/telegram-status") return await handleTelegramStatus(env);
       if (req.method === "POST" && path === "/api/detections/delete-by-group") return await handleDeleteByGroup(env, req);
