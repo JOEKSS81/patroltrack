@@ -21,13 +21,26 @@ export const THEMES = {
     danger: "#ef4444", warning: "#f59e0b", success: "#84cc16",
   },
   camo: {
+    // Paleta woodland real (US M81): olive drab + forest green + dark brown + black khaki.
+    // Pensat per contrastar bé amb pins vermells del mapa sense semblar artificial.
     label: "Camuflatge", emoji: "🪖",
-    bg: "#1f2818", surface: "#2c3823", border: "#4d5e36",
-    accent: "#c5d18a", accentDim: "#c5d18a22", accentGlow: "#c5d18a66",
-    mossos: "#9ccc65", guardia: "#bcaaa4", local: "#d7ccc8",
-    text: "#f0f2dc", textDim: "#c4c8a8", textMuted: "#929679",
-    danger: "#d84747", warning: "#e8a52c", success: "#aed581",
-    pattern: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><rect width='160' height='160' fill='%231f2818'/><path d='M20,20 q30,-10 60,5 t60,15 q-30,20 -70,10 t-50,-30z' fill='%232c3823' opacity='0.6'/><path d='M-10,90 q40,-20 80,0 t80,10 q-30,30 -90,15 t-70,-25z' fill='%23394a23' opacity='0.5'/><ellipse cx='130' cy='130' rx='35' ry='20' fill='%23475a39' opacity='0.4'/><ellipse cx='40' cy='130' rx='25' ry='15' fill='%231a2210' opacity='0.5'/></svg>")`,
+    bg: "#2a2e1c",         // olive drab fosc (base)
+    surface: "#363a22",     // olive drab mitjà (cards)
+    border: "#54592e",      // olive verd-oliva (separadors)
+    accent: "#d4b56a",       // khaki/tan (focus principal — bo per contrastar)
+    accentDim: "#d4b56a22",
+    accentGlow: "#d4b56a66",
+    mossos: "#7a9c5e",       // verd oliva més clar
+    guardia: "#a08a5e",       // marró khaki
+    local: "#c4b89a",         // beix arena
+    text: "#ede8d0",          // beix lluminós (alt contrast)
+    textDim: "#b8b094",       // beix mitjà
+    textMuted: "#7a755e",     // beix fosc
+    danger: "#c63d2f",        // vermell militar (no neon)
+    warning: "#d9883a",        // ambre cremat
+    success: "#7d9b3d",        // verd oliva més viu
+    // Patró woodland autèntic: 4 capes de blob irregulars + algunes ratlles, en colors M81.
+    pattern: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'><rect width='240' height='240' fill='%232a2e1c'/><path d='M5,40 C 25,15 70,25 90,50 C 110,75 90,110 60,100 C 30,90 -15,65 5,40 Z' fill='%234a5a2d' opacity='0.7'/><path d='M150,15 C 185,5 220,35 215,65 C 210,90 175,95 155,80 C 135,65 125,30 150,15 Z' fill='%234a5a2d' opacity='0.65'/><path d='M40,180 C 65,160 110,180 105,210 C 100,232 55,235 35,215 C 18,200 25,190 40,180 Z' fill='%234a5a2d' opacity='0.6'/><path d='M180,140 C 210,135 230,170 215,195 C 200,218 165,210 155,185 C 148,165 158,143 180,140 Z' fill='%234a5a2d' opacity='0.7'/><path d='M70,10 C 95,5 110,30 95,45 C 80,55 55,45 60,25 C 62,18 65,12 70,10 Z' fill='%23231905' opacity='0.85'/><path d='M195,90 C 215,85 225,110 210,125 C 195,135 175,125 180,105 C 183,98 188,92 195,90 Z' fill='%23231905' opacity='0.8'/><path d='M15,120 C 35,115 50,140 35,155 C 22,165 5,150 8,130 C 10,124 12,121 15,120 Z' fill='%23231905' opacity='0.8'/><path d='M130,205 C 150,202 165,225 150,235 C 135,243 115,232 118,215 C 120,210 124,206 130,205 Z' fill='%23231905' opacity='0.85'/><path d='M105,90 C 130,80 155,110 140,135 C 122,158 90,148 92,120 C 93,106 98,93 105,90 Z' fill='%238b7d4f' opacity='0.55'/><path d='M165,40 C 178,35 188,55 175,68 C 162,78 148,65 153,48 C 156,43 160,41 165,40 Z' fill='%238b7d4f' opacity='0.5'/><path d='M30,80 C 42,75 52,93 42,103 C 30,112 18,100 22,85 C 25,82 27,80 30,80 Z' fill='%238b7d4f' opacity='0.5'/></svg>")`,
   },
   candy: {
     label: "Candy", emoji: "🍭",

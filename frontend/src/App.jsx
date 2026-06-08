@@ -1013,7 +1013,7 @@ export default function App(){
         const isTopic = g.name.includes("› topic#");
         const isTg = [...g.sources].some(s=>s==="telegram");
         return(
-          <div onClick={()=>setSelectedGroup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9600,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={()=>setSelectedGroup(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9900,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:600,maxHeight:"88vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${isTopic?C.warning:C.success}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.7)`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14}}>
                 <div style={{flex:1,minWidth:0}}>
@@ -1085,7 +1085,7 @@ export default function App(){
         zoneDets.forEach(d=>{byType[d.patrol_type]=(byType[d.patrol_type]||0)+1;});
         const mapZone = MAP_ZONES.find(z=>z.id===zoneName);
         return(
-          <div onClick={()=>setZoneDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9600,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={()=>setZoneDetail(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.75)",zIndex:9900,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:600,maxHeight:"88vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${C.accent}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.7)`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:10,marginBottom:14}}>
                 <div>
@@ -1159,7 +1159,7 @@ export default function App(){
         const dateStr=dt?dt.toLocaleDateString("ca-ES",{weekday:"long",day:"numeric",month:"long",year:"numeric"}):"?";
         const timeStr=dt?dt.toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit",second:"2-digit"}):"?";
         return(
-          <div onClick={()=>setSelectedDet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9500,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+          <div onClick={()=>setSelectedDet(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9900,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
             <div onClick={e=>e.stopPropagation()} style={{width:"100%",maxWidth:560,maxHeight:"86vh",overflowY:"auto",background:C.surface,borderTop:`3px solid ${ptype.color}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.6)`}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
                 <div style={{fontSize:17,fontWeight:800,color:ptype.color}}>{ptype.label}</div>
@@ -1245,11 +1245,11 @@ export default function App(){
       {showReport&&(
         <div
           onClick={()=>{if(!reporting)setShowReport(false);}}
-          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9500,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
+          style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",zIndex:9900,display:"flex",alignItems:"flex-end",justifyContent:"center"}}
         >
           <div
             onClick={e=>e.stopPropagation()}
-            style={{width:"100%",maxWidth:520,background:C.surface,borderTop:`2px solid ${C.accent}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.6)`}}
+            style={{width:"100%",maxWidth:520,maxHeight:"calc(100dvh - 24px)",overflowY:"auto",background:C.surface,borderTop:`2px solid ${C.accent}`,borderRadius:"16px 16px 0 0",padding:18,boxShadow:`0 -10px 40px rgba(0,0,0,0.6)`}}
           >
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
               <div style={{fontSize:16,fontWeight:800,color:C.accent}}>📣 Reportar patrulla</div>
@@ -1313,15 +1313,18 @@ export default function App(){
         </div>
       )}
 
-      {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG */}
+      {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG.
+          Alçada FIXA per evitar que els botons es moguin: icona sempre size 22,
+          només color i pes del text canvien per l'estat actiu. */}
       <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
         {tabs.map(t=>{
           const active=tab===t.id;
           const col=active?C.accent:C.textMuted;
           return(
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"2px 2px"}}>
-              <TabIcon id={t.id} color={col} size={active?22:20}/>
-              <span style={{fontSize:10,color:col,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{t.label}</span>
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,height:48,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"2px 2px",position:"relative"}}>
+              {active&&<span style={{position:"absolute",top:0,left:"30%",right:"30%",height:2,background:C.accent,borderRadius:"0 0 2px 2px"}}/>}
+              <TabIcon id={t.id} color={col} size={22}/>
+              <span style={{fontSize:10,color:col,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%",fontWeight:active?700:500}}>{t.label}</span>
             </button>
           );
         })}

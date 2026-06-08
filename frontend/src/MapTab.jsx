@@ -30,12 +30,23 @@ function pinIcon(pct, risk, t) {
   });
 }
 
-function userIcon(t) {
+// Color fix per al marcador d'usuari — INDEPENDENT del tema perquè mai es confongui
+// amb els pins de zona (que usen t.accent) ni amb els pins de tipus de patrulla
+// (mossos blau, guardia verd, local lila). Cyan brillant + anell blanc.
+const USER_COLOR = "#00e5ff";
+const USER_COLOR_GLOW = "#00e5ff";
+
+function userIcon() {
   return L.divIcon({
-    className: "", iconSize: [22, 22], iconAnchor: [11, 11],
-    html: `<div style="width:22px;height:22px;border-radius:50%;background:${t.accent};
-      border:3px solid #fff;box-shadow:0 0 0 2px ${t.accent}88, 0 0 12px ${t.accent};
-      animation:ptUserPulse 2s infinite;"></div>`,
+    className: "", iconSize: [28, 28], iconAnchor: [14, 14],
+    html: `
+      <div style="position:relative;width:28px;height:28px;">
+        <div style="position:absolute;inset:0;border-radius:50%;background:${USER_COLOR};
+          border:3px solid #fff;box-shadow:0 0 0 3px ${USER_COLOR}66, 0 0 18px ${USER_COLOR_GLOW};
+          animation:ptUserPulse 1.8s infinite ease-in-out;"></div>
+        <div style="position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;
+          background:#fff;border-radius:50%;"></div>
+      </div>`,
   });
 }
 
@@ -249,7 +260,7 @@ export default function MapTab({
     <div style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.border}` }}>
       <style>{`
         @keyframes ptPulse{0%,100%{opacity:1}50%{opacity:.4}}
-        @keyframes ptUserPulse{0%,100%{box-shadow:0 0 0 2px ${t.accent}88, 0 0 12px ${t.accent}}50%{box-shadow:0 0 0 8px ${t.accent}22, 0 0 18px ${t.accent}}}
+        @keyframes ptUserPulse{0%,100%{box-shadow:0 0 0 3px ${USER_COLOR}66, 0 0 14px ${USER_COLOR}}50%{box-shadow:0 0 0 10px ${USER_COLOR}22, 0 0 22px ${USER_COLOR}}}
         .leaflet-container{background:${t.bg};font-family:inherit}
         .leaflet-popup-content-wrapper,.leaflet-popup-tip{background:${t.surface};color:${t.text};border:1px solid ${t.border}}
         .leaflet-popup-content{margin:10px 12px;font-size:13px}
@@ -309,8 +320,8 @@ export default function MapTab({
         {userPos && (
           <Fragment>
             <Circle center={[userPos.lat, userPos.lng]} radius={userPos.acc || 50}
-              pathOptions={{ color: t.accent, weight: 1, fillColor: t.accent, fillOpacity: 0.1 }} />
-            <Marker position={[userPos.lat, userPos.lng]} icon={userIcon(t)}>
+              pathOptions={{ color: USER_COLOR, weight: 1.5, fillColor: USER_COLOR, fillOpacity: 0.1 }} />
+            <Marker position={[userPos.lat, userPos.lng]} icon={userIcon()}>
               <Popup>
                 <b>📍 La teva posició</b><br />
                 {userPos.lat.toFixed(5)}, {userPos.lng.toFixed(5)}<br />
@@ -325,8 +336,9 @@ export default function MapTab({
       </MapContainer>
 
       {/* Barra d'eines — col·lapsada per defecte (només el botó ≡), s'expandeix al tocar.
-          Així el mapa té tota la pantalla per ell i les eines no l'envaeixen. */}
-      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+          maxHeight + overflowY garanteixen que tots els botons són accessibles fins i tot
+          en pantalles curtes (Huawei P40 Lite, navegador amb URL bar visible). */}
+      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", maxHeight: "calc(100% - 20px)", overflowY: "auto", overflowX: "hidden" }}>
         <button
           className={`pt-mapbtn${showTools ? " active" : ""}`}
           onClick={() => setShowTools((v) => !v)}
@@ -425,7 +437,7 @@ export default function MapTab({
               <>
                 <div style={{ height: 1, background: t.border, margin: "4px 0" }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: t.accent, border: "2px solid #fff", display: "inline-block" }} />
+                  <span style={{ width: 10, height: 10, borderRadius: "50%", background: USER_COLOR, border: "2px solid #fff", boxShadow: `0 0 6px ${USER_COLOR}88`, display: "inline-block" }} />
                   <span>La teva posició</span>
                 </div>
               </>
