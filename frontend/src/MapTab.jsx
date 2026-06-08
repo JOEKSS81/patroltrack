@@ -187,40 +187,29 @@ export default function MapTab({
     return e.message || "Error de GPS";
   };
 
-  // Locate me — estratègia "two-shot": fix ràpid per resposta immediata + fix fresc d'alta precisió per refinar
+  // Locate me — fix d'alta precisió únic. Pot trigar 5-15s al primer cop però evita el
+  // bug del two-shot anterior: el fix "ràpid" en cache podia ser una posició IP/WiFi
+  // a quilòmetres del lloc real (p.ex. centrava a Lleida quan eres a Sort).
   const locate = () => {
     if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
     setLocating(true);
-    let resolvedQuick = false;
-    const finish = () => setLocating(false);
 
-    // 1) Fix ràpid (accepta cache fins 30s) — centra el mapa de seguida si en té un
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        if (resolvedQuick) return;
-        resolvedQuick = true;
-        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
-        setUserPos(np);
-        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], np.acc < 200 ? 15 : 13, { duration: 0.7 });
-      },
-      () => {},
-      { enableHighAccuracy: false, maximumAge: 30000, timeout: 4000 }
-    );
-
-    // 2) Fix fresc d'alta precisió (ignora cache, pot trigar més)
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], np.acc < 100 ? 16 : np.acc < 500 ? 14 : 12, { duration: 0.9 });
-        finish();
+        // Zoom adaptatiu segons precisió: més fi si el GPS dona <100m
+        const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
+        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 0.9 });
+        setLocating(false);
       },
       (e) => {
-        if (!resolvedQuick) setLocErr(errMsg(e));
-        finish();
+        setLocErr(errMsg(e));
+        setLocating(false);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      // maximumAge:0 força un fix fresc; high accuracy força GPS quan està disponible
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
     );
   };
 
@@ -334,20 +323,27 @@ export default function MapTab({
         )}
       </MapContainer>
 
-      {/* Controls flotants — top-right */}
-      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6 }}>
-        <button className="pt-mapbtn" onClick={locate} disabled={locating} title="Localitza'm (forçant fix fresc d'alta precisió)">
-          {locating ? "⏳ Buscant…" : "📍 Jo"}
+      {/* Controls flotants — top-right. Etiquetes en català per ser autoexplicatives. */}
+      <div style={{ position: "absolute", top: 10, right: 10, zIndex: 500, display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch" }}>
+        <button className="pt-mapbtn" onClick={locate} disabled={locating}
+          title="Centra el mapa a la teva posició GPS actual">
+          {locating ? <><span>⏳</span><span>Buscant GPS…</span></> : <><span>📍</span><span>On soc</span></>}
         </button>
-        <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow} title="Segueix-me">
-          {following ? "● Seguint" : "○ Seguir"}
+        <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow}
+          title={following ? "Para de seguir-te" : "El mapa et seguirà mentre et mous"}>
+          {following ? <><span>●</span><span>Seguint</span></> : <><span>○</span><span>Seguir-me</span></>}
         </button>
-        <button className="pt-mapbtn" onClick={fitAll} title="Enquadra totes les zones">⤢ Tot</button>
-        <button className={`pt-mapbtn${showDets ? " active" : ""}`} onClick={() => setShowDets((v) => !v)} title="Capa deteccions 24h">
-          {showDets ? "● 24h" : "○ 24h"}
+        <button className="pt-mapbtn" onClick={fitAll}
+          title="Enquadra el mapa per veure totes les zones de Lleida">
+          <span>⤢</span><span>Veure-ho tot</span>
         </button>
-        <button className="pt-mapbtn" onClick={() => setShowTilePicker((v) => !v)} title="Estil del mapa">
-          {currentTile.emoji} {currentTile.label.length > 8 ? currentTile.label.substring(0, 7) + "…" : currentTile.label}
+        <button className={`pt-mapbtn${showDets ? " active" : ""}`} onClick={() => setShowDets((v) => !v)}
+          title="Mostra els punts de les deteccions reals de les últimes 24 hores">
+          <span>{showDets ? "●" : "○"}</span><span>Avui (24h)</span>
+        </button>
+        <button className="pt-mapbtn" onClick={() => setShowTilePicker((v) => !v)}
+          title="Canvia l'estil del mapa (fosc, clar, etc.)">
+          <span>{currentTile.emoji}</span><span>Estil mapa</span>
         </button>
         {showTilePicker && (
           <div style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: 6, boxShadow: "0 4px 14px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 4, minWidth: 150 }}>
@@ -359,7 +355,7 @@ export default function MapTab({
             ))}
             <button onClick={() => { resetTile(); setShowTilePicker(false); }}
               style={{ background: "transparent", color: t.textDim, border: `1px dashed ${t.border}`, padding: "5px 8px", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit", marginTop: 2 }}>
-              ↻ Seguir el skin
+              ↻ Auto (segons skin)
             </button>
           </div>
         )}
