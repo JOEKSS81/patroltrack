@@ -1,3 +1,7 @@
+# macOS metadata files — apareixen pertot quan obres carpetes al Finder
+.DS_Store
+**/.DS_Store
+
 node_modules/
 venv/
 backend/.wwebjs_auth/

@@ -806,6 +806,24 @@ export default function App(){
               const apiBase = API || "https://patroltrack-api.patroltrack.workers.dev";
               const httpShortcutsConfig = `${apiBase}/api/ingest`;
               const httpBody = `{"message":"%s","source":"whatsapp","group_name":"WhatsApp"}`;
+              // Activitat WhatsApp — comptem deteccions amb source "whatsapp" i la més recent.
+              // Si n'hi ha ≥1, el pas 4 es marca com a fet (cercle verd).
+              const whatsappDets = detections.filter(d=>d.source==="whatsapp");
+              const whatsappCount = whatsappDets.length;
+              const whatsappLatestTs = whatsappDets.reduce((acc,d)=>{
+                const t = d.created_at ? new Date(d.created_at).getTime() : 0;
+                return t>acc ? t : acc;
+              },0);
+              const step4Done = whatsappCount > 0;
+              // Format relatiu "fa Xh" / "fa Xd" / etc.
+              const fmtRel = (ts)=>{
+                if(!ts)return"";
+                const s = Math.max(0, Math.floor((Date.now()-ts)/1000));
+                if(s<60)return"ara mateix";
+                if(s<3600)return`fa ${Math.floor(s/60)} min`;
+                if(s<86400)return`fa ${Math.floor(s/3600)} h`;
+                return`fa ${Math.floor(s/86400)} d`;
+              };
               // Estil reusable per a les targetes de pas
               const stepCard = (n,title,done,disabled,children)=>(
                 <div style={{
@@ -937,7 +955,30 @@ export default function App(){
                   </>))}
 
                   {/* PAS 4 — WhatsApp (només si pas 3 fet) */}
-                  {stepCard(4,"Reenviar des de WhatsApp (opcional)",false,!step3Done,(<>
+                  {stepCard(4,"Reenviar des de WhatsApp (opcional)",step4Done,!step3Done&&!step4Done,(<>
+                    {/* Pill d'estat de connectivitat: viu si arriben deteccions WhatsApp */}
+                    <div style={{
+                      display:"flex",alignItems:"center",gap:8,
+                      padding:"8px 12px",borderRadius:8,marginBottom:10,
+                      background:step4Done?`${C.success}18`:`${C.border}55`,
+                      border:`1px solid ${step4Done?C.success+"66":C.border}`,
+                      fontSize:12,lineHeight:1.4,
+                    }}>
+                      <span style={{
+                        width:8,height:8,borderRadius:"50%",flexShrink:0,
+                        background:step4Done?C.success:C.textMuted,
+                        boxShadow:step4Done?`0 0 6px ${C.success}`:"none",
+                      }}/>
+                      <span style={{color:step4Done?C.success:C.textDim,flex:1}}>
+                        {step4Done?(<>
+                          <b>WhatsApp connectat</b> — {whatsappCount} missatge{whatsappCount===1?"":"s"} rebut{whatsappCount===1?"":"s"}
+                          {whatsappLatestTs?(<> · últim {fmtRel(whatsappLatestTs)}</>):null}
+                        </>):(
+                          <>Esperant el primer missatge des de WhatsApp…</>
+                        )}
+                      </span>
+                    </div>
+
                     <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
                       WhatsApp no et pot enviar missatges directament a l'app (no té bots oberts com Telegram). La forma més senzilla al teu Huawei és <b>HTTP Shortcuts</b>:
                     </div>
@@ -966,6 +1007,10 @@ export default function App(){
                     },null,2),setConfigCopied)} style={{width:"100%",padding:"10px",background:configCopied?C.success:"transparent",color:configCopied?"#fff":C.accent,border:`1px solid ${configCopied?C.success:C.accent}`,borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
                       {configCopied?"✓ Configuració copiada":"📋 Copiar configuració JSON"}
                     </button>
+
+                    <div style={{fontSize:11,color:C.warning,marginTop:8,padding:"8px 10px",background:`${C.warning}11`,border:`1px solid ${C.warning}44`,borderRadius:6,lineHeight:1.5}}>
+                      ⚠ El botó copia <b>sempre el token actual</b>. Si fas servir "Generar nou" al pas 1, has de tornar a copiar aquesta configuració i enganxar-la al HTTP Shortcuts per substituir el header `x-ingest-token`.
+                    </div>
 
                     <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5,fontStyle:"italic"}}>
                       Alternativa: <b>Tasker</b> (APK del web oficial) pot detectar automàticament cada notificació de WhatsApp i fer la crida sense que premis res — més potent però més complicat de configurar.
