@@ -6,7 +6,7 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
   const {
-    active, pos, err, nearby, riskPct, sound, toggleSound,
+    active, pos, err, nearby, riskPct, zoneName, sound, toggleSound,
     alertRadiusKm, setAlertRadiusKm, start, stop,
   } = radar;
   // Color segons nivell de possibilitat
@@ -45,25 +45,28 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
             <span>Just al costat</span><span>Comarca sencera</span>
           </div>
         </div>
-        {/* Possibilitat de patrulla prop teu — mesura per percentatge */}
-        <div style={{ background: C.bg, borderRadius: 8, padding: "12px 12px 10px", border: `1px solid ${riskPct > 0 ? riskCol + "66" : C.border}` }}>
+        {/* Possibilitat de trobar un control — % segons model històric + en viu */}
+        <div style={{ background: C.bg, borderRadius: 8, padding: "12px 12px 10px", border: `1px solid ${active && riskPct > 0 ? riskCol + "66" : C.border}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Possibilitat de patrulla prop teu</span>
-            <span style={{ fontSize: 24, fontWeight: 800, color: active ? riskCol : C.textMuted, lineHeight: 1 }}>{active ? `${riskPct}%` : "—"}</span>
+            <span style={{ fontSize: 14, color: C.textDim }}>
+              Possibilitat de trobar un control
+              {active && zoneName ? <span style={{ color: C.textMuted }}> · {zoneName}</span> : null}
+            </span>
+            <span style={{ fontSize: 26, fontWeight: 800, color: active ? riskCol : C.textMuted, lineHeight: 1 }}>{active ? `${riskPct}%` : "—"}</span>
           </div>
           <div style={{ height: 10, background: C.border, borderRadius: 5, overflow: "hidden" }}>
             <div style={{ height: "100%", width: `${active ? riskPct : 0}%`, background: riskCol, borderRadius: 5, transition: "width 0.5s", boxShadow: active && riskPct > 0 ? `0 0 8px ${riskCol}88` : "none" }} />
           </div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
-            {!active ? "Activa el radar per mesurar la possibilitat segons la teva posició."
-              : riskPct === 0 ? "Cap detecció real prop teu ara mateix ✓"
-              : riskPct > 60 ? "🚨 Risc alt — patrulla activa molt a prop"
-              : riskPct > 30 ? "⚠ Risc moderat a la teva zona"
-              : "Risc baix a la zona"}
+            {!active ? "Activa el radar per calcular-ho segons on ets i l'hora actual."
+              : riskPct === 0 ? "Possibilitat baixa o sense dades per a la teva zona ara."
+              : riskPct > 60 ? "🚨 Alta — molt probable trobar un control aquí ara"
+              : riskPct > 30 ? "⚠ Moderada — vés amb compte"
+              : "Baixa — poca activitat històrica a aquesta hora"}
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-          ↳ Alerta quan una <b style={{ color: C.textDim }}>detecció real</b> apareix dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> teus (últimes 2h). El percentatge puja com més a prop i més recent és la patrulla.
+          ↳ El percentatge surt de l'<b style={{ color: C.textDim }}>històric</b> de la teva zona a aquesta hora, i puja si hi ha una <b style={{ color: C.textDim }}>detecció real</b> dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> (últimes 2h), que també dispara l'alerta sonora.
         </div>
       </div>
 
