@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import MapTab from "./MapTab";
+import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS } from "./lib/constants";
 import { computeZoneProbs, computeHourly } from "./lib/utils";
@@ -182,6 +183,8 @@ export default function App(){
   // Diagnòstic Telegram
   const [tgStatus,setTgStatus]=useState(null);
   const [tgLoading,setTgLoading]=useState(false);
+  const [tgRepairing,setTgRepairing]=useState(false);
+  const [tgRepairMsg,setTgRepairMsg]=useState(null);
   const checkTelegramStatus=async()=>{
     setTgLoading(true);
     try{
@@ -191,6 +194,22 @@ export default function App(){
     }catch(e){
       setTgStatus({ok:false,reason:e.message||"Error de xarxa"});
     }finally{setTgLoading(false);}
+  };
+  // Registra/repara el webhook de Telegram (el worker s'apunta a si mateix).
+  const repairTelegramWebhook=async()=>{
+    setTgRepairing(true);setTgRepairMsg(null);
+    try{
+      const r=await fetch(`${API}/api/telegram-setup`,{method:"POST",cache:"no-store"});
+      const data=await r.json();
+      if(data.ok){
+        setTgRepairMsg({ok:true,text:"✓ Webhook registrat. Envia un missatge de prova al grup i torna a comprovar."});
+      }else{
+        setTgRepairMsg({ok:false,text:`✗ ${data.error||data.reason||"No s'ha pogut registrar"}`});
+      }
+      await checkTelegramStatus();
+    }catch(e){
+      setTgRepairMsg({ok:false,text:`✗ Error de xarxa: ${e.message||e}`});
+    }finally{setTgRepairing(false);}
   };
 
   const sendReport=async()=>{
@@ -315,6 +334,12 @@ export default function App(){
     };
   },[]);
 
+
+  // Mode de mapa: "schema" (cercles SVG, robust, per defecte) o "tiles" (OSM/Leaflet)
+  const [mapMode,setMapMode]=useState(()=>{
+    try{return localStorage.getItem("pt_map_mode")||"schema";}catch{return "schema";}
+  });
+  useEffect(()=>{try{localStorage.setItem("pt_map_mode",mapMode);}catch{}},[mapMode]);
 
   // Estat: grup seleccionat per veure detall + zona seleccionada per detall
   const [selectedGroup,setSelectedGroup]=useState(null);
@@ -628,17 +653,37 @@ export default function App(){
         })()}
 
         {tab==="osm"&&(
-          <div style={{height:"calc(100dvh - 280px)",minHeight:380,maxHeight:"calc(100vh - 220px)"}}>
-            <MapTab
-              zones={MAP_ZONES}
-              probs={zoneProbs}
-              selected={selectedZone}
-              onSelect={setSelectedZone}
-              theme={currentTheme}
-              themeName={themeName}
-              detections={detections}
-              radarPos={radar.active?radar.pos:null}
-            />
+          <div>
+            {/* Toggle tipus de mapa */}
+            <div style={{display:"flex",gap:6,marginBottom:8,background:C.surface,padding:4,borderRadius:10,border:`1px solid ${C.border}`}}>
+              {[["schema","◎ Esquema"],["tiles","🗺 Mapa real"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setMapMode(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:mapMode===k?C.accent:"transparent",color:mapMode===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
+              ))}
+            </div>
+            <div style={{height:"calc(100dvh - 320px)",minHeight:360,maxHeight:"calc(100vh - 260px)"}}>
+              {mapMode==="schema"?(
+                <ZoneMap
+                  zones={MAP_ZONES}
+                  probs={zoneProbs}
+                  selected={selectedZone}
+                  onSelect={setSelectedZone}
+                  detections={detections}
+                  theme={currentTheme}
+                  radarPos={radar.active?radar.pos:null}
+                />
+              ):(
+                <MapTab
+                  zones={MAP_ZONES}
+                  probs={zoneProbs}
+                  selected={selectedZone}
+                  onSelect={setSelectedZone}
+                  theme={currentTheme}
+                  themeName={themeName}
+                  detections={detections}
+                  radarPos={radar.active?radar.pos:null}
+                />
+              )}
+            </div>
           </div>
         )}
 
@@ -1138,15 +1183,25 @@ export default function App(){
 
             {/* 🔍 Estat Telegram — diagnòstic */}
             <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
                 <div style={{fontSize:17,fontWeight:700,color:C.accent}}>🔍 Estat Telegram</div>
-                <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
-                  {tgLoading?"Comprovant…":"Comprovar"}
-                </button>
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={repairTelegramWebhook} disabled={tgRepairing} style={{background:tgRepairing?C.border:"transparent",color:tgRepairing?C.textDim:C.warning,border:`1px solid ${C.warning}`,borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgRepairing?"wait":"pointer",fontFamily:"inherit"}}>
+                    {tgRepairing?"Reparant…":"🔧 Reparar webhook"}
+                  </button>
+                  <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
+                    {tgLoading?"Comprovant…":"Comprovar"}
+                  </button>
+                </div>
               </div>
               <div style={{fontSize:12,color:C.textDim,marginBottom:tgStatus?12:0,lineHeight:1.5}}>
-                Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Comprova hits del webhook, secret i configuració.
+                Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Si <b>"URL del webhook"</b> surt buida, prem <b>🔧 Reparar webhook</b>: el servidor el tornarà a registrar tot sol.
               </div>
+              {tgRepairMsg&&(
+                <div style={{marginBottom:12,padding:"10px 12px",borderRadius:8,fontSize:12,lineHeight:1.5,background:tgRepairMsg.ok?`${C.success}22`:`${C.danger}22`,border:`1px solid ${tgRepairMsg.ok?C.success:C.danger}55`,color:tgRepairMsg.ok?C.success:C.danger}}>
+                  {tgRepairMsg.text}
+                </div>
+              )}
               {tgStatus&&(
                 tgStatus.ok===false?(
                   <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,fontSize:13,color:C.danger}}>

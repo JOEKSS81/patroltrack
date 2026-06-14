@@ -355,21 +355,25 @@ async function handleTelegramStatus(env: Env): Promise<Response> {
     return json({ ok: false, reason: "DB error: " + (e as Error).message }, 500);
   }
 
-  // Consulta a Telegram per saber l'estat del webhook (si tenim el token)
+  // Consulta a Telegram per saber l'estat del webhook i del bot (si tenim el token)
   let webhookInfo: any = null;
   let webhookError: string | null = null;
+  let botInfo: any = null;
   if (env.TELEGRAM_BOT_TOKEN) {
     try {
       const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getWebhookInfo`);
       const data = await r.json() as any;
-      if (data?.ok) {
-        webhookInfo = data.result;
-      } else {
-        webhookError = data?.description || "Telegram API error";
-      }
+      if (data?.ok) webhookInfo = data.result;
+      else webhookError = data?.description || "Telegram API error";
     } catch (e) {
       webhookError = (e as Error).message;
     }
+    // getMe → inclou can_read_all_group_messages (privacy mode OFF?)
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getMe`);
+      const data = await r.json() as any;
+      if (data?.ok) botInfo = data.result;
+    } catch { /* best-effort */ }
   } else {
     webhookError = "TELEGRAM_BOT_TOKEN no configurat — afegeix-lo amb `wrangler secret put TELEGRAM_BOT_TOKEN`";
   }
@@ -382,6 +386,49 @@ async function handleTelegramStatus(env: Env): Promise<Response> {
     last_hit: lastHit,
     webhook_info: webhookInfo,
     webhook_error: webhookError,
+    bot_info: botInfo,
+  });
+}
+
+// GET|POST /api/telegram-setup — registra (o re-registra) el webhook del bot
+// apuntant a AQUEST mateix Worker (/api/telegram-webhook) amb el secret configurat.
+// És idempotent i no accepta cap URL externa: només pot apuntar el bot a si mateix,
+// per això no cal autenticació. `?drop_pending=1` descarta updates encuats.
+async function handleTelegramSetup(env: Env, req: Request): Promise<Response> {
+  if (!env.TELEGRAM_BOT_TOKEN) return json({ ok: false, reason: "TELEGRAM_BOT_TOKEN no configurat al Worker" }, 500);
+  if (!env.TELEGRAM_WEBHOOK_SECRET) return json({ ok: false, reason: "TELEGRAM_WEBHOOK_SECRET no configurat al Worker" }, 500);
+
+  const url = new URL(req.url);
+  const webhookUrl = `${url.origin}/api/telegram-webhook`;
+  const dropPending = url.searchParams.get("drop_pending") === "1";
+
+  const params = new URLSearchParams();
+  params.set("url", webhookUrl);
+  params.set("secret_token", env.TELEGRAM_WEBHOOK_SECRET);
+  // Missatges de grups i canals (text o caption).
+  params.set("allowed_updates", JSON.stringify(["message", "edited_message", "channel_post", "edited_channel_post"]));
+  if (dropPending) params.set("drop_pending_updates", "true");
+
+  let tgResp: any = null;
+  let tgError: string | null = null;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+    });
+    tgResp = await r.json().catch(() => null);
+    if (!r.ok || !tgResp?.ok) tgError = tgResp?.description || `HTTP ${r.status}`;
+  } catch (e) {
+    tgError = (e as Error).message;
+  }
+
+  return json({
+    ok: !tgError,
+    webhook_url: webhookUrl,
+    drop_pending: dropPending,
+    telegram_response: tgResp,
+    error: tgError,
   });
 }
 
@@ -428,6 +475,7 @@ export default {
       if (req.method === "GET"  && path === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "POST" && path === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
       if (req.method === "GET" && path === "/api/telegram-status") return await handleTelegramStatus(env);
+      if ((req.method === "GET" || req.method === "POST") && path === "/api/telegram-setup") return await handleTelegramSetup(env, req);
       if (req.method === "POST" && path === "/api/detections/delete-by-group") return await handleDeleteByGroup(env, req);
 
       // Endpoint senzill per provar que el Worker corre
