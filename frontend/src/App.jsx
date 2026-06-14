@@ -273,7 +273,7 @@ export default function App(){
   useEffect(()=>{
     try{
       const cd=localStorage.getItem("pt_detections");
-      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;}}
+      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;setZoneProbs(computeZoneProbs(arr));}}
       const ch=localStorage.getItem("pt_health");if(ch)setHealth(JSON.parse(ch));
       const ls=localStorage.getItem("pt_lastSync");if(ls)setLastSync(Number(ls));
     }catch{}

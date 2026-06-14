@@ -128,7 +128,15 @@ export default function ZoneMap({
     ? zones.map(z => ({ z, d: distKm(userPos.lat, userPos.lng, z.lat, z.lng) })).sort((a, b) => a.d - b.d)[0]
     : null;
 
-  const colorFor = (p) => p >= riskThreshold ? C.danger : p >= 0.25 ? C.warning : C.success;
+  // Color CONTINU segons la probabilitat: verd (0%) → groc → taronja → vermell
+  // (100%). Com més % de control, més càlid i vermell.
+  const colorFor = (p) => {
+    const q = Math.min(1, Math.max(0, p));
+    const hue = 140 - 140 * q;          // 140=verd → 0=vermell (passa per groc/taronja)
+    const sat = 85 + q * 10;            // més saturat com més risc
+    const light = 58 - q * 8;           // una mica més fosc/intens a dalt
+    return `hsl(${Math.round(hue)},${Math.round(sat)}%,${Math.round(light)}%)`;
+  };
 
   return (
     <div ref={wrapRef} style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg }}>
@@ -138,6 +146,22 @@ export default function ZoneMap({
           <pattern id="zmGrid" width="46" height="46" patternUnits="userSpaceOnUse">
             <path d="M46 0H0V46" fill="none" stroke={C.border} strokeWidth="1" opacity="0.3" />
           </pattern>
+          {/* glow suau per al nucli de cada zona */}
+          <filter id="zmGlow" x="-120%" y="-120%" width="340%" height="340%">
+            <feGaussianBlur stdDeviation="3" result="b" />
+            <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+          {/* degradat radial per zona (color segons % de control) */}
+          {zones.map((z, zi) => {
+            const col = colorFor(probs[z.id] || 0);
+            return (
+              <radialGradient key={zi} id={`zgrad-${zi}`} cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={col} stopOpacity={0.5 + (probs[z.id] || 0) * 0.35} />
+                <stop offset="70%" stopColor={col} stopOpacity={0.18} />
+                <stop offset="100%" stopColor={col} stopOpacity="0.02" />
+              </radialGradient>
+            );
+          })}
         </defs>
         <rect x="0" y="0" width={w} height={h} fill="url(#zmGrid)" />
 
@@ -147,26 +171,33 @@ export default function ZoneMap({
           return <line x1={userXY[0]} y1={userXY[1]} x2={zx} y2={zy} stroke={USER_COLOR} strokeWidth="2" strokeDasharray="5 6" opacity="0.55" />;
         })()}
 
-        {/* zones */}
-        {zones.map((z) => {
+        {/* zones — estil radar futurista: nucli amb glow + ones expansives */}
+        {zones.map((z, zi) => {
           const [x, y] = project(z.lat, z.lng);
           const p = probs[z.id] || 0;
-          const risk = p >= riskThreshold;
           const col = colorFor(p);
-          const r = (11 + (Math.min(z.rKm || 5, 20) / 20) * 13) * (1 + p * 0.2);
+          const r = (11 + (Math.min(z.rKm || 5, 20) / 20) * 12) * (1 + p * 0.18);
           const isSel = z.id === selected;
           const d = distOf(z);
-          const pulseDur = risk ? "1.8s" : "2.8s";
+          // Ones: més % → més ràpides, més grans i més intenses
+          const dur = 3.4 - p * 1.6;                 // 3.4s (calm) → 1.8s (risc)
+          const reach = r + 16 + p * 30;             // fins on arriba l'ona
+          const waveOp = 0.45 + p * 0.4;             // opacitat inicial de l'ona
+          const NW = 3;                              // 3 ones esglaonades
           return (
             <g key={z.id} onClick={() => onSelect && onSelect(z.id)} style={{ cursor: "pointer" }}>
-              {/* anell pulsant (efecte "viu") */}
-              <circle cx={x} cy={y} r={r} fill="none" stroke={col} strokeWidth={risk ? 2 : 1.4} opacity="0.4">
-                <animate attributeName="r" values={`${r};${r + (risk ? 14 : 9)};${r}`} dur={pulseDur} repeatCount="indefinite" />
-                <animate attributeName="opacity" values={`${risk ? 0.55 : 0.35};0;${risk ? 0.55 : 0.35}`} dur={pulseDur} repeatCount="indefinite" />
-              </circle>
-              <circle cx={x} cy={y} r={r} fill={col} fillOpacity={0.12 + p * 0.30}
-                stroke={col} strokeWidth={isSel ? 3.5 : 2} strokeOpacity={isSel ? 1 : 0.75} />
-              <circle cx={x} cy={y} r={3.5} fill={col} />
+              {/* ones expansives contínues */}
+              {Array.from({ length: NW }).map((_, i) => (
+                <circle key={i} cx={x} cy={y} r={r} fill="none" stroke={col} strokeWidth={1.6} opacity="0">
+                  <animate attributeName="r" values={`${r};${reach}`} dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
+                  <animate attributeName="opacity" values={`${waveOp};0`} dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
+                  <animate attributeName="stroke-width" values="2.2;0.4" dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
+                </circle>
+              ))}
+              {/* halo + nucli amb degradat i glow */}
+              <circle cx={x} cy={y} r={r} fill={`url(#zgrad-${zi})`} stroke={col}
+                strokeWidth={isSel ? 3 : 1.6} strokeOpacity={isSel ? 1 : 0.85} />
+              <circle cx={x} cy={y} r={4.5} fill={col} filter="url(#zmGlow)" />
               <text x={x} y={y - r - 8} textAnchor="middle" fontSize="14" fontWeight="700" fill={C.text} style={{ pointerEvents: "none" }}>
                 {z.label || z.id}
               </text>
