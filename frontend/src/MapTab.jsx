@@ -120,7 +120,9 @@ export default function MapTab({
   const [mapInstance, setMapInstance] = useState(null);
   const watchRef = useRef(null);
   const followingRef = useRef(false);                 // mirall de `following` per al watch
-  const firstFixRef = useRef(true);                   // centra el mapa al primer fix automàtic
+  const centeredRef = useRef(false);                  // ja hem centrat en un fix prou bo?
+  const bestPosRef = useRef(null);                    // millor fix rebut (menys ±m)
+  const autoTimerRef = useRef(null);                  // timeout per centrar si el GPS triga
 
   // Tile actiu: override de l'usuari (localStorage) o el per defecte del skin
   const [tileKey, setTileKey] = useState(() => {
@@ -204,30 +206,38 @@ export default function MapTab({
     return e.message || "Error de GPS";
   };
 
-  // Locate me — fix d'alta precisió únic. Pot trigar 5-15s al primer cop però evita el
-  // bug del two-shot anterior: el fix "ràpid" en cache podia ser una posició IP/WiFi
-  // a quilòmetres del lloc real (p.ex. centrava a Lleida quan eres a Sort).
+  const zoomForAcc = (acc) => acc < 80 ? 16 : acc < 300 ? 14 : acc < 1500 ? 12 : 10;
+
+  // Locate me — NO vola al primer fix. Al Huawei sense Google Play, el primer fix
+  // sol ser una posició per xarxa/ISP a quilòmetres (cau a Lleida); el fix GPS bo
+  // arriba uns segons després. Per això obrim un watch curt: volem al fix quan és
+  // prou precís (≤80m) o, si el GPS triga, al millor fix obtingut en 12s.
   const locate = () => {
     if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
     setLocating(true);
-
-    navigator.geolocation.getCurrentPosition(
+    let best = null, done = false, wId = null, tId = null;
+    const finish = (np) => {
+      if (done) return;
+      done = true;
+      if (tId) clearTimeout(tId);
+      if (wId != null) navigator.geolocation.clearWatch(wId);
+      setLocating(false);
+      const tgt = np || best;
+      if (tgt && mapInstance) mapInstance.flyTo([tgt.lat, tgt.lng], zoomForAcc(tgt.acc), { duration: 0.8 });
+      else if (!tgt) setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior");
+    };
+    wId = navigator.geolocation.watchPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        // Zoom adaptatiu segons precisió: més fi si el GPS dona <100m
-        const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
-        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 0.9 });
-        setLocating(false);
+        if (!best || np.acc < best.acc) best = np;
+        if (np.acc <= 80) finish(np);          // GPS ja prou precís → centra ja
       },
-      (e) => {
-        setLocErr(errMsg(e));
-        setLocating(false);
-      },
-      // maximumAge:0 força un fix fresc; high accuracy força GPS quan està disponible
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+      (e) => { if (!best) { setLocErr(errMsg(e)); setLocating(false); done = true; if (wId != null) navigator.geolocation.clearWatch(wId); } },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 25000 }
     );
+    tId = setTimeout(() => finish(best), 12000);  // 12s: vola al millor fix aconseguit
   };
 
   // El watch de base (a sota) sempre actualitza la posició. "Seguir" només
@@ -242,8 +252,10 @@ export default function MapTab({
   };
 
   // Watch de base — manté el punt blau SEMPRE marcat sense que l'usuari hagi de
-  // tocar res. Si el radar ja ens alimenta la posició (radarPos), no n'obrim un
-  // de propi per estalviar bateria. Centra el mapa només al primer fix.
+  // tocar res, i centra el mapa a la teva ubicació en obrir-lo. Si el radar ja
+  // ens alimenta la posició (radarPos), no n'obrim un de propi (estalvi bateria).
+  // No centra en un fix coarse (xarxa/ISP → Lleida): espera un fix decent (≤300m)
+  // o, si el GPS triga, centra al millor fix obtingut als 9s.
   useEffect(() => {
     if (radarPos) return;                 // el radar ja ens dóna la posició
     if (!navigator.geolocation) return;
@@ -251,11 +263,11 @@ export default function MapTab({
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        if (firstFixRef.current && mapInstance) {
-          firstFixRef.current = false;
-          const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
-          mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 0.9 });
-        } else if (followingRef.current && mapInstance) {
+        if (!bestPosRef.current || np.acc < bestPosRef.current.acc) bestPosRef.current = np;
+        if (mapInstance && !centeredRef.current && np.acc <= 300) {
+          centeredRef.current = true;
+          mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.9 });
+        } else if (mapInstance && followingRef.current) {
           mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.6 });
         }
       },
@@ -263,7 +275,19 @@ export default function MapTab({
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
     );
     watchRef.current = id;
-    return () => { navigator.geolocation.clearWatch(id); if (watchRef.current === id) watchRef.current = null; };
+    if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
+    autoTimerRef.current = setTimeout(() => {
+      if (!centeredRef.current && mapInstance && bestPosRef.current) {
+        centeredRef.current = true;
+        const np = bestPosRef.current;
+        mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.9 });
+      }
+    }, 9000);
+    return () => {
+      navigator.geolocation.clearWatch(id);
+      if (watchRef.current === id) watchRef.current = null;
+      if (autoTimerRef.current) { clearTimeout(autoTimerRef.current); autoTimerRef.current = null; }
+    };
   }, [radarPos, mapInstance]);
 
   // Cleanup watch al desmuntar
