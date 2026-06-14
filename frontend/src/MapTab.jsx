@@ -119,6 +119,8 @@ export default function MapTab({
   const [following, setFollowing] = useState(false);  // seguiment continu
   const [mapInstance, setMapInstance] = useState(null);
   const watchRef = useRef(null);
+  const followingRef = useRef(false);                 // mirall de `following` per al watch
+  const firstFixRef = useRef(true);                   // centra el mapa al primer fix automàtic
 
   // Tile actiu: override de l'usuari (localStorage) o el per defecte del skin
   const [tileKey, setTileKey] = useState(() => {
@@ -150,8 +152,11 @@ export default function MapTab({
 
   // Sincronitza amb la posició del radar si el radar està actiu
   useEffect(() => {
-    if (radarPos) setUserPos({ lat: radarPos.lat, lng: radarPos.lng, acc: radarPos.acc });
-  }, [radarPos]);
+    if (radarPos) {
+      setUserPos({ lat: radarPos.lat, lng: radarPos.lng, acc: radarPos.acc });
+      if (followingRef.current && mapInstance) mapInstance.panTo([radarPos.lat, radarPos.lng], { animate: true, duration: 0.6 });
+    }
+  }, [radarPos, mapInstance]);
 
   // Deteccions de les últimes 24h amb coordenades vàlides
   const recentDets = useMemo(() => {
@@ -225,25 +230,41 @@ export default function MapTab({
     );
   };
 
+  // El watch de base (a sota) sempre actualitza la posició. "Seguir" només
+  // decideix si el mapa s'ha de moure amb tu o no — no obre cap watch propi.
   const toggleFollow = () => {
-    if (following) {
-      if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
-      setFollowing(false);
-      return;
-    }
     if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
-    setFollowing(true);
-    watchRef.current = navigator.geolocation.watchPosition(
+    const next = !following;
+    setFollowing(next);
+    followingRef.current = next;
+    if (next && userPos && mapInstance) mapInstance.panTo([userPos.lat, userPos.lng], { animate: true, duration: 0.6 });
+  };
+
+  // Watch de base — manté el punt blau SEMPRE marcat sense que l'usuari hagi de
+  // tocar res. Si el radar ja ens alimenta la posició (radarPos), no n'obrim un
+  // de propi per estalviar bateria. Centra el mapa només al primer fix.
+  useEffect(() => {
+    if (radarPos) return;                 // el radar ja ens dóna la posició
+    if (!navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        if (mapInstance) mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.6 });
+        if (firstFixRef.current && mapInstance) {
+          firstFixRef.current = false;
+          const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
+          mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 0.9 });
+        } else if (followingRef.current && mapInstance) {
+          mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.6 });
+        }
       },
-      (e) => { setLocErr(errMsg(e)); setFollowing(false); },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      (e) => { setLocErr(errMsg(e)); },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
     );
-  };
+    watchRef.current = id;
+    return () => { navigator.geolocation.clearWatch(id); if (watchRef.current === id) watchRef.current = null; };
+  }, [radarPos, mapInstance]);
 
   // Cleanup watch al desmuntar
   useEffect(() => () => {

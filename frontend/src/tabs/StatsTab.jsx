@@ -27,6 +27,11 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
   detections.forEach(d => { if (d.created_at) byDay[new Date(d.created_at).getDay()]++; });
   const maxD = Math.max(...byDay, 1);
 
+  // Resum global per a la vista Distribució
+  const totalDets = detections.filter(d => d.created_at).length;
+  const peakHour = byHour.some(n => n > 0) ? byHour.indexOf(Math.max(...byHour)) : -1;
+  const peakDay = byDay.some(n => n > 0) ? byDay.indexOf(Math.max(...byDay)) : -1;
+
   const zoneCount = {};
   detections.forEach(d => { const z = d.zone_norm || d.zone || "?"; zoneCount[z] = (zoneCount[z] || 0) + 1; });
   const topZones = Object.entries(zoneCount).sort((a, b) => b[1] - a[1]).slice(0, 5);
@@ -194,39 +199,69 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
 
       {view === "dist" && (
         <>
+          {/* Resum ràpid */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            {[
+              ["Total", totalDets, C.accent],
+              ["Hora punta", peakHour >= 0 ? `${peakHour}h` : "—", C.mossos],
+              ["Dia punta", peakDay >= 0 ? DAYS_SHORT[peakDay] : "—", C.guardia],
+            ].map(([label, val, col]) => (
+              <div key={label} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 8px", textAlign: "center" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: col, lineHeight: 1.1 }}>{val}</div>
+                <div style={{ fontSize: 10, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 3 }}>{label}</div>
+              </div>
+            ))}
+          </div>
+
           {/* Gràfic per hora */}
           <div style={{ background: C.surface, borderRadius: 12, padding: 14, border: `1px solid ${C.border}`, marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, marginBottom: 10 }}>Deteccions per hora</div>
-            <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 64 }}>
-              {byHour.map((n, h) => {
-                const isSel = selHour === h, isNow = h === new Date().getHours();
-                const col = isNow ? C.accent : isSel ? C.accent : C.mossos;
-                return (
-                  <div key={h} onClick={() => setSelHour(selHour === h ? -1 : h)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer" }}>
-                    <div style={{ width: "100%", height: Math.round((n / maxH) * 58) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isNow ? 1 : 0.55, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
-                    {h % 6 === 0 && <span style={{ fontSize: 10, color: C.textMuted }}>{h}h</span>}
-                  </div>
-                );
-              })}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.accent }}>Deteccions per hora</div>
+              {peakHour >= 0 && <div style={{ fontSize: 11, color: C.textDim }}>màxim {maxH} a les {peakHour}h</div>}
             </div>
+            {totalDets === 0 ? (
+              <div style={{ fontSize: 13, color: C.textDim, textAlign: "center", padding: "12px 0" }}>Encara no hi ha dades</div>
+            ) : (
+              <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 86 }}>
+                {byHour.map((n, h) => {
+                  const isSel = selHour === h, isNow = h === new Date().getHours(), isPeak = h === peakHour;
+                  const col = isSel || isNow ? C.accent : isPeak ? C.danger : C.mossos;
+                  return (
+                    <div key={h} onClick={() => setSelHour(selHour === h ? -1 : h)} title={`${h}:00h · ${n}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer" }}>
+                      <span style={{ fontSize: 8, color: C.textMuted, height: 9, lineHeight: "9px" }}>{n > 0 && (isPeak || isSel || n === maxH) ? n : ""}</span>
+                      <div style={{ width: "100%", height: Math.round((n / maxH) * 56) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isNow || isPeak ? 1 : 0.5, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
+                      {h % 3 === 0 && <span style={{ fontSize: 9, color: C.textMuted }}>{h}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {selHour >= 0 && <div style={{ fontSize: 12, color: C.accent, marginTop: 6, textAlign: "center" }}>Filtrant per {selHour}:00h · {byHour[selHour]} deteccions — Toca per treure el filtre</div>}
           </div>
 
           {/* Gràfic per dia */}
           <div style={{ background: C.surface, borderRadius: 12, padding: 14, border: `1px solid ${C.border}`, marginBottom: 10 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.accent, marginBottom: 10 }}>Deteccions per dia de la setmana</div>
-            <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 64 }}>
-              {byDay.map((n, d) => {
-                const isSel = selDay === d, isToday = d === new Date().getDay();
-                const col = isToday ? C.accent : isSel ? C.accent : C.guardia;
-                return (
-                  <div key={d} onClick={() => setSelDay(selDay === d ? -1 : d)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4, cursor: "pointer" }}>
-                    <div style={{ width: "100%", height: Math.round((n / maxD) * 52) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isToday ? 1 : 0.55, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
-                    <span style={{ fontSize: 11, color: isSel ? C.accent : C.textDim }}>{DAYS_SHORT[d]}</span>
-                  </div>
-                );
-              })}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.accent }}>Deteccions per dia de la setmana</div>
+              {peakDay >= 0 && <div style={{ fontSize: 11, color: C.textDim }}>màxim {maxD} {DAYS_FULL[peakDay]}</div>}
             </div>
+            {totalDets === 0 ? (
+              <div style={{ fontSize: 13, color: C.textDim, textAlign: "center", padding: "12px 0" }}>Encara no hi ha dades</div>
+            ) : (
+              <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90 }}>
+                {byDay.map((n, d) => {
+                  const isSel = selDay === d, isToday = d === new Date().getDay(), isPeak = d === peakDay;
+                  const col = isSel || isToday ? C.accent : isPeak ? C.danger : C.guardia;
+                  return (
+                    <div key={d} onClick={() => setSelDay(selDay === d ? -1 : d)} title={`${DAYS_FULL[d]} · ${n}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: n > 0 ? C.text : C.textMuted, height: 13, lineHeight: "13px" }}>{n > 0 ? n : ""}</span>
+                      <div style={{ width: "100%", height: Math.round((n / maxD) * 52) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isToday || isPeak ? 1 : 0.55, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
+                      <span style={{ fontSize: 11, color: isSel ? C.accent : isToday ? C.accent : C.textDim, fontWeight: isToday ? 700 : 400 }}>{DAYS_SHORT[d]}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {selDay >= 0 && <div style={{ fontSize: 12, color: C.accent, marginTop: 6, textAlign: "center" }}>Filtrant per {DAYS_FULL[selDay]} · {byDay[selDay]} deteccions — Toca per treure el filtre</div>}
           </div>
 

@@ -6,9 +6,11 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
   const {
-    active, pos, err, nearby, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, windowMin, setWindowMin, start, stop,
+    active, pos, err, nearby, riskPct, sound, toggleSound,
+    alertRadiusKm, setAlertRadiusKm, start, stop,
   } = radar;
+  // Color segons nivell de possibilitat
+  const riskCol = riskPct > 60 ? C.danger : riskPct > 30 ? C.warning : C.success;
 
   return (
     <div>
@@ -43,18 +45,25 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
             <span>Just al costat</span><span>Comarca sencera</span>
           </div>
         </div>
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Finestra recent</span>
-            <span style={{ fontSize: 14, color: C.accent, fontWeight: 700 }}>{windowMin} min</span>
+        {/* Possibilitat de patrulla prop teu — mesura per percentatge */}
+        <div style={{ background: C.bg, borderRadius: 8, padding: "12px 12px 10px", border: `1px solid ${riskPct > 0 ? riskCol + "66" : C.border}` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+            <span style={{ fontSize: 14, color: C.textDim }}>Possibilitat de patrulla prop teu</span>
+            <span style={{ fontSize: 24, fontWeight: 800, color: active ? riskCol : C.textMuted, lineHeight: 1 }}>{active ? `${riskPct}%` : "—"}</span>
           </div>
-          <input type="range" min={15} max={240} step={15} value={windowMin} onChange={e => setWindowMin(Number(e.target.value))} style={{ width: "100%", accentColor: C.accent }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>15 min</span><span>4h</span>
+          <div style={{ height: 10, background: C.border, borderRadius: 5, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${active ? riskPct : 0}%`, background: riskCol, borderRadius: 5, transition: "width 0.5s", boxShadow: active && riskPct > 0 ? `0 0 8px ${riskCol}88` : "none" }} />
+          </div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
+            {!active ? "Activa el radar per mesurar la possibilitat segons la teva posició."
+              : riskPct === 0 ? "Cap detecció real prop teu ara mateix ✓"
+              : riskPct > 60 ? "🚨 Risc alt — patrulla activa molt a prop"
+              : riskPct > 30 ? "⚠ Risc moderat a la teva zona"
+              : "Risc baix a la zona"}
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-          ↳ Alerta quan una <b style={{ color: C.textDim }}>detecció real</b> apareix dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> teus en els darrers <b style={{ color: C.textDim }}>{windowMin} min</b>.
+          ↳ Alerta quan una <b style={{ color: C.textDim }}>detecció real</b> apareix dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> teus (últimes 2h). El percentatge puja com més a prop i més recent és la patrulla.
         </div>
       </div>
 
@@ -62,7 +71,7 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
         <div>
           <div style={{ fontSize: 13, color: C.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em", display: "flex", justifyContent: "space-between" }}>
             <span>Deteccions recents prop teu</span>
-            <span style={{ color: C.textMuted, letterSpacing: 0 }}>{nearby.length} en {windowMin} min</span>
+            <span style={{ color: C.textMuted, letterSpacing: 0 }}>{nearby.length} a prop · 2h</span>
           </div>
           {nearby.length === 0 ? (
             <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, textAlign: "center" }}>
