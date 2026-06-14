@@ -660,7 +660,7 @@ export default function App(){
                 <button key={k} onClick={()=>setMapMode(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:mapMode===k?C.accent:"transparent",color:mapMode===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
               ))}
             </div>
-            <div style={{height:"calc(100dvh - 320px)",minHeight:360,maxHeight:"calc(100vh - 260px)"}}>
+            <div style={{height:"calc(100dvh - 230px)",minHeight:480,maxHeight:"calc(100vh - 180px)"}}>
               {mapMode==="schema"?(
                 <ZoneMap
                   zones={MAP_ZONES}
