@@ -119,6 +119,7 @@ export default function MapTab({
   const [following, setFollowing] = useState(false);  // seguiment continu
   const [mapInstance, setMapInstance] = useState(null);
   const watchRef = useRef(null);
+  const followWatchRef = useRef(null);                // watch propi del botó "Seguir"
   const followingRef = useRef(false);                 // mirall de `following` per al watch
   const centeredRef = useRef(false);                  // ja hem centrat en un fix prou bo?
   const bestPosRef = useRef(null);                    // millor fix rebut (menys ±m)
@@ -217,38 +218,44 @@ export default function MapTab({
     setLocErr(null);
     setLocating(true);
     let best = null, done = false, wId = null, tId = null;
-    const finish = (np) => {
-      if (done) return;
-      done = true;
-      if (tId) clearTimeout(tId);
-      if (wId != null) navigator.geolocation.clearWatch(wId);
-      setLocating(false);
-      const tgt = np || best;
-      if (tgt && mapInstance) mapInstance.flyTo([tgt.lat, tgt.lng], zoomForAcc(tgt.acc), { duration: 0.8 });
-      else if (!tgt) setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior");
-    };
+    const stop = () => { if (tId) clearTimeout(tId); if (wId != null) navigator.geolocation.clearWatch(wId); setLocating(false); };
     wId = navigator.geolocation.watchPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
+        // Vola a CADA fix: feedback instantani (encara que sigui coarse) i es va
+        // refinant cap a la posició precisa quan el GPS millora.
+        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.7 });
         if (!best || np.acc < best.acc) best = np;
-        if (np.acc <= 80) finish(np);          // GPS ja prou precís → centra ja
+        if (np.acc <= 80) { done = true; stop(); }   // ja prou precís → para
       },
-      (e) => { if (!best) { setLocErr(errMsg(e)); setLocating(false); done = true; if (wId != null) navigator.geolocation.clearWatch(wId); } },
+      (e) => { if (!best) { setLocErr(errMsg(e)); stop(); } },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 25000 }
     );
-    tId = setTimeout(() => finish(best), 12000);  // 12s: vola al millor fix aconseguit
+    tId = setTimeout(() => { stop(); if (!best && !userPos) setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior"); }, 15000);
   };
 
-  // El watch de base (a sota) sempre actualitza la posició. "Seguir" només
-  // decideix si el mapa s'ha de moure amb tu o no — no obre cap watch propi.
+  // "Seguir" — watch propi que mou el mapa amb tu. En activar-lo recentra de
+  // seguida; en desactivar-lo, tanca el watch.
   const toggleFollow = () => {
+    if (following) {
+      setFollowing(false); followingRef.current = false;
+      if (followWatchRef.current != null) { navigator.geolocation.clearWatch(followWatchRef.current); followWatchRef.current = null; }
+      return;
+    }
     if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
     setLocErr(null);
-    const next = !following;
-    setFollowing(next);
-    followingRef.current = next;
-    if (next && userPos && mapInstance) mapInstance.panTo([userPos.lat, userPos.lng], { animate: true, duration: 0.6 });
+    setFollowing(true); followingRef.current = true;
+    if (userPos && mapInstance) mapInstance.panTo([userPos.lat, userPos.lng], { animate: true, duration: 0.6 });
+    followWatchRef.current = navigator.geolocation.watchPosition(
+      (p) => {
+        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        setUserPos(np);
+        if (mapInstance) mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.5 });
+      },
+      (e) => { setLocErr(errMsg(e)); setFollowing(false); followingRef.current = false; },
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 }
+    );
   };
 
   // Watch de base — manté el punt blau SEMPRE marcat sense que l'usuari hagi de
@@ -267,9 +274,8 @@ export default function MapTab({
         if (mapInstance && !centeredRef.current && np.acc <= 300) {
           centeredRef.current = true;
           mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.9 });
-        } else if (mapInstance && followingRef.current) {
-          mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.6 });
         }
+        // El seguiment continu el gestiona el watch propi de toggleFollow.
       },
       (e) => { setLocErr(errMsg(e)); },
       { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 }
@@ -290,9 +296,10 @@ export default function MapTab({
     };
   }, [radarPos, mapInstance]);
 
-  // Cleanup watch al desmuntar
+  // Cleanup watches al desmuntar
   useEffect(() => () => {
     if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current);
+    if (followWatchRef.current != null) navigator.geolocation.clearWatch(followWatchRef.current);
   }, []);
 
   const fitAll = () => {

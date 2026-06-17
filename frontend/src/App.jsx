@@ -666,7 +666,7 @@ export default function App(){
                   zones={MAP_ZONES}
                   probs={zoneProbs}
                   selected={selectedZone}
-                  onSelect={setSelectedZone}
+                  onSelect={(id)=>{setSelectedZone(id);setZoneDetail(id);}}
                   detections={detections}
                   theme={currentTheme}
                   radarPos={radar.active?radar.pos:null}
@@ -714,9 +714,28 @@ export default function App(){
                 </div>
               </div>
               <div style={{marginBottom:14}}>
-                <label style={{fontSize:13,color:C.textDim,display:"block",marginBottom:5}}>Hora — {queryHour}:00h</label>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                  <label style={{fontSize:13,color:C.textDim}}>Hora del dia</label>
+                  <div style={{textAlign:"right"}}>
+                    <span style={{fontSize:20,fontWeight:800,color:C.accent}}>{String(queryHour).padStart(2,"0")}:00 h</span>
+                    <span style={{fontSize:11,color:C.textMuted,marginLeft:6}}>
+                      {queryHour<6?"matinada":queryHour<12?"matí":queryHour<14?"migdia":queryHour<20?"tarda":"nit"}
+                    </span>
+                  </div>
+                </div>
                 <input type="range" min={0} max={23} value={queryHour} onChange={e=>setQueryHour(Number(e.target.value))} style={{width:"100%",accentColor:C.accent}}/>
-                <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:3}}><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>
+                {/* Regla amb marca a cada hora i número cada 3h */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",marginTop:2,height:18}}>
+                  {Array.from({length:24},(_,h)=>(
+                    <div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
+                      <div style={{width:1,height:h%3===0?7:3,background:h===queryHour?C.accent:C.textMuted,opacity:h===queryHour?1:0.6}}/>
+                      {h%3===0&&<span style={{fontSize:9,color:h===queryHour?C.accent:C.textMuted,fontWeight:h===queryHour?700:400}}>{h}</span>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:4}}>
+                  Es consulta la franja <b style={{color:C.textDim}}>{String((queryHour+23)%24).padStart(2,"0")}–{String((queryHour+1)%24).padStart(2,"0")} h</b> (l'hora triada ±1).
+                </div>
               </div>
               <button onClick={handleQuery} disabled={querying} style={{width:"100%",padding:12,background:querying?C.border:C.accent,color:querying?C.textDim:"#000",border:"none",borderRadius:8,fontSize:16,fontWeight:800,cursor:querying?"wait":"pointer",fontFamily:"inherit",opacity:querying?0.7:1}}>{querying?"CONSULTANT…":"CONSULTAR"}</button>
             </div>

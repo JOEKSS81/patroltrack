@@ -1,14 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useC } from "../lib/themes";
 import { ptWith, DAYS_SHORT, DAYS_FULL, MONTHS } from "../lib/constants";
+
+// Lectura/escriptura segura a localStorage (la vista persisteix entre pestanyes
+// i recàrregues; les DADES sempre venen de la BD, això només recorda QUÈ mires).
+const lsGet = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch { return def; } };
+const lsNum = (k, def) => { const v = Number(lsGet(k, NaN)); return Number.isFinite(v) ? v : def; };
+const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch {} };
 
 // Pestanya ESTADÍSTIQUES — Distribució i Calendari fusionats amb sub-toggle.
 export default function StatsTab({ detections, onZoneTap, onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
-  const [view, setView] = useState("dist");          // "dist" | "cal"
-  const [selDay, setSelDay] = useState(-1);          // -1 = tots
-  const [selHour, setSelHour] = useState(-1);
+  const [view, setView] = useState(() => lsGet("pt_stats_view", "dist"));   // "dist" | "cal"
+  const [selDay, setSelDay] = useState(() => lsNum("pt_stats_selDay", -1)); // -1 = tots
+  const [selHour, setSelHour] = useState(() => lsNum("pt_stats_selHour", -1));
+  useEffect(() => lsSet("pt_stats_view", view), [view]);
+  useEffect(() => lsSet("pt_stats_selDay", selDay), [selDay]);
+  useEffect(() => lsSet("pt_stats_selHour", selHour), [selHour]);
 
   // ── Agregats globals (per vista Distribució) ─────────────────────────────
   const filtered = detections.filter(d => {
@@ -39,11 +48,19 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
   const typeCount = { mossos: 0, guardia: 0, local: 0, unknown: 0 };
   detections.forEach(d => { typeCount[d.patrol_type] = (typeCount[d.patrol_type] || 0) + 1; });
 
-  // ── Estat del calendari ───────────────────────────────────────────────────
+  // ── Estat del calendari (persistit) ───────────────────────────────────────
   const today = new Date();
-  const [calYear, setCalYear] = useState(today.getFullYear());
-  const [calMonth, setCalMonth] = useState(today.getMonth());
-  const [calDate, setCalDate] = useState(null);
+  const [calYear, setCalYear] = useState(() => lsNum("pt_stats_calY", today.getFullYear()));
+  const [calMonth, setCalMonth] = useState(() => lsNum("pt_stats_calM", today.getMonth()));
+  const [calDate, setCalDate] = useState(() => { const v = lsNum("pt_stats_calD", 0); return v > 0 ? v : null; });
+  useEffect(() => lsSet("pt_stats_calY", calYear), [calYear]);
+  useEffect(() => lsSet("pt_stats_calM", calMonth), [calMonth]);
+  useEffect(() => lsSet("pt_stats_calD", calDate || 0), [calDate]);
+
+  // Netejar la VISTA d'una subpestanya (només filtres/selecció locals; les dades
+  // segueixen a la base de dades i es tornen a mostrar igualment).
+  const clearDist = () => { setSelDay(-1); setSelHour(-1); };
+  const clearCal = () => { setCalDate(null); setCalYear(today.getFullYear()); setCalMonth(today.getMonth()); };
 
   const detsByDate = {};
   detections.forEach(d => {
@@ -66,10 +83,20 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
   return (
     <div>
       {/* Toggle Distribució / Calendari */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, background: C.surface, padding: 4, borderRadius: 10, border: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 8, background: C.surface, padding: 4, borderRadius: 10, border: `1px solid ${C.border}` }}>
         {[["dist", "📊 Distribució"], ["cal", "📅 Calendari"]].map(([k, l]) => (
           <button key={k} onClick={() => setView(k)} style={{ flex: 1, padding: "9px 8px", borderRadius: 8, border: "none", background: view === k ? C.accent : "transparent", color: view === k ? C.bg : C.textDim, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all .15s" }}>{l}</button>
         ))}
+      </div>
+
+      {/* Acumulat des de la BD + netejar vista d'aquesta subpestanya (no toca la BD) */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, fontSize: 11, color: C.textMuted }}>
+        <span>{totalDets} deteccions acumulades · de la base de dades</span>
+        <button onClick={view === "dist" ? clearDist : clearCal}
+          title="Reinicia els filtres i la selecció d'aquesta subpestanya. NO esborra cap dada de la base de dades."
+          style={{ background: "transparent", color: C.textDim, border: `1px solid ${C.border}`, borderRadius: 6, padding: "4px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+          🧹 Netejar vista
+        </button>
       </div>
 
       {view === "cal" && (

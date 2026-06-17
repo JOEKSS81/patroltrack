@@ -35,21 +35,22 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
             <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
           </div>
         </div>
-        <div style={{ marginBottom: 10 }}>
+        {/* Barra de DISTÀNCIA — controla el radi dins del qual es mesura el % */}
+        <div style={{ marginBottom: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Radi d'alerta</span>
+            <span style={{ fontSize: 14, color: C.textDim }}>Distància a mesurar</span>
             <span style={{ fontSize: 14, color: C.accent, fontWeight: 700 }}>{alertRadiusKm} km</span>
           </div>
-          <input type="range" min={1} max={20} value={alertRadiusKm} onChange={e => setAlertRadiusKm(Number(e.target.value))} style={{ width: "100%", accentColor: C.accent }} />
+          <input type="range" min={1} max={20} value={alertRadiusKm} onChange={e => setAlertRadiusKm(Number(e.target.value))} style={{ width: "100%", accentColor: riskCol }} />
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>Just al costat</span><span>Comarca sencera</span>
+            <span>1 km</span><span>Mou-la per triar la distància</span><span>20 km</span>
           </div>
         </div>
-        {/* Possibilitat de trobar un control — % segons model històric + en viu */}
+        {/* Possibilitat de control DINS de la distància triada */}
         <div style={{ background: C.bg, borderRadius: 8, padding: "12px 12px 10px", border: `1px solid ${active && riskPct > 0 ? riskCol + "66" : C.border}` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
             <span style={{ fontSize: 14, color: C.textDim }}>
-              Possibilitat de trobar un control
+              Possibilitat de control dins de <b style={{ color: C.accent }}>{alertRadiusKm} km</b>
               {active && zoneName ? <span style={{ color: C.textMuted }}> · {zoneName}</span> : null}
             </span>
             <span style={{ fontSize: 26, fontWeight: 800, color: active ? riskCol : C.textMuted, lineHeight: 1 }}>{active ? `${riskPct}%` : "—"}</span>
@@ -58,15 +59,15 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
             <div style={{ height: "100%", width: `${active ? riskPct : 0}%`, background: riskCol, borderRadius: 5, transition: "width 0.5s", boxShadow: active && riskPct > 0 ? `0 0 8px ${riskCol}88` : "none" }} />
           </div>
           <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
-            {!active ? "Activa el radar per calcular-ho segons on ets i l'hora actual."
-              : riskPct === 0 ? "Possibilitat baixa o sense dades per a la teva zona ara."
-              : riskPct > 60 ? "🚨 Alta — molt probable trobar un control aquí ara"
+            {!active ? "Activa el radar per calcular-ho segons on ets, l'hora i la distància triada."
+              : riskPct === 0 ? "Cap activitat dins d'aquesta distància. Prova d'ampliar el radi."
+              : riskPct > 60 ? "🚨 Alta — molt probable trobar un control en aquesta distància"
               : riskPct > 30 ? "⚠ Moderada — vés amb compte"
-              : "Baixa — poca activitat històrica a aquesta hora"}
+              : "Baixa — poca activitat dins d'aquesta distància"}
           </div>
         </div>
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-          ↳ El percentatge surt de l'<b style={{ color: C.textDim }}>històric</b> de la teva zona a aquesta hora, i puja si hi ha una <b style={{ color: C.textDim }}>detecció real</b> dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b> (últimes 2h), que també dispara l'alerta sonora.
+          ↳ Mou la barra de <b style={{ color: C.textDim }}>distància</b> i el % s'actualitza: és la possibilitat de trobar un control dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b>, segons les deteccions reals d'aquesta zona (i l'històric per hora). L'alerta sonora salta si n'apareix una de nova dins del radi.
         </div>
       </div>
 

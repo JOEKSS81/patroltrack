@@ -84,16 +84,26 @@ export function useRadar(detections) {
     enriched.sort((a, b) => a._dist - b._dist);
     setNearby(enriched.slice(0, 20));
 
-    // Senyal EN VIU (0..1): si hi ha una detecció real dins del radi, com de prop
-    // i de fresca és. Empeny el % cap amunt quan hi ha una patrulla a prop ara.
-    let live = 0;
-    for (const d of enriched) {
-      if (d._dist > alertRadiusKm) continue;
-      const prox = 1 - d._dist / alertRadiusKm;                 // 0..1 (més a prop, més)
-      const fresh = Math.max(0.25, 1 - d._ageMin / WINDOW_MIN); // 0.25..1 (més recent, més)
-      live = Math.max(live, prox * fresh);
+    // POSSIBILITAT PER DISTÀNCIA (0..1): densitat de deteccions reals DINS del
+    // radi triat, ponderada per proximitat i recència (~2 setmanes). Com més gran
+    // el radi, més deteccions hi entren → més %. Així la barra de distància mou el %.
+    const now = Date.now();
+    const HORIZON_MS = 14 * 24 * 3600 * 1000;
+    let score = 0;
+    for (const d of detections) {
+      const ts = d.created_at ? new Date(d.created_at).getTime() : 0;
+      const ageMs = now - ts;
+      if (!ts || ageMs > HORIZON_MS) continue;
+      const c = resolveDetCoords(d);
+      if (!c) continue;
+      const dist = distKm(lat, lng, c.lat, c.lng);
+      if (dist > alertRadiusKm) continue;
+      const prox = 1 - dist / alertRadiusKm;                    // 0..1 (més a prop, més)
+      const recency = Math.exp(-(ageMs / 3600000) / 72);        // decau ~3 dies
+      score += recency * (0.4 + 0.6 * prox);
     }
-    liveScoreRef.current = Math.min(1, live);
+    const distProb = 1 - Math.exp(-score / 2.5);                // satura cap a 1
+    liveScoreRef.current = Math.min(1, distProb);
 
     // MODEL predictiu: possibilitat de trobar un control a la teva zona, a aquesta
     // hora, segons l'històric. Només refem la consulta si canvia la zona o l'hora.
