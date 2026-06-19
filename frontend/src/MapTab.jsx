@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef, useState, useMemo } from "react"; // eslint-disable-line no-unused-vars
-import { MapContainer, TileLayer, Marker, Popup, Circle, CircleMarker, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Circle, CircleMarker, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -75,6 +75,14 @@ function MapHandle({ onReady }) {
   return null;
 }
 
+// Mode "marcar manualment": quan està actiu, el següent toc al mapa fixa la teva
+// posició. Imprescindible al Huawei sense Google Play, on el GPS per xarxa cau a
+// Lleida i no et situa a Sort.
+function ClickToPlace({ active, onPlace }) {
+  useMapEvents({ click(e) { if (active) onPlace(e.latlng); } });
+  return null;
+}
+
 // Distància en km (haversine) — local perquè el component no depengui d'App.jsx
 function distKm(a1, o1, a2, o2) {
   const R = 6371, d1 = (a2 - a1) * Math.PI / 180, d2 = (o2 - o1) * Math.PI / 180;
@@ -91,6 +99,11 @@ const TILE_SETS = {
   voyager:  { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", attr: "© OpenStreetMap, © CARTO", label: "Voyager", emoji: "🗺" },
   positron: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",     attr: "© OpenStreetMap, © CARTO", label: "Clar",        emoji: "☀" },
   osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                attr: "© OpenStreetMap",            label: "OSM clàssic", emoji: "🌍" },
+  // Esri — proveïdor DIFERENT (no OSM), CDN pròpia. Útil si CARTO/OSM no carrega.
+  // Sense subdomini {s}: Esri serveix des d'un únic host.
+  esriSat:  { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", attr: "© Esri, Maxar, Earthstar Geographics", label: "Satèl·lit", emoji: "🛰", noSub: true },
+  esriTopo: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}", attr: "© Esri", label: "Topogràfic", emoji: "⛰", noSub: true },
+  esriStreet:{ url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", attr: "© Esri", label: "Carrers (Esri)", emoji: "🛣", noSub: true },
 };
 
 // Skin → tile preferit
@@ -114,8 +127,13 @@ export default function MapTab({
   const [showDets, setShowDets] = useState(true);     // capa deteccions 24h
   const [showLegend, setShowLegend] = useState(false);    // per defecte plegada, ocupa menys
   const [showTools, setShowTools] = useState(false);      // barra d'eines plegada per defecte
-  const [userPos, setUserPos] = useState(null);       // {lat,lng,acc}
+  const [userPos, setUserPos] = useState(null);       // {lat,lng,acc,manual?}
   const [locErr, setLocErr] = useState(null);
+  const [placing, setPlacing] = useState(false);      // mode "tocar per marcar la meva posició"
+  const manualRef = useRef(false);                    // posició fixada manualment → ignora GPS boirós
+  // Per sobre d'aquesta precisió (m) NO et centrem: un fix tan boirós sol ser la
+  // ubicació per xarxa/IP (cau a Lleida), no on ets de veritat (p. ex. Sort).
+  const COARSE_M = 2500;
   const [following, setFollowing] = useState(false);  // seguiment continu
   const [mapInstance, setMapInstance] = useState(null);
   const watchRef = useRef(null);
@@ -223,16 +241,24 @@ export default function MapTab({
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
-        // Vola a CADA fix: feedback instantani (encara que sigui coarse) i es va
-        // refinant cap a la posició precisa quan el GPS millora.
-        if (mapInstance) mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.7 });
+        // Només volem cap al fix si NO és boirós. Un fix >2,5 km sol ser la
+        // ubicació per xarxa/IP (Lleida) i no on ets de veritat (Sort).
+        if (mapInstance && np.acc <= COARSE_M) mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.7 });
+        if (np.acc <= COARSE_M) manualRef.current = false;   // tenim GPS bo → deixa manar el GPS
         if (!best || np.acc < best.acc) best = np;
         if (np.acc <= 80) { done = true; stop(); }   // ja prou precís → para
       },
       (e) => { if (!best) { setLocErr(errMsg(e)); stop(); } },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 25000 }
     );
-    tId = setTimeout(() => { stop(); if (!best && !userPos) setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior"); }, 15000);
+    tId = setTimeout(() => {
+      stop();
+      if (best && best.acc > COARSE_M) {
+        setLocErr("GPS imprecís (xarxa) — toca «📌 Marcar» i indica on ets al mapa");
+      } else if (!best && !userPos) {
+        setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior");
+      }
+    }, 15000);
   };
 
   // "Seguir" — watch propi que mou el mapa amb tu. En activar-lo recentra de
@@ -269,6 +295,10 @@ export default function MapTab({
     const id = navigator.geolocation.watchPosition(
       (p) => {
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        // Si l'usuari ha fixat la posició manualment, no la sobreescriguis amb un
+        // fix boirós; només un GPS bo (≤300m) recupera el control automàtic.
+        if (manualRef.current && np.acc > 300) return;
+        if (np.acc <= 300) manualRef.current = false;
         setUserPos(np);
         if (!bestPosRef.current || np.acc < bestPosRef.current.acc) bestPosRef.current = np;
         if (mapInstance && !centeredRef.current && np.acc <= 300) {
@@ -283,10 +313,15 @@ export default function MapTab({
     watchRef.current = id;
     if (autoTimerRef.current) clearTimeout(autoTimerRef.current);
     autoTimerRef.current = setTimeout(() => {
-      if (!centeredRef.current && mapInstance && bestPosRef.current) {
+      // Fallback: centra al millor fix NOMÉS si és prou bo. Si l'únic que tenim és
+      // boirós (xarxa → Lleida), no et movem allà; avisem perquè marquis manualment.
+      if (centeredRef.current || manualRef.current) return;
+      const bp = bestPosRef.current;
+      if (mapInstance && bp && bp.acc <= COARSE_M) {
         centeredRef.current = true;
-        const np = bestPosRef.current;
-        mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.9 });
+        mapInstance.flyTo([bp.lat, bp.lng], zoomForAcc(bp.acc), { duration: 0.9 });
+      } else if (bp) {
+        setLocErr("GPS imprecís (xarxa) — toca «📌 Marcar» i indica on ets al mapa");
       }
     }, 9000);
     return () => {
@@ -302,6 +337,59 @@ export default function MapTab({
     if (followWatchRef.current != null) navigator.geolocation.clearWatch(followWatchRef.current);
   }, []);
 
+  // Arregla el "no es pot moure": quan el mapa es munta dins la pestanya, Leaflet
+  // pot mesurar malament el contenidor i l'àrea arrossegable queda desplaçada o
+  // bloquejada. invalidateSize() força el recàlcul. Ho fem en muntar i en redimensionar.
+  useEffect(() => {
+    if (!mapInstance) return;
+    const fix = () => mapInstance.invalidateSize();
+    const t0 = setTimeout(fix, 0);
+    const t1 = setTimeout(fix, 300);
+    window.addEventListener("resize", fix);
+    window.addEventListener("orientationchange", fix);
+    return () => {
+      clearTimeout(t0); clearTimeout(t1);
+      window.removeEventListener("resize", fix);
+      window.removeEventListener("orientationchange", fix);
+    };
+  }, [mapInstance]);
+
+  // Restaura una posició marcada manualment en sessions anteriors
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("pt_manual_pos");
+      if (saved) {
+        const p = JSON.parse(saved);
+        if (p && typeof p.lat === "number" && typeof p.lng === "number") {
+          manualRef.current = true;
+          centeredRef.current = true;
+          setUserPos({ lat: p.lat, lng: p.lng, acc: 0, manual: true });
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Toc al mapa en mode "Marcar" → fixa la teva posició aquí
+  const placePos = (latlng) => {
+    const np = { lat: latlng.lat, lng: latlng.lng, acc: 0, manual: true };
+    manualRef.current = true;
+    centeredRef.current = true;
+    setUserPos(np);
+    setPlacing(false);
+    setLocErr(null);
+    try { localStorage.setItem("pt_manual_pos", JSON.stringify({ lat: np.lat, lng: np.lng })); } catch {}
+    if (mapInstance) mapInstance.flyTo([np.lat, np.lng], 13, { duration: 0.6 });
+  };
+
+  // Esborra la posició manual i torna a confiar en el GPS
+  const clearManual = () => {
+    manualRef.current = false;
+    centeredRef.current = false;
+    try { localStorage.removeItem("pt_manual_pos"); } catch {}
+    setUserPos(null);
+    setLocErr(null);
+  };
+
   const fitAll = () => {
     if (mapInstance && points.length) mapInstance.fitBounds(points, { padding: [30, 30] });
   };
@@ -309,8 +397,9 @@ export default function MapTab({
   const ptCol = PT_COLOR(t);
 
   return (
-    <div style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.border}` }}>
+    <div className={placing ? "pt-placing" : ""} style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${t.border}` }}>
       <style>{`
+        .pt-placing .leaflet-container{cursor:crosshair}
         @keyframes ptPulse{0%,100%{opacity:1}50%{opacity:.4}}
         @keyframes ptUserPulse{0%,100%{box-shadow:0 0 0 3px ${USER_COLOR}66, 0 0 14px ${USER_COLOR}}50%{box-shadow:0 0 0 10px ${USER_COLOR}22, 0 0 22px ${USER_COLOR}}}
         .leaflet-container{background:${t.bg};font-family:inherit}
@@ -324,6 +413,7 @@ export default function MapTab({
       <MapContainer center={[41.95, 0.95]} zoom={8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
         <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} detectRetina={true} maxZoom={19} />
         <MapHandle onReady={setMapInstance} />
+        <ClickToPlace active={placing} onPlace={placePos} />
         <FitAll points={points} />
         <FlyTo target={target} />
 
@@ -409,6 +499,16 @@ export default function MapTab({
               title={following ? "Para de seguir-te" : "El mapa et seguirà mentre et mous"}>
               {following ? "● Seguint" : "○ Seguir"}
             </button>
+            <button className={`pt-mapbtn${placing ? " active" : ""}`} onClick={() => setPlacing((v) => !v)}
+              title="Toca el mapa per fixar manualment on ets (útil si el GPS falla)">
+              {placing ? "✓ Toca el mapa…" : "📌 Marcar"}
+            </button>
+            {userPos?.manual && (
+              <button className="pt-mapbtn" onClick={clearManual}
+                title="Esborra la posició manual i torna a usar el GPS">
+                ↻ GPS
+              </button>
+            )}
             <button className="pt-mapbtn" onClick={fitAll} title="Enquadra el mapa per veure totes les zones de Lleida">
               ⤢ Tot
             </button>
@@ -437,6 +537,13 @@ export default function MapTab({
           </>
         )}
       </div>
+
+      {/* Avís mode marcar */}
+      {placing && (
+        <div style={{ position: "absolute", top: 10, left: "50%", transform: "translateX(-50%)", zIndex: 600, background: t.accent, color: t.bg, padding: "7px 12px", borderRadius: 8, fontSize: 12, fontWeight: 800, boxShadow: "0 2px 10px rgba(0,0,0,.5)", whiteSpace: "nowrap" }}>
+          📌 Toca el mapa on ets (p. ex. Sort)
+        </div>
+      )}
 
       {/* Error de localització */}
       {locErr && (
@@ -500,6 +607,7 @@ export default function MapTab({
             <div style={{ fontWeight: 700, color: t.text, marginBottom: 2 }}>≡ Eines (a dalt a la dreta)</div>
             <div><b style={{ color: t.text }}>📍 Jo</b> — centra al teu GPS</div>
             <div><b style={{ color: t.text }}>○ Seguir</b> — segueix-te mentre et mous</div>
+            <div><b style={{ color: t.text }}>📌 Marcar</b> — toca el mapa i fixa on ets (si el GPS falla)</div>
             <div><b style={{ color: t.text }}>⤢ Tot</b> — veure totes les zones</div>
             <div><b style={{ color: t.text }}>● 24h</b> — marca deteccions d'avui</div>
             <div><b style={{ color: t.text }}>{currentTile.emoji} Estil</b> — canvia l'aspecte</div>
