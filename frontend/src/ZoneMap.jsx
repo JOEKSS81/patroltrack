@@ -207,12 +207,14 @@ export default function ZoneMap({
 
   // Color CONTINU segons la probabilitat: verd (0%) → groc → taronja → vermell
   // (100%). Com més % de control, més càlid i vermell.
+  // Color NEÓ/FLÚOR continu segons la probabilitat: cian-verd (0%) → llima →
+  // groc → taronja → vermell-magenta (100%). Saturació al màxim + alta lluminositat
+  // perquè brilli sobre fons fosc (efecte flúor).
   const colorFor = (p) => {
     const q = Math.min(1, Math.max(0, p));
-    const hue = 140 - 140 * q;          // 140=verd → 0=vermell (passa per groc/taronja)
-    const sat = 85 + q * 10;            // més saturat com més risc
-    const light = 58 - q * 8;           // una mica més fosc/intens a dalt
-    return `hsl(${Math.round(hue)},${Math.round(sat)}%,${Math.round(light)}%)`;
+    const hue = 165 - 165 * q;          // 165=cian-verd → 0=vermell
+    const light = 62 - q * 6;           // 62%→56% (sempre brillant)
+    return `hsl(${Math.round(hue)},100%,${Math.round(light)}%)`;
   };
 
   // Zona seleccionada + desglossament de deteccions (24h) per al panell d'info
@@ -258,19 +260,19 @@ export default function ZoneMap({
           <pattern id="zmGrid" width="46" height="46" patternUnits="userSpaceOnUse">
             <path d="M46 0H0V46" fill="none" stroke={C.border} strokeWidth="1" opacity="0.3" />
           </pattern>
-          {/* glow neó per a anells i nuclis */}
+          {/* glow neó per a nuclis i etiquetes */}
           <filter id="zmGlow" x="-150%" y="-150%" width="400%" height="400%">
             <feGaussianBlur stdDeviation="2.4" result="b" />
             <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
-          {/* degradat radial per zona (color segons % de control) */}
+          {/* degradat radial neó per zona (brillant al centre, transparent fora) */}
           {zones.map((z, zi) => {
             const col = colorFor(probs[z.id] || 0);
             return (
               <radialGradient key={zi} id={`zgrad-${zi}`} cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor={col} stopOpacity={0.5 + (probs[z.id] || 0) * 0.35} />
-                <stop offset="70%" stopColor={col} stopOpacity={0.18} />
-                <stop offset="100%" stopColor={col} stopOpacity="0.02" />
+                <stop offset="0%" stopColor={col} stopOpacity={0.55 + (probs[z.id] || 0) * 0.3} />
+                <stop offset="45%" stopColor={col} stopOpacity={0.22} />
+                <stop offset="100%" stopColor={col} stopOpacity="0" />
               </radialGradient>
             );
           })}
@@ -279,59 +281,75 @@ export default function ZoneMap({
         <g transform={`translate(${view.tx} ${view.ty}) scale(${view.s})`}>
         <rect x={-w * 2} y={-h * 2} width={w * 5} height={h * 5} fill="url(#zmGrid)" />
 
+        {/* CAPA DE COBERTURA — anells concèntrics neó (estil radi 1/2/5).
+            mixBlendMode "screen" → els solapaments entre zones es SUMEN i brillen
+            (efecte flúor additiu sobre fons fosc). */}
+        <g style={{ mixBlendMode: "screen" }}>
+          {zones.map((z, zi) => {
+            const [x, y] = project(z.lat, z.lng);
+            const p = probs[z.id] || 0;
+            const col = colorFor(p);
+            // unitat base segons radi d'influència; 3 anells concèntrics
+            const u = 13 + (Math.min(z.rKm || 5, 20) / 20) * 11;
+            const bands = [
+              [u * 3.0, 0.07, 0.28, 1.0],   // exterior (radi gran, tènue)
+              [u * 1.95, 0.13, 0.55, 1.3],  // mitjà
+              [u * 1.1, 0.26, 0.95, 1.8],   // interior (brillant)
+            ];
+            return (
+              <g key={`cov-${z.id}`}>
+                {/* farciment radial suau per donar cos al núvol neó */}
+                <circle cx={x} cy={y} r={u * 3.0} fill={`url(#zgrad-${zi})`} />
+                {bands.map(([rr, fo, so, sw], bi) => (
+                  <circle key={bi} cx={x} cy={y} r={rr} fill={col} fillOpacity={fo}
+                    stroke={col} strokeOpacity={so} strokeWidth={sw} />
+                ))}
+              </g>
+            );
+          })}
+        </g>
+
         {/* línia usuari → zona més propera */}
         {userXY && nearest && (() => {
           const [zx, zy] = project(nearest.z.lat, nearest.z.lng);
           return <line x1={userXY[0]} y1={userXY[1]} x2={zx} y2={zy} stroke={USER_COLOR} strokeWidth="2" strokeDasharray="5 6" opacity="0.55" />;
         })()}
 
-        {/* zones — anells neó esvelts + ones expansives */}
-        {zones.map((z, zi) => {
+        {/* NUCLIS + etiquetes + selecció (clicables). Els anells de cobertura
+            es dibuixen a la capa additiva de dalt; aquí només el "store" central. */}
+        {zones.map((z) => {
           const [x, y] = project(z.lat, z.lng);
           const p = probs[z.id] || 0;
           const col = colorFor(p);
-          const r = (11 + (Math.min(z.rKm || 5, 20) / 20) * 12) * (1 + p * 0.18);
+          const u = 13 + (Math.min(z.rKm || 5, 20) / 20) * 11;
           const isSel = z.id === selected;
           const d = distOf(z);
-          // Ones: més % → més ràpides, més grans i més intenses
-          const dur = 3.4 - p * 1.6;                 // 3.4s (calm) → 1.8s (risc)
-          const reach = r + 16 + p * 30;             // fins on arriba l'ona
-          const waveOp = 0.4 + p * 0.4;              // opacitat inicial de l'ona
-          const NW = 3;                              // 3 ones esglaonades
+          const labelY = y - u * 1.1 - 8;
           return (
             <g key={z.id} onClick={() => onSelect && onSelect(z.id)} style={{ cursor: "pointer" }}>
-              {/* ones expansives contínues (fines, neó) */}
-              {Array.from({ length: NW }).map((_, i) => (
-                <circle key={i} cx={x} cy={y} r={r} fill="none" stroke={col} strokeWidth={1.2} opacity="0">
-                  <animate attributeName="r" values={`${r};${reach}`} dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
-                  <animate attributeName="opacity" values={`${waveOp};0`} dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
-                  <animate attributeName="stroke-width" values="1.6;0.2" dur={`${dur}s`} begin={`${(i * dur) / NW}s`} repeatCount="indefinite" />
-                </circle>
-              ))}
-              {/* zona de selecció (tap-target invisible, més gran) */}
-              <circle cx={x} cy={y} r={r + 10} fill="transparent" />
-              {/* halo de selecció — anell giratori + pols expansiu */}
+              {/* tap-target invisible gran */}
+              <circle cx={x} cy={y} r={u * 1.95} fill="transparent" />
+              {/* halo de selecció — pols expansiu + anell giratori neó */}
               {isSel && (
                 <>
-                  <circle cx={x} cy={y} r={r + 7} fill="none" stroke={col} strokeWidth="2.4" opacity="0">
-                    <animate attributeName="r" values={`${r + 7};${r + 22}`} dur="1.8s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.85;0" dur="1.8s" repeatCount="indefinite" />
+                  <circle cx={x} cy={y} r={u * 1.1} fill="none" stroke={col} strokeWidth="2.6" opacity="0">
+                    <animate attributeName="r" values={`${u * 1.1};${u * 2.6}`} dur="1.8s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.9;0" dur="1.8s" repeatCount="indefinite" />
                   </circle>
-                  <circle cx={x} cy={y} r={r + 5} fill="none" stroke={col} strokeWidth="1.4" strokeDasharray="4 5" opacity="0.95" filter="url(#zmGlow)">
+                  <circle cx={x} cy={y} r={u * 1.3} fill="none" stroke={col} strokeWidth="1.6" strokeDasharray="4 5" opacity="0.95" filter="url(#zmGlow)">
                     <animateTransform attributeName="transform" type="rotate" from={`0 ${x} ${y}`} to={`360 ${x} ${y}`} dur="9s" repeatCount="indefinite" />
                   </circle>
                 </>
               )}
-              {/* anell neó esvelt — buit, amb glow */}
-              <circle cx={x} cy={y} r={r} fill={`url(#zgrad-${zi})`} fillOpacity={isSel ? 0.85 : 0.6} stroke={col}
-                strokeWidth={isSel ? 3 : 1.6} strokeOpacity={isSel ? 1 : 0.9} filter="url(#zmGlow)" />
-              {/* nucli petit i brillant */}
-              <circle cx={x} cy={y} r={3} fill="#fff" />
-              <circle cx={x} cy={y} r={5.5} fill="none" stroke={col} strokeWidth="1.4" filter="url(#zmGlow)" />
-              <text x={x} y={y - r - 9} textAnchor="middle" fontSize="13" fontWeight="700" fill={C.text} style={{ pointerEvents: "none" }}>
+              {/* nucli brillant tipus "store" (neó amb centre blanc) */}
+              <circle cx={x} cy={y} r={9} fill={col} fillOpacity={0.3} filter="url(#zmGlow)" />
+              <circle cx={x} cy={y} r={5.5} fill={col} stroke="#fff" strokeWidth={isSel ? 2.4 : 1.6} filter="url(#zmGlow)" />
+              <circle cx={x} cy={y} r={2} fill="#fff" />
+              {/* etiquetes amb contorn i glow per llegibilitat sobre els anells */}
+              <text x={x} y={labelY} textAnchor="middle" fontSize="13" fontWeight="800" fill={C.text} stroke={C.bg} strokeWidth="0.7" paintOrder="stroke" style={{ pointerEvents: "none" }}>
                 {z.label || z.id}
               </text>
-              <text x={x} y={y - r - 9 + 15} textAnchor="middle" fontSize="13" fontWeight="800" fill={col} style={{ pointerEvents: "none" }}>
+              <text x={x} y={labelY + 15} textAnchor="middle" fontSize="13" fontWeight="900" fill={col} style={{ pointerEvents: "none", filter: "url(#zmGlow)" }}>
                 {Math.round(p * 100)}%{d != null ? ` · ${d}km` : ""}
               </text>
             </g>
