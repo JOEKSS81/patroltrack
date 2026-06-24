@@ -215,9 +215,41 @@ export default function ZoneMap({
     return `hsl(${Math.round(hue)},${Math.round(sat)}%,${Math.round(light)}%)`;
   };
 
+  // Zona seleccionada + desglossament de deteccions (24h) per al panell d'info
+  const selZone = zones.find((z) => z.id === selected) || null;
+  const selStats = useMemo(() => {
+    if (!selZone) return null;
+    const sub = recentDets.filter((d) => (d.zone_norm || d.zone) === selZone.id);
+    const by = { mossos: 0, guardia: 0, local: 0, unknown: 0 };
+    let last = 0;
+    for (const d of sub) {
+      by[d.patrol_type] != null ? by[d.patrol_type]++ : by.unknown++;
+      const ts = d.created_at ? new Date(d.created_at).getTime() : 0;
+      if (ts > last) last = ts;
+    }
+    return { total: sub.length, by, last };
+  }, [selZone, recentDets]);
+  const fmtAgo = (ts) => {
+    if (!ts) return "—";
+    const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (s < 60) return "ara mateix";
+    if (s < 3600) return `fa ${Math.floor(s / 60)} min`;
+    if (s < 86400) return `fa ${Math.floor(s / 3600)} h`;
+    return `fa ${Math.floor(s / 86400)} d`;
+  };
+
   return (
-    <div ref={wrapRef} style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: C.bg }}>
-      <style>{`@keyframes zmUser{0%,100%{opacity:1}50%{opacity:.5}}@keyframes zmRipple{0%{r:8px;opacity:.7}100%{r:46px;opacity:0}}`}</style>
+    <div ref={wrapRef} style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: `radial-gradient(120% 90% at 50% 0%, ${C.accent}14 0%, ${C.bg} 55%, ${C.bg} 100%)` }}>
+      <style>{`
+        @keyframes zmUser{0%,100%{opacity:1}50%{opacity:.5}}
+        @keyframes zmRipple{0%{r:8px;opacity:.7}100%{r:46px;opacity:0}}
+        @keyframes zmScan{0%{transform:translateY(-10%)}100%{transform:translateY(110%)}}
+        @keyframes zmCardIn{0%{opacity:0;transform:translateY(10px)}100%{opacity:1;transform:translateY(0)}}
+      `}</style>
+      {/* línia d'escaneig futurista (no intercepta tocs) */}
+      <div style={{ position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none", overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.accent}aa, transparent)`, boxShadow: `0 0 12px ${C.accent}`, animation: "zmScan 6s linear infinite", opacity: 0.5 }} />
+      </div>
       <svg ref={svgRef} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none"
         onWheel={onWheel} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
         onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onClickCapture={onClickCapture}
@@ -278,10 +310,21 @@ export default function ZoneMap({
               ))}
               {/* zona de selecció (tap-target invisible, més gran) */}
               <circle cx={x} cy={y} r={r + 10} fill="transparent" />
+              {/* halo de selecció — anell giratori + pols expansiu */}
+              {isSel && (
+                <>
+                  <circle cx={x} cy={y} r={r + 7} fill="none" stroke={col} strokeWidth="2.4" opacity="0">
+                    <animate attributeName="r" values={`${r + 7};${r + 22}`} dur="1.8s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.85;0" dur="1.8s" repeatCount="indefinite" />
+                  </circle>
+                  <circle cx={x} cy={y} r={r + 5} fill="none" stroke={col} strokeWidth="1.4" strokeDasharray="4 5" opacity="0.95" filter="url(#zmGlow)">
+                    <animateTransform attributeName="transform" type="rotate" from={`0 ${x} ${y}`} to={`360 ${x} ${y}`} dur="9s" repeatCount="indefinite" />
+                  </circle>
+                </>
+              )}
               {/* anell neó esvelt — buit, amb glow */}
-              <circle cx={x} cy={y} r={r} fill={`url(#zgrad-${zi})`} fillOpacity={0.6} stroke={col}
-                strokeWidth={isSel ? 2.6 : 1.6} strokeOpacity={isSel ? 1 : 0.9} filter="url(#zmGlow)" />
-              {isSel && <circle cx={x} cy={y} r={r + 4} fill="none" stroke={col} strokeWidth="1" strokeDasharray="3 4" opacity="0.8" />}
+              <circle cx={x} cy={y} r={r} fill={`url(#zgrad-${zi})`} fillOpacity={isSel ? 0.85 : 0.6} stroke={col}
+                strokeWidth={isSel ? 3 : 1.6} strokeOpacity={isSel ? 1 : 0.9} filter="url(#zmGlow)" />
               {/* nucli petit i brillant */}
               <circle cx={x} cy={y} r={3} fill="#fff" />
               <circle cx={x} cy={y} r={5.5} fill="none" stroke={col} strokeWidth="1.4" filter="url(#zmGlow)" />
@@ -348,24 +391,64 @@ export default function ZoneMap({
         </div>
       ) : null}
 
-      {/* Fitxa zona més propera */}
-      {nearest && (
-        <div onClick={() => onSelect && onSelect(nearest.z.id)} style={{
-          position: "absolute", bottom: 10, left: 10, right: 10, zIndex: 10,
-          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10,
-          padding: "10px 12px", boxShadow: "0 2px 10px rgba(0,0,0,.45)", cursor: "pointer",
-          display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10,
-        }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 11, color: C.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Zona més propera</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nearest.z.label || nearest.z.id}</div>
+      {/* Fitxa de la zona SELECCIONADA (toca un cercle per canviar-la) — vidre + neó */}
+      {selZone && (() => {
+        const p = probs[selZone.id] || 0;
+        const col = colorFor(p);
+        const risk = p >= riskThreshold;
+        const dist = distOf(selZone);
+        const isNearest = nearest && nearest.z.id === selZone.id;
+        const chips = [
+          ["mossos", PT.mossos.short, PT.mossos.color],
+          ["guardia", PT.guardia.short, PT.guardia.color],
+          ["local", PT.local.short, PT.local.color],
+        ];
+        return (
+          <div style={{
+            position: "absolute", bottom: 10, left: 10, right: 10, zIndex: 10,
+            background: `${C.surface}e6`, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
+            border: `1px solid ${col}66`, borderRadius: 14,
+            boxShadow: `0 6px 22px rgba(0,0,0,.5), 0 0 18px ${col}33`,
+            padding: "12px 14px 11px", animation: "zmCardIn .25s ease both", overflow: "hidden",
+          }}>
+            {/* barra superior de color = nivell de control */}
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: `linear-gradient(90deg, ${col}, transparent)` }} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 6 }}>
+                  Zona seleccionada
+                  {isNearest && <span style={{ color: USER_COLOR, fontWeight: 800 }}>· la més propera</span>}
+                </div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
+                  {selZone.label || selZone.id}
+                </div>
+                <div style={{ fontSize: 11, color: C.textDim, marginTop: 3 }}>
+                  <b style={{ color: selStats?.total ? C.text : C.textMuted }}>{selStats?.total || 0}</b> dets · 24h
+                  {selStats?.total ? ` · ${fmtAgo(selStats.last)}` : ""}
+                </div>
+                {risk && (
+                  <span style={{ display: "inline-block", marginTop: 5, fontSize: 10, fontWeight: 800, color: C.bg, background: col, padding: "2px 7px", borderRadius: 20, letterSpacing: "0.04em" }}>
+                    🚨 ZONA DE RISC
+                  </span>
+                )}
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 26, fontWeight: 900, color: col, lineHeight: 1, textShadow: `0 0 14px ${col}77` }}>{Math.round(p * 100)}%</div>
+                <div style={{ fontSize: 11, color: C.textDim, marginTop: 2 }}>control{dist != null ? ` · ${dist} km` : ""}</div>
+              </div>
+            </div>
+            {/* desglossament 24h per cos policial — deixem marge a la dreta pel botó + */}
+            <div style={{ display: "flex", gap: 6, marginTop: 10, alignItems: "center", paddingRight: 64 }}>
+              {chips.map(([key, short, c]) => (
+                <div key={key} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "6px 4px", borderRadius: 8, background: `${c}14`, border: `1px solid ${c}33` }}>
+                  <span style={{ fontSize: 15, fontWeight: 900, color: c, lineHeight: 1 }}>{selStats?.by[key] || 0}</span>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: C.textDim, letterSpacing: "0.04em" }}>{short}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <div style={{ fontSize: 18, fontWeight: 800, color: colorFor(probs[nearest.z.id] || 0) }}>{Math.round((probs[nearest.z.id] || 0) * 100)}%</div>
-            <div style={{ fontSize: 12, color: C.textDim }}>a {Math.round(nearest.d * 10) / 10} km</div>
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -215,8 +215,6 @@ export default function MapTab({
       .slice(0, 80);
   }, [detections, zones]);
 
-  const [locating, setLocating] = useState(false);
-
   const errMsg = (e) => {
     if (!e) return "Error desconegut";
     if (e.code === 1) return "Permís d'ubicació denegat";
@@ -226,40 +224,6 @@ export default function MapTab({
   };
 
   const zoomForAcc = (acc) => acc < 80 ? 16 : acc < 300 ? 14 : acc < 1500 ? 12 : 10;
-
-  // Locate me — NO vola al primer fix. Al Huawei sense Google Play, el primer fix
-  // sol ser una posició per xarxa/ISP a quilòmetres (cau a Lleida); el fix GPS bo
-  // arriba uns segons després. Per això obrim un watch curt: volem al fix quan és
-  // prou precís (≤80m) o, si el GPS triga, al millor fix obtingut en 12s.
-  const locate = () => {
-    if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
-    setLocErr(null);
-    setLocating(true);
-    let best = null, done = false, wId = null, tId = null;
-    const stop = () => { if (tId) clearTimeout(tId); if (wId != null) navigator.geolocation.clearWatch(wId); setLocating(false); };
-    wId = navigator.geolocation.watchPosition(
-      (p) => {
-        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
-        setUserPos(np);
-        // Només volem cap al fix si NO és boirós. Un fix >2,5 km sol ser la
-        // ubicació per xarxa/IP (Lleida) i no on ets de veritat (Sort).
-        if (mapInstance && np.acc <= COARSE_M) mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.7 });
-        if (np.acc <= COARSE_M) manualRef.current = false;   // tenim GPS bo → deixa manar el GPS
-        if (!best || np.acc < best.acc) best = np;
-        if (np.acc <= 80) { done = true; stop(); }   // ja prou precís → para
-      },
-      (e) => { if (!best) { setLocErr(errMsg(e)); stop(); } },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 25000 }
-    );
-    tId = setTimeout(() => {
-      stop();
-      if (best && best.acc > COARSE_M) {
-        setLocErr("GPS imprecís (xarxa) — toca «📌 Marcar» i indica on ets al mapa");
-      } else if (!best && !userPos) {
-        setLocErr("No s'ha pogut obtenir una posició — activa el GPS i surt a l'exterior");
-      }
-    }, 15000);
-  };
 
   // "Seguir" — watch propi que mou el mapa amb tu. En activar-lo recentra de
   // seguida; en desactivar-lo, tanca el watch.
@@ -492,9 +456,6 @@ export default function MapTab({
         </button>
         {showTools && (
           <>
-            <button className="pt-mapbtn" onClick={locate} disabled={locating} title="Centra el mapa a la teva posició GPS actual">
-              {locating ? "⏳ Buscant…" : "📍 Jo"}
-            </button>
             <button className={`pt-mapbtn${following ? " active" : ""}`} onClick={toggleFollow}
               title={following ? "Para de seguir-te" : "El mapa et seguirà mentre et mous"}>
               {following ? "● Seguint" : "○ Seguir"}
@@ -605,8 +566,7 @@ export default function MapTab({
             {/* Què fan els botons (≡ a dalt a la dreta) */}
             <div style={{ height: 1, background: t.border, margin: "4px 0" }} />
             <div style={{ fontWeight: 700, color: t.text, marginBottom: 2 }}>≡ Eines (a dalt a la dreta)</div>
-            <div><b style={{ color: t.text }}>📍 Jo</b> — centra al teu GPS</div>
-            <div><b style={{ color: t.text }}>○ Seguir</b> — segueix-te mentre et mous</div>
+            <div><b style={{ color: t.text }}>○ Seguir</b> — centra't i segueix-te mentre et mous</div>
             <div><b style={{ color: t.text }}>📌 Marcar</b> — toca el mapa i fixa on ets (si el GPS falla)</div>
             <div><b style={{ color: t.text }}>⤢ Tot</b> — veure totes les zones</div>
             <div><b style={{ color: t.text }}>● 24h</b> — marca deteccions d'avui</div>

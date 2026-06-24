@@ -2,10 +2,11 @@ import { useState, useEffect, useRef } from "react";
 import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
-import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS } from "./lib/constants";
+import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
 import { computeZoneProbs, computeHourly } from "./lib/utils";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
+import Collapsible from "./components/Collapsible";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 
@@ -666,7 +667,7 @@ export default function App(){
                   zones={MAP_ZONES}
                   probs={zoneProbs}
                   selected={selectedZone}
-                  onSelect={(id)=>{setSelectedZone(id);setZoneDetail(id);}}
+                  onSelect={setSelectedZone}
                   detections={detections}
                   theme={currentTheme}
                   radarPos={radar.active?radar.pos:null}
@@ -706,9 +707,9 @@ export default function App(){
               <div style={{marginBottom:10}}>
                 <label style={{fontSize:13,color:C.textDim,display:"block",marginBottom:5}}>Dia de la setmana</label>
                 <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>
-                  {DAYS_FULL.map((day,i)=>(
+                  {DAYS_ORDER_MON.map((i)=>(
                     <button key={i} onClick={()=>setQueryDay(i)} style={{padding:"5px 8px",borderRadius:6,border:`1px solid ${queryDay===i?C.accent:C.border}`,background:queryDay===i?C.accentDim:"transparent",color:queryDay===i?C.accent:C.textDim,fontSize:12,cursor:"pointer",fontFamily:"inherit"}}>
-                      {day.substring(0,3)}
+                      {DAYS_FULL[i].substring(0,3)}
                     </button>
                   ))}
                 </div>
@@ -912,11 +913,7 @@ export default function App(){
                 </div>
               );
               return(
-                <div style={{marginBottom:12}}>
-                  <div style={{fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8,paddingLeft:4}}>
-                    🛠 Assistent · Reports manuals i WhatsApp
-                  </div>
-
+                <Collapsible title="🛠 Assistent · Reports i WhatsApp" subtitle="Avançat · token, servidor, prova i WhatsApp" defaultOpen={false}>
                   {/* PAS 1 — Token al navegador */}
                   {stepCard(1,"Crear el teu token secret",step1Done,false,(<>
                     <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
@@ -1080,13 +1077,12 @@ export default function App(){
                       Alternativa: <b>Tasker</b> (APK del web oficial) pot detectar automàticament cada notificació de WhatsApp i fer la crida sense que premis res — més potent però més complicat de configurar.
                     </div>
                   </>))}
-                </div>
+                </Collapsible>
               );
             })()}
 
             {/* ✈️ Telegram */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>✈️ Connectar grup de Telegram</div>
+            <Collapsible title="✈️ Connectar grup de Telegram" subtitle="Afegeix el bot a un grup en 2 tocs" defaultOpen={true}>
               <div style={{fontSize:14,color:C.textDim,marginBottom:14,lineHeight:1.5}}>
                 Toca el botó i Telegram t'obrirà amb la llista dels teus grups. Tria un grup → el bot s'hi afegirà automàticament i els missatges començaran a arribar aquí. <b>No has de crear cap bot.</b>
               </div>
@@ -1149,14 +1145,15 @@ export default function App(){
                   >Compartir</button>
                 </div>
               </div>
-            </div>
+            </Collapsible>
 
             {/* 📡 Grups connectats */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
-                <div style={{fontSize:17,fontWeight:700,color:C.accent}}>📡 Grups connectats</div>
-                <div style={{fontSize:12,color:C.textDim}}>{groupsAggregate.length} grup{groupsAggregate.length===1?"":"s"}</div>
-              </div>
+            <Collapsible
+              title="📡 Grups connectats"
+              subtitle={`${groupsAggregate.length} grup${groupsAggregate.length===1?"":"s"} amb deteccions`}
+              defaultOpen={true}
+              right={<span style={{fontSize:12,color:C.textDim,fontWeight:700}}>{groupsAggregate.length}</span>}
+            >
               <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
                 Cada grup de Telegram o WhatsApp que hagi enviat com a mínim una detecció. Toca un grup per veure'n els missatges i tenir l'opció d'esborrar-los.
               </div>
@@ -1198,21 +1195,24 @@ export default function App(){
                   );
                 })
               )}
-            </div>
+            </Collapsible>
 
             {/* 🔍 Estat Telegram — diagnòstic */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10,gap:8,flexWrap:"wrap"}}>
-                <div style={{fontSize:17,fontWeight:700,color:C.accent}}>🔍 Estat Telegram</div>
-                <div style={{display:"flex",gap:6}}>
-                  <button onClick={repairTelegramWebhook} disabled={tgRepairing} style={{background:tgRepairing?C.border:"transparent",color:tgRepairing?C.textDim:C.warning,border:`1px solid ${C.warning}`,borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgRepairing?"wait":"pointer",fontFamily:"inherit"}}>
-                    {tgRepairing?"Reparant…":"🔧 Reparar webhook"}
+            <Collapsible
+              title="🔍 Estat Telegram"
+              subtitle="Diagnòstic del webhook i del bot"
+              defaultOpen={false}
+              right={
+                <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={repairTelegramWebhook} disabled={tgRepairing} style={{background:tgRepairing?C.border:"transparent",color:tgRepairing?C.textDim:C.warning,border:`1px solid ${C.warning}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:tgRepairing?"wait":"pointer",fontFamily:"inherit"}}>
+                    {tgRepairing?"Reparant…":"🔧 Reparar"}
                   </button>
-                  <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
-                    {tgLoading?"Comprovant…":"Comprovar"}
+                  <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
+                    {tgLoading?"…":"Comprovar"}
                   </button>
                 </div>
-              </div>
+              }
+            >
               <div style={{fontSize:12,color:C.textDim,marginBottom:tgStatus?12:0,lineHeight:1.5}}>
                 Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Si <b>"URL del webhook"</b> surt buida, prem <b>🔧 Reparar webhook</b>: el servidor el tornarà a registrar tot sol.
               </div>
@@ -1317,10 +1317,9 @@ export default function App(){
                   </div>
                 )
               )}
-            </div>
+            </Collapsible>
 
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:14,color:C.accent}}>Fonts de dades</div>
+            <Collapsible title="📥 Fonts de dades" subtitle="Quins canals porten deteccions" defaultOpen={false}>
               {(()=>{
                 // Recompte real per font llegit de les deteccions
                 const counts={};
@@ -1356,16 +1355,15 @@ export default function App(){
               <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5,fontStyle:"italic"}}>
                 "Actiu" significa que ja hi ha hagut missatges arribant per aquesta via. "En espera" vol dir que el camí està obert però encara ningú no n'ha enviat cap.
               </div>
-            </div>
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:12,color:C.accent}}>Estat del sistema</div>
+            </Collapsible>
+            <Collapsible title="🩺 Estat del sistema" subtitle={health?`En línia · ${health.total} registres`:"Comprovant…"} defaultOpen={false}>
               {[{label:"Backend API",value:health?"En línia":"Fora de línia",ok:!!health},{label:"Base de dades",value:health?`${health.total} registres`:"—",ok:!!health},{label:"Última 24h",value:health?`${health.last_24h} deteccions`:"—",ok:true}].map((s,i)=>(
                 <div key={i} style={{display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:`1px solid ${C.border}`}}>
                   <span style={{fontSize:15,color:C.textDim}}>{s.label}</span>
                   <span style={{fontSize:15,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
                 </div>
               ))}
-            </div>
+            </Collapsible>
           </div>
         )}
       </div>
