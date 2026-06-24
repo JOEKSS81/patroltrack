@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useC } from "../lib/themes";
-import { ptWith, DAYS_SHORT, DAYS_FULL, MONTHS } from "../lib/constants";
+import { ptWith, DAYS_SHORT, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "../lib/constants";
 
 // Lectura/escriptura segura a localStorage (la vista persisteix entre pestanyes
 // i recàrregues; les DADES sempre venen de la BD, això només recorda QUÈ mires).
@@ -70,7 +70,8 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
     detsByDate[key] = (detsByDate[key] || []);
     detsByDate[key].push(d);
   });
-  const firstDay = new Date(calYear, calMonth, 1).getDay();
+  // Setmana en dilluns: convertim getDay() (0=Dg) a offset amb diumenge al final.
+  const firstDay = (new Date(calYear, calMonth, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
   const cells = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -109,7 +110,7 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
               <button onClick={nextMonth} style={{ background: "none", border: `1px solid ${C.border}`, color: C.text, borderRadius: 6, width: 32, height: 32, cursor: "pointer", fontSize: 18 }}>›</button>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2, marginBottom: 4 }}>
-              {DAYS_SHORT.map(d => <div key={d} style={{ textAlign: "center", fontSize: 12, color: C.textDim, padding: "2px 0" }}>{d}</div>)}
+              {DAYS_ORDER_MON.map(idx => <div key={idx} style={{ textAlign: "center", fontSize: 12, color: C.textDim, padding: "2px 0" }}>{DAYS_SHORT[idx]}</div>)}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
               {cells.map((day, i) => {
@@ -276,7 +277,8 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
               <div style={{ fontSize: 13, color: C.textDim, textAlign: "center", padding: "12px 0" }}>Encara no hi ha dades</div>
             ) : (
               <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90 }}>
-                {byDay.map((n, d) => {
+                {DAYS_ORDER_MON.map((d) => {
+                  const n = byDay[d];
                   const isSel = selDay === d, isToday = d === new Date().getDay(), isPeak = d === peakDay;
                   const col = isSel || isToday ? C.accent : isPeak ? C.danger : C.guardia;
                   return (

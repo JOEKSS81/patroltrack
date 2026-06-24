@@ -69,4 +69,7 @@ export const ptWith = (theme) => ({
 
 export const DAYS_SHORT = ["Dg", "Dl", "Dt", "Dc", "Dj", "Dv", "Ds"];
 export const DAYS_FULL  = ["Diumenge", "Dilluns", "Dimarts", "Dimecres", "Dijous", "Divendres", "Dissabte"];
+// Ordre de visualització català: dilluns primer, diumenge al final. Els valors són
+// índexs de getDay() (0=Dg) perquè les dades segueixen indexades per getDay().
+export const DAYS_ORDER_MON = [1, 2, 3, 4, 5, 6, 0];
 export const MONTHS     = ["Gener", "Febrer", "Març", "Abril", "Maig", "Juny", "Juliol", "Agost", "Setembre", "Octubre", "Novembre", "Desembre"];
