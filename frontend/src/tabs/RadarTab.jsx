@@ -2,7 +2,7 @@ import { useC } from "../lib/themes";
 import { ptWith } from "../lib/constants";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
-export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
+export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap, riskThreshold = 0.4, setRiskThreshold }) {
   const C = useC();
   const PT = ptWith(C);
   const {
@@ -11,6 +11,8 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
   } = radar;
   // Color segons nivell de possibilitat
   const riskCol = riskPct > 60 ? C.danger : riskPct > 30 ? C.warning : C.success;
+  const threshPct = Math.round(riskThreshold * 100);
+  const threshCol = riskThreshold > 0.6 ? C.danger : riskThreshold > 0.35 ? C.warning : C.success;
 
   return (
     <div>
@@ -66,6 +68,27 @@ export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap }) {
               : "Baixa — poca activitat dins d'aquesta distància"}
           </div>
         </div>
+
+        {/* Llindar de risc (% probabilitat per marcar zones en vermell al mapa) */}
+        <div style={{ marginTop: 12 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+            <span style={{ fontSize: 14, color: C.textDim }}>Llindar de risc al mapa</span>
+            <span style={{ fontSize: 18, fontWeight: 900, color: threshCol }}>{threshPct}%</span>
+          </div>
+          <input
+            type="range" min={10} max={80} step={5}
+            value={threshPct}
+            onChange={e => setRiskThreshold && setRiskThreshold(Number(e.target.value) / 100)}
+            style={{ width: "100%", accentColor: threshCol }}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
+            <span>Molt sensible (10%)</span><span>Molt estricte (80%)</span>
+          </div>
+          <div style={{ fontSize: 12, color: C.textDim, marginTop: 8, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "6px 10px" }}>
+            Les zones del mapa es marquen en <b style={{ color: C.danger }}>vermell</b> quan la probabilitat de patrulla supera el <b style={{ color: threshCol }}>{threshPct}%</b>. Baixa el percentatge per rebre alertes més aviat; puja'l per filtrar les zones amb poca activitat.
+          </div>
+        </div>
+
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
           ↳ Mou la barra de <b style={{ color: C.textDim }}>distància</b> i el % s'actualitza: és la possibilitat de trobar un control dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b>, segons les deteccions reals d'aquesta zona (i l'històric per hora). L'alerta sonora salta si n'apareix una de nova dins del radi.
         </div>
