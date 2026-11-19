@@ -14,6 +14,10 @@ Ejemplo de cuerpo JSON:
 {"message":"Mossos a la N-II km 45, cuidado","group_name":"Avisos tráfico","source":"whatsapp"}
 ```
 
+## ⚠️ Paso 0 — Solo una instalación de AutoNotification
+
+Si el móvil tiene **dos versiones de AutoNotification** instaladas, Tasker llama a la equivocada y se pierde la configuración del plugin ("No hay datos de configuración del plugin"). Antes de tocar Tasker: Ajustes → Apps → busca "AutoNotification", desinstálalas **todas** y reinstala solo la más nueva desde [joaoapps.com](https://joaoapps.com/autoapps/details/autonotification/).
+
 ## Opción automática con Tasker y AutoNotification
 
 Requiere Tasker, AutoNotification y permiso de acceso a notificaciones concedido explícitamente. En EMUI/HarmonyOS puede ser necesario excluir ambas apps de la optimización de batería. AutoNotification intercepta **notificaciones nuevas**, no mensajes antiguos; puede recibir solo una vista previa, un resumen de varias notificaciones o ningún texto si el grupo/app oculta el contenido.
@@ -21,7 +25,7 @@ Requiere Tasker, AutoNotification y permiso de acceso a notificaciones concedido
 1. Crea un perfil **Event → Plugin → AutoNotification → Intercept** y limita la aplicación a WhatsApp.
 2. En la tarea usa el texto `%antext` y el título `%antitle`. Comprueba en el móvil que realmente contienen el mensaje y el nombre del grupo antes de activar el envío.
 3. Añade un filtro opcional para grupos que elijas tú.
-4. Envía un POST a `https://<tu-worker>/api/ingest`, con cabeceras `content-type: application/json` y `x-ingest-token: <tu-token>`.
+4. Envía un POST a `https://patroltrack-api.patroltrack.workers.dev/api/ingest`, con cabeceras `content-type: application/json` y `x-ingest-token: <el MISMO token que tienes en Config dentro de la app>`.
 5. Usa un cuerpo JSON válido; evita interpolar texto sin escapar. Si Tasker no permite escapar JSON de forma segura, usa HTTP Shortcuts con entrada manual.
 
 No se debe poner el token en una URL compartida, en un perfil público ni en logs. Los mensajes se envían únicamente a tu propio Worker y quedan almacenados como detecciones cuando el filtro del servidor los reconoce.

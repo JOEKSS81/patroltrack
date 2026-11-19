@@ -283,6 +283,23 @@ function timeDecay(createdAt: string): number {
   return days <= 7 ? 1 : days <= 30 ? 0.7 : days <= 90 ? 0.4 : 0.2;
 }
 
+// GET /api/groups — grups DESCOBERTS automàticament: els que han enviat missatges
+// reals de patrulla (bot de Telegram o WhatsApp/Tasker).
+async function handleGroups(env: Env): Promise<Response> {
+  const rs = await env.DB.prepare(`
+    SELECT group_name, source, COUNT(*) AS n, MAX(created_at) AS last_seen
+    FROM detections
+    WHERE source IN ('whatsapp','telegram')
+      AND group_name IS NOT NULL
+      AND TRIM(group_name) != ''
+      AND group_name NOT IN ('Report manual', 'Telegram', 'WhatsApp')
+    GROUP BY group_name, source
+    ORDER BY n DESC, last_seen DESC
+    LIMIT 100
+  `).all();
+  return json(rs.results ?? []);
+}
+
 async function handleProbability(env: Env, url: URL): Promise<Response> {
   const zone = url.searchParams.get("zone")?.trim();
   const hourRaw = url.searchParams.get("hour");
@@ -415,6 +432,7 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/probability") return await handleProbability(env, url);
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
+      if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
       if (req.method === "POST" && url.pathname === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
       if (req.method === "GET" && url.pathname === "/api/telegram-status") return await handleTelegramStatus(env);
       if (url.pathname === "/api/telegram-setup") return await handleTelegramSetup(env, req);

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import dogComic from "./assets/dog-comic.webp";
 import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
@@ -175,8 +176,8 @@ export default function App(){
   const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
-  // Foto del gos — hardcoded a /dog.png (sempre present, no personalitzable)
-  const dogPhoto = "/dog.png";
+  // Foto del gos cyborg (empaquetada per Vite; /dog.png ja no existeix)
+  const dogPhoto = dogComic;
 
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
@@ -1368,6 +1369,7 @@ export default function App(){
                   <span style={{fontSize:15,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
                 </div>
               ))}
+              <a href="/arquitectura.html" target="_blank" rel="noopener" style={{display:"block",marginTop:12,textAlign:"center",fontSize:13,color:C.accent,textDecoration:"underline"}}>📐 Com funciona PatrolTrack (arquitectura)</a>
             </Collapsible>
           </div>
         )}
@@ -1638,9 +1640,14 @@ export default function App(){
             <input
               value={reportGroup}
               onChange={e=>setReportGroup(e.target.value)}
-              placeholder="Nom del grup (opcional)"
+              placeholder={groupsAggregate.length?"Tria o escriu el grup (opcional)":"Nom del grup (opcional)"}
+              list="pt-group-list"
               style={{...ss,boxSizing:"border-box",fontSize:13,marginTop:8}}
             />
+            {/* Suggeriments: grups descoberts automàticament a partir de les deteccions */}
+            <datalist id="pt-group-list">
+              {groupsAggregate.filter(g=>g.name&&!["(sense grup)","Report manual","Telegram","WhatsApp"].includes(g.name)).map(g=><option key={g.name} value={g.name}/>)}
+            </datalist>
 
             {reportResult&&(
               <div style={{

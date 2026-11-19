@@ -2,7 +2,7 @@ import { useC } from "../lib/themes";
 import { ptWith } from "../lib/constants";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
-export default function RadarTab({ radar, dogPhoto = "/dog.png", onDetTap, riskThreshold = 0.4, setRiskThreshold }) {
+export default function RadarTab({ radar, dogPhoto, onDetTap, riskThreshold = 0.4, setRiskThreshold }) {
   const C = useC();
   const PT = ptWith(C);
   const {
