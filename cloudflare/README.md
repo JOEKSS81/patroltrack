@@ -1,154 +1,47 @@
-# PatrolTrack — Desplegament a Cloudflare
+# PatrolTrack — Cloudflare
 
-L'objectiu d'aquesta carpeta és tenir tot el backend funcionant a Cloudflare:
-**zero servidors propis, sense Mac encès, gratis per sempre**.
+Backend en Cloudflare Workers + D1. Telegram se conecta mediante un bot y un webhook; WhatsApp no ofrece aquí acceso directo al contenido de grupos, así que las opciones son reportar manualmente o usar Tasker/AutoNotification para enviar únicamente el texto visible en notificaciones autorizadas.
 
-```
-Mòbil Huawei (Tasker)  ─→  Cloudflare Worker  ─→  D1 (SQLite)
-                                  ↑
-                       Cloudflare Pages (React)
-                                  ↑
-                              tu, al navegador
-```
-
----
-
-## Prerequisits (una vegada)
-
-1. Compte gratuït a [cloudflare.com](https://dash.cloudflare.com/sign-up) — només email i contrasenya, **sense targeta**.
-2. Tenir Node.js instal·lat al Mac (`node -v` ha de respondre).
-
----
-
-## Pas 1 — Instal·la dependències
+## Configuración inicial
 
 ```bash
 cd cloudflare
 npm install
-```
-
-## Pas 2 — Inicia sessió amb wrangler
-
-```bash
 npx wrangler login
-```
-
-S'obrirà el navegador per autoritzar. Acceptes i tornes al terminal.
-
-## Pas 3 — Crea la base de dades D1
-
-```bash
 npx wrangler d1 create patroltrack
 ```
 
-La sortida t'imprimirà alguna cosa com:
-
-```toml
-[[d1_databases]]
-binding = "DB"
-database_name = "patroltrack"
-database_id = "abc123-def456-..."
-```
-
-**Copia el `database_id`** i enganxa'l a `wrangler.toml` en lloc de
-`REPLACE_WITH_D1_ID_FROM_CREATE_OUTPUT`.
-
-## Pas 4 — Crea l'esquema de taules
+Configura el `database_id` de la base creada en `wrangler.toml`, ejecuta el esquema (`npm run db:schema`) y define los secretos:
 
 ```bash
-npm run db:schema
-```
-
-## Pas 5 — Configura el token secret per a Tasker
-
-Aquest token impedirà que qualsevol pugui inserir deteccions falses.
-Genera'n un de llarg (32+ caràcters) — pots fer servir `openssl rand -hex 32`
-al terminal o qualsevol gestor de contrasenyes.
-
-```bash
-npm run secret:set
-# (enganxa el token quan te'l demani)
-```
-
-Apunta't el token: el necessitaràs al mòbil quan configuris Tasker.
-
-## Pas 6 — Desplega el Worker
-
-```bash
+npx wrangler secret put INGEST_TOKEN
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+# Opcional si Pages usa un dominio distinto de https://patroltrack.pages.dev
+npx wrangler secret put APP_ORIGIN
 npm run deploy
 ```
 
-Sortida esperada:
+El secreto `TELEGRAM_WEBHOOK_SECRET` debe tener entre 1 y 256 caracteres, usar solo letras/números/`_`/`-`, y configurarse igual en el Worker y en el webhook. Mantén los tokens fuera del código y del historial Git.
 
-```
-Uploaded patroltrack-api (X.XX KiB)
-Published patroltrack-api (X.XX KiB)
-  https://patroltrack-api.<el-teu-subdomini>.workers.dev
-```
+## Telegram
 
-**Apunta't aquesta URL.** Aquesta serà l'API que farà servir el frontend i
-el mòbil.
+1. Añade el bot al grupo y comprueba la configuración de privacidad del bot en BotFather. Con privacidad activada, Telegram normalmente solo entrega comandos y mensajes dirigidos al bot; para recibir mensajes corrientes del grupo, desactiva Privacy Mode o configura el bot como administrador según las necesidades del grupo.
+2. Tras desplegar y aplicar el esquema, abre la pestaña Configuración → **Estado Telegram** → **Reparar**. El endpoint de setup solo acepta POST desde el origen de Pages permitido (`APP_ORIGIN` para dominios personalizados).
+3. Publica un mensaje de prueba en el grupo y revisa Estado Telegram o `npx wrangler tail`.
 
-## Pas 7 — Verifica que funciona
+El bot solo procesa mensajes de grupos/supergrupos y canales, no conversaciones privadas. Telegram entrega mensajes nuevos al webhook; no permite recuperar mensajes anteriores a la incorporación/configuración del bot.
 
-```bash
-curl https://patroltrack-api.<subdomini>.workers.dev/api/health
-# → {"status":"ok","total":0,"last_24h":0}
-```
+## WhatsApp
 
-I prova l'ingestió amb el token:
+WhatsApp no tiene un bot oficial de WhatsApp personal implementado en este proyecto que lea grupos. Usa el botón **+ Reportar** para enviar manualmente, o Tasker/AutoNotification para interceptar texto de notificaciones nuevas con permiso explícito. No lee el historial ni garantiza todos los mensajes. Consulta `tasker/SETUP.md`.
+
+## Comprobaciones útiles
 
 ```bash
-curl -X POST https://patroltrack-api.<subdomini>.workers.dev/api/ingest \
-  -H "content-type: application/json" \
-  -H "x-ingest-token: <el-teu-token>" \
-  -d '{"message":"Mossos a la N-II km 45, cuidado","group_name":"Test"}'
-# → {"ok":true,"stored":true,"id":1,"patrol_type":"mossos",...}
+curl https://<tu-worker>/api/health
+npx wrangler tail
+npx wrangler d1 execute patroltrack --remote --command "SELECT id, source, group_name, raw_message FROM detections ORDER BY id DESC LIMIT 10"
 ```
 
-## Pas 8 — Desplega el frontend a Cloudflare Pages
-
-Des de l'arrel del repo:
-
-```bash
-cd ../frontend
-VITE_API_URL=https://patroltrack-api.<subdomini>.workers.dev npm run build
-npx wrangler pages deploy dist --project-name patroltrack
-```
-
-La primera vegada et preguntarà per crear el projecte: accepta.
-Sortida final:
-
-```
-✨ Deployed to https://patroltrack.pages.dev
-```
-
-**Aquesta és la URL definitiva de l'app.** L'obres al mòbil, "Afegir a la
-pantalla d'inici", i ja tens icona PWA sense dependre de res del teu Mac.
-
----
-
-## Manteniment
-
-- Veure deteccions per CLI: `npx wrangler d1 execute patroltrack --remote --command "SELECT * FROM detections ORDER BY id DESC LIMIT 10"`
-- Logs en viu del Worker: `npx wrangler tail`
-- Esborrar la base i recomençar: `npx wrangler d1 execute patroltrack --remote --command "DELETE FROM detections"`
-- Re-desplegar després de canvis al codi: `npm run deploy`
-
-## Costos i límits (Cloudflare Free plan)
-
-| Recurs | Límit gratuït | Què consumim |
-|---|---|---|
-| Worker | 100k peticions/dia | ~1k/dia màxim |
-| D1 lectures | 5 milions/dia | ~10k/dia |
-| D1 escriptures | 100k/dia | ~50/dia |
-| D1 emmagatzematge | 5 GB | ~10 MB |
-| Pages | Il·limitat | — |
-
-Mai els tocaràs.
-
----
-
-## Configuració de Tasker al mòbil
-
-Vegeu [tasker/SETUP.md](tasker/SETUP.md).
+Tras modificar `schema.sql`, ejecuta de nuevo `npm run db:schema` (las sentencias son idempotentes). Después, despliega el Worker con `npm run deploy`.
