@@ -1,151 +1,16 @@
-import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import { useState, useEffect, useRef } from "react";
 import MapTab from "./MapTab";
+import { THEMES, ThemeContext, useC } from "./lib/themes";
+import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS } from "./lib/constants";
+import { computeZoneProbs, computeHourly } from "./lib/utils";
+import { useRadar } from "./lib/useRadar";
+import Splash from "./components/Splash";
+import RadarTab from "./tabs/RadarTab";
+import StatsTab from "./tabs/StatsTab";
 
-// API URL — prioritats:
-//   1) VITE_API_URL (env var de build, p.ex. https://patroltrack-api.xxx.workers.dev)
-//   2) En dev (Vite a :5173) → wrangler local (http://localhost:8787) o backend FastAPI (http://localhost:8000)
-//   3) Mateix origin (frontend i backend al mateix host)
-const API = (
-  import.meta.env.VITE_API_URL
-  || (typeof window!=="undefined" && window.location.port==="5173"
-        ? "http://localhost:8787"
-        : "")
-);
-
-// ── SKINS / TEMES VISUALS ─────────────────────────────────────────────────
-// Cada tema defineix la mateixa estructura de variables de color. La lectura
-// (contrast text↔fons) està garantida en tots ells. Algun pot tenir un
-// `pattern` opcional (background-image) per al fons del root.
-
-const THEMES = {
-  normal: {
-    label:"Normal", emoji:"🟠",
-    bg:"#0a0c10", surface:"#111318", border:"#2a3340",
-    accent:"#ffb84d", accentDim:"#ffb84d2a", accentGlow:"#ffb84d66",
-    mossos:"#60a5fa", guardia:"#4ade80", local:"#c084fc",
-    text:"#f5f7fb", textDim:"#b8c0cc", textMuted:"#8a92a3",
-    danger:"#ff5757", warning:"#ffb020", success:"#22d97a",
-  },
-  terror: {
-    label:"Terror", emoji:"💀",
-    bg:"#0a0303", surface:"#170808", border:"#3a1414",
-    accent:"#dc2626", accentDim:"#dc262622", accentGlow:"#dc262677",
-    mossos:"#a78bfa", guardia:"#84cc16", local:"#ec4899",
-    text:"#f0e8e0", textDim:"#b8a098", textMuted:"#7a5f55",
-    danger:"#ef4444", warning:"#f59e0b", success:"#84cc16",
-  },
-  camo: {
-    label:"Camuflatge", emoji:"🪖",
-    bg:"#1f2818", surface:"#2c3823", border:"#4d5e36",
-    accent:"#c5d18a", accentDim:"#c5d18a22", accentGlow:"#c5d18a66",
-    mossos:"#9ccc65", guardia:"#bcaaa4", local:"#d7ccc8",
-    text:"#f0f2dc", textDim:"#c4c8a8", textMuted:"#929679",
-    danger:"#d84747", warning:"#e8a52c", success:"#aed581",
-    pattern: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><rect width='160' height='160' fill='%231f2818'/><path d='M20,20 q30,-10 60,5 t60,15 q-30,20 -70,10 t-50,-30z' fill='%232c3823' opacity='0.6'/><path d='M-10,90 q40,-20 80,0 t80,10 q-30,30 -90,15 t-70,-25z' fill='%23394a23' opacity='0.5'/><ellipse cx='130' cy='130' rx='35' ry='20' fill='%23475a39' opacity='0.4'/><ellipse cx='40' cy='130' rx='25' ry='15' fill='%231a2210' opacity='0.5'/></svg>")`,
-  },
-  candy: {
-    label:"Candy", emoji:"🍭",
-    bg:"#1a0a14", surface:"#2a1528", border:"#5e3252",
-    accent:"#ff5fb3", accentDim:"#ff5fb322", accentGlow:"#ff5fb377",
-    mossos:"#fbb6ce", guardia:"#c4b5fd", local:"#fde68a",
-    text:"#ffe4f1", textDim:"#f9a8d4", textMuted:"#b87aa0",
-    danger:"#f43f5e", warning:"#fb923c", success:"#5eead4",
-  },
-  neon: {
-    label:"Futurista", emoji:"🛸",
-    bg:"#040618", surface:"#0c1230", border:"#1e2a60",
-    accent:"#00f0ff", accentDim:"#00f0ff22", accentGlow:"#00f0ff88",
-    mossos:"#5eaaff", guardia:"#39ff14", local:"#bf5cff",
-    text:"#e0f7ff", textDim:"#7fc8e5", textMuted:"#5183a8",
-    danger:"#ff2d75", warning:"#ffd60a", success:"#00ff88",
-  },
-  hacker: {
-    label:"Hacker", emoji:"💻",
-    bg:"#000000", surface:"#050a05", border:"#114411",
-    accent:"#00ff41", accentDim:"#00ff4122", accentGlow:"#00ff4188",
-    mossos:"#00d4ff", guardia:"#88ff00", local:"#ff8800",
-    text:"#a0ffa0", textDim:"#5fbf5f", textMuted:"#3a7f3a",
-    danger:"#ff3333", warning:"#ffcc00", success:"#00ff66",
-  },
-};
-
-// ThemeContext — per defecte el tema normal. Cada component fa `const C = useC()`.
-const ThemeContext = createContext(THEMES.normal);
-const useC = () => useContext(ThemeContext);
-
-// Compatibilitat: si algun codi referencia el `C` de module-scope (no embolcallat
-// pel Provider), agafa el tema normal com a fallback.
-const C = THEMES.normal;
-
-const ZONES = [
-  "N-II","C-13","C-14","C-26","C-12","C-25","C-28","A-2","N-260",
-  "Lleida - Centre","Lleida - Cappont","Lleida - Balàfia","Lleida - La Bordeta",
-  "Lleida - La Magdalena","Lleida - Partida Alta","Lleida - El Corregidor",
-  "Mollerussa","Tàrrega","Balaguer","La Seu d'Urgell","Tremp","Cervera",
-  "Les Borges Blanques","Ponts","Artesa de Segre","Sort","Vielha",
-  "Pont de Suert","La Pobla de Segur","Isona","Esterri d'Àneu","Rialp",
-  "Alcarràs","Alguaire","Almacelles","Guissona","Bellpuig","Organyà",
-  "Oliana","Calaf","Arbeca","Rosselló","Torrefarrera","Torregrossa",
-  "Seròs","Golmés","Verdú","Llavorsí","Camarasa","Menàrguens",
-  "Aeroport de Lleida","Alfarràs","Almenar","Artesa de Lleida",
-  "Bellcaire d'Urgell","Bell-lloc d'Urgell","Bellvís","Fondarella",
-  "La Granadella","La Granja d'Escarp","Maials","Miralcamp","Palau d'Anglesola",
-  "Puigverd de Lleida","Sudanell","Sunyer","Torrebesses","Torrent",
-  "Vilanova de Segrià","Vila-sana","Guimerà","L'Espluga Calba","Preixana",
-  "Sant Martí de Riucorb","Vilagrassa","Àger","Cubells","Os de Balaguer",
-  "Santa Linya","Gerri de la Sal","Tírvia","Montblanc",
-];
-
-const PT = {
-  mossos:  { label: "Mossos d'Esquadra", color: C.mossos,  short: "MSE" },
-  guardia: { label: "Guardia Civil",      color: C.guardia, short: "GC"  },
-  local:   { label: "Policia Local",      color: C.local,   short: "PL"  },
-  unknown: { label: "Desconegut",         color: C.textDim, short: "???" },
-};
-
-const HOURS = Array.from({length:24},(_,i)=>i);
-const DAYS_SHORT = ["Dg","Dl","Dt","Dc","Dj","Dv","Ds"];
-const DAYS_FULL  = ["Diumenge","Dilluns","Dimarts","Dimecres","Dijous","Divendres","Dissabte"];
-const MONTHS     = ["Gener","Febrer","Març","Abril","Maig","Juny","Juliol","Agost","Setembre","Octubre","Novembre","Desembre"];
-
-const MAP_ZONES = [
-  { id:"N-II",            x:45, y:55, r:18, label:"N-II",     lat:41.615, lng:0.620, rKm:15 },
-  { id:"C-13",            x:52, y:28, r:14, label:"C-13",     lat:41.850, lng:0.950, rKm:20 },
-  { id:"C-14",            x:62, y:35, r:13, label:"C-14",     lat:41.990, lng:1.030, rKm:18 },
-  { id:"C-26",            x:68, y:42, r:12, label:"C-26",     lat:41.790, lng:0.810, rKm:15 },
-  { id:"A-2",             x:30, y:62, r:16, label:"A-2",      lat:41.580, lng:0.490, rKm:20 },
-  { id:"Lleida - Centre", x:50, y:55, r:20, label:"Lleida",   lat:41.614, lng:0.627, rKm:8  },
-  { id:"Mollerussa",      x:35, y:65, r:11, label:"Mollr.",   lat:41.625, lng:0.893, rKm:5  },
-  { id:"Tàrrega",         x:25, y:72, r:10, label:"Tàrrega",  lat:41.645, lng:1.139, rKm:5  },
-  { id:"Balaguer",        x:65, y:40, r:11, label:"Balaguer", lat:41.791, lng:0.811, rKm:5  },
-  { id:"La Seu d'Urgell", x:72, y:18, r:10, label:"Seu U.",   lat:42.358, lng:1.457, rKm:5  },
-  { id:"Tremp",           x:60, y:22, r:10, label:"Tremp",    lat:42.167, lng:0.900, rKm:5  },
-  { id:"Cervera",         x:22, y:78, r:9,  label:"Cervera",  lat:41.668, lng:1.272, rKm:5  },
-  { id:"Sort",            x:58, y:15, r:9,  label:"Sort",     lat:42.412, lng:1.128, rKm:5  },
-  { id:"Vielha",          x:45, y:10, r:9,  label:"Vielha",   lat:42.700, lng:0.795, rKm:5  },
-  { id:"Artesa de Segre", x:63, y:48, r:9,  label:"Artesa",   lat:41.899, lng:1.048, rKm:5  },
-  { id:"Ponts",           x:58, y:42, r:8,  label:"Ponts",    lat:41.920, lng:1.195, rKm:5  },
-];
-
-function distKm(a1,o1,a2,o2){
-  const R=6371,d1=(a2-a1)*Math.PI/180,d2=(o2-o1)*Math.PI/180;
-  const a=Math.sin(d1/2)**2+Math.cos(a1*Math.PI/180)*Math.cos(a2*Math.PI/180)*Math.sin(d2/2)**2;
-  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-}
-
-function playBark(ctx){
-  if(!ctx)return;
-  const now=ctx.currentTime;
-  for(let i=0;i<2;i++){
-    const o=ctx.createOscillator(),g=ctx.createGain();
-    o.connect(g);g.connect(ctx.destination);
-    o.frequency.setValueAtTime(800,now+i*0.3);
-    o.frequency.exponentialRampToValueAtTime(200,now+i*0.3+0.15);
-    g.gain.setValueAtTime(0.4,now+i*0.3);
-    g.gain.exponentialRampToValueAtTime(0.001,now+i*0.3+0.15);
-    o.start(now+i*0.3);o.stop(now+i*0.3+0.15);
-  }
-}
+// PT amb colors del tema fallback — només per a ProbBar (no està embolcallat pel Provider).
+// Els tabs que usen useC reconstrueixen PT amb el tema actiu via ptWith(C).
+const PT = ptWith(THEMES.normal);
 
 function ProbBar({value,type}){
   const C=useC();
@@ -164,430 +29,6 @@ function ProbBar({value,type}){
   );
 }
 
-function HourlyChart({data}){
-  const C=useC();
-  if(!data)return null;
-  const now=new Date().getHours();
-  return(
-    <div style={{marginTop:14}}>
-      <div style={{fontSize:13,color:C.textDim,marginBottom:6,textTransform:"uppercase",letterSpacing:"0.1em"}}>Probabilitat per hora</div>
-      <div style={{display:"flex",gap:2,alignItems:"flex-end",height:56}}>
-        {HOURS.map(h=>{
-          const v=data[h]||0,isNow=h===now;
-          const col=v>0.6?C.danger:v>0.35?C.warning:C.success;
-          return(
-            <div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
-              <div style={{width:"100%",height:Math.round(v*48)+2,background:isNow?C.accent:col,borderRadius:"2px 2px 0 0",opacity:isNow?1:0.6,boxShadow:isNow?`0 0 6px ${C.accent}`:"none"}}/>
-              {h%6===0&&<span style={{fontSize:10,color:C.textMuted}}>{h}h</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MapSVG({zoneData,onSelect,selected}){
-  const C=useC();
-  return(
-    <div style={{position:"relative",width:"100%",paddingBottom:"72%",background:"#0d1117",borderRadius:12,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:10}}>
-      <svg viewBox="0 0 100 80" style={{position:"absolute",inset:0,width:"100%",height:"100%"}}>
-        {Array.from({length:11},(_,i)=><line key={`h${i}`} x1="0" y1={i*8} x2="100" y2={i*8} stroke="#ffffff04" strokeWidth="0.3"/>)}
-        {Array.from({length:13},(_,i)=><line key={`v${i}`} x1={i*8} y1="0" x2={i*8} y2="80" stroke="#ffffff04" strokeWidth="0.3"/>)}
-        <line x1="10" y1="58" x2="90" y2="52" stroke="#ffffff0a" strokeWidth="1.8"/>
-        <line x1="50" y1="8"  x2="52" y2="76" stroke="#ffffff0a" strokeWidth="1.4"/>
-        <line x1="45" y1="55" x2="75" y2="35" stroke="#ffffff07" strokeWidth="1.1"/>
-        <line x1="28" y1="62" x2="68" y2="42" stroke="#ffffff07" strokeWidth="1.1"/>
-        <line x1="52" y1="28" x2="72" y2="18" stroke="#ffffff06" strokeWidth="0.9"/>
-        {MAP_ZONES.map(z=>{
-          const p=zoneData[z.id]||0,isSel=selected===z.id;
-          const col=p>0.6?C.danger:p>0.35?C.warning:C.success;
-          const bigR=z.r*(p>0.5?1.15:1);
-          return(
-            <g key={z.id} onClick={()=>onSelect(z.id)} style={{cursor:"pointer"}}>
-              {p>0.35&&(
-                <circle cx={z.x} cy={z.y} r={bigR+5} fill="none" stroke={col} strokeWidth="0.6" opacity="0.25">
-                  <animate attributeName="r" values={`${bigR+3};${bigR+9};${bigR+3}`} dur="2.5s" repeatCount="indefinite"/>
-                  <animate attributeName="opacity" values="0.3;0;0.3" dur="2.5s" repeatCount="indefinite"/>
-                </circle>
-              )}
-              <circle cx={z.x} cy={z.y} r={bigR} fill={isSel?`${col}40`:`${col}18`} stroke={isSel?col:`${col}60`} strokeWidth={isSel?1.8:0.9}/>
-              <text x={z.x} y={z.y-1.5} textAnchor="middle" dominantBaseline="middle" fill={C.text} fontSize="2.9" fontWeight="700" style={{pointerEvents:"none"}}>{z.label}</text>
-              <text x={z.x} y={z.y+3.8} textAnchor="middle" dominantBaseline="middle" fill={col} fontSize="2.6" fontWeight="600" style={{pointerEvents:"none"}}>{Math.round(p*100)}%</text>
-            </g>
-          );
-        })}
-      </svg>
-      <div style={{position:"absolute",bottom:6,left:8,display:"flex",gap:10,fontSize:12}}>
-        {[[C.danger,">60%"],[C.warning,"35-60%"],[C.success,"<35%"]].map(([col,lbl])=>(
-          <div key={lbl} style={{display:"flex",alignItems:"center",gap:4}}>
-            <div style={{width:8,height:8,borderRadius:"50%",background:col}}/>
-            <span style={{color:C.textDim}}>{lbl}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Hook RADAR (estat compartit App + Splash + Tab) ───────────────────────
-function useRadar(zoneData){
-  const [active,setActive]=useState(false);
-  const [pos,setPos]=useState(null);
-  const [err,setErr]=useState(null);
-  const [nearby,setNearby]=useState([]);
-  const [alert,setAlert]=useState(false);
-  const [sound,setSound]=useState(true);
-  const [thresh,setThresh]=useState(0.4);
-  const [lastBark,setLastBark]=useState(0);
-  const audioRef=useRef(null);
-  const watchRef=useRef(null);
-
-  const initAudio=()=>{if(!audioRef.current)audioRef.current=new(window.AudioContext||window.webkitAudioContext)();};
-
-  const check=useCallback((lat,lng)=>{
-    const nb=MAP_ZONES.map(z=>({...z,dist:Math.round(distKm(lat,lng,z.lat,z.lng)*10)/10,prob:zoneData[z.id]||0}))
-      .filter(z=>z.dist<z.rKm+8).sort((a,b)=>a.dist-b.dist);
-    setNearby(nb);
-    const danger=nb.find(z=>z.dist<z.rKm&&z.prob>=thresh);
-    setAlert(!!danger);
-    if(danger&&sound&&Date.now()-lastBark>10000){initAudio();playBark(audioRef.current);setLastBark(Date.now());}
-  },[zoneData,thresh,sound,lastBark]);
-
-  const start=useCallback(()=>{
-    initAudio();
-    if(!navigator.geolocation){setErr("GPS no disponible");return;}
-    setActive(true);setErr(null);
-    try{localStorage.setItem("pt_auto","1");}catch{}
-    watchRef.current=navigator.geolocation.watchPosition(
-      p=>{setPos({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy});check(p.coords.latitude,p.coords.longitude);},
-      ()=>{setErr("Permet l'accés a la ubicació al navegador");setActive(false);},
-      {enableHighAccuracy:true,maximumAge:5000,timeout:10000}
-    );
-  },[check]);
-
-  const stop=useCallback(()=>{
-    if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);
-    setActive(false);setPos(null);setNearby([]);setAlert(false);
-    try{localStorage.removeItem("pt_auto");}catch{}
-  },[]);
-
-  // Apaga/encén el so: suspèn l'AudioContext perquè qualsevol lladruc
-  // ja planificat (i no només els futurs) s'aturi a l'instant.
-  const toggleSound=useCallback(()=>{
-    setSound(prev=>{
-      const next=!prev;
-      const ctx=audioRef.current;
-      if(ctx){
-        if(next)ctx.resume().catch(()=>{});
-        else ctx.suspend().catch(()=>{});
-      }
-      return next;
-    });
-  },[]);
-
-  useEffect(()=>()=>{if(watchRef.current)navigator.geolocation.clearWatch(watchRef.current);},[]);
-  useEffect(()=>{if(pos)check(pos.lat,pos.lng);},[zoneData,check,pos]);
-
-  return {active,pos,err,nearby,alert,sound,toggleSound,thresh,setThresh,start,stop};
-}
-
-// ── Splash d'auto-activació ───────────────────────────────────────────────
-function Splash({onActivate,onSkip,wasActive,dogPhoto}){
-  const C=useC();
-  return(
-    <div style={{position:"fixed",inset:0,zIndex:10000,background:C.bg,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:24,fontFamily:"'DM Mono','Courier New',monospace"}}>
-      <img src={dogPhoto} alt="PatrolTrack" style={{maxWidth:"min(85vw,360px)",maxHeight:"50vh",width:"auto",height:"auto",marginBottom:20,filter:`drop-shadow(0 0 28px ${C.accent}66)`,display:"block"}}/>
-      <div style={{fontSize:24,fontWeight:800,color:C.accent,marginBottom:6,letterSpacing:"0.05em"}}>PATROL<span style={{color:C.textDim}}>TRACK</span></div>
-      <div style={{fontSize:15,color:C.textDim,marginBottom:32,textAlign:"center",maxWidth:320,lineHeight:1.5}}>
-        {wasActive?"Toca per reactivar el radar i les alertes sonores.":"Activa el radar GPS i rebràs alertes quan t'acostis a una zona de risc."}
-      </div>
-      <button onClick={onActivate} autoFocus style={{width:"100%",maxWidth:340,padding:"20px 24px",background:C.success,color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 0 32px ${C.success}66`}}>
-        ▶ ACTIVAR PROTECCIÓ
-      </button>
-      <button onClick={onSkip} style={{marginTop:18,background:"none",border:"none",color:C.textMuted,fontSize:13,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline"}}>
-        Saltar (sense alertes automàtiques)
-      </button>
-      <div style={{position:"absolute",bottom:24,left:0,right:0,textAlign:"center",fontSize:11,color:C.textMuted,padding:"0 24px"}}>
-        Requereix permís d'ubicació i so del dispositiu
-      </div>
-    </div>
-  );
-}
-
-// ── Pestanya RADAR (pura UI) ──────────────────────────────────────────────
-function RadarTab({radar,dogPhoto="/dog.png"}){
-  const C=useC();
-  const {active,pos,err,nearby,sound,toggleSound,thresh,setThresh,start,stop}=radar;
-  return(
-    <div>
-      <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-        <div style={{fontSize:15,fontWeight:700,marginBottom:12,color:C.accent}}>🐕 Radar GPS</div>
-        <button onClick={active?stop:start} style={{width:"100%",padding:14,background:active?C.danger:C.success,color:"#fff",border:"none",borderRadius:8,fontSize:16,fontWeight:800,cursor:"pointer",fontFamily:"inherit",marginBottom:12,boxShadow:active?`0 0 20px ${C.danger}66`:`0 0 20px ${C.success}66`}}>
-          {active?"⏹ ATURAR RADAR":"▶ ACTIVAR RADAR GPS"}
-        </button>
-        {err&&<div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,fontSize:13,color:C.danger,marginBottom:12}}>⚠ {err}</div>}
-        {pos&&<div style={{background:C.bg,borderRadius:8,padding:10,marginBottom:12,fontSize:13}}><div style={{color:C.textDim,marginBottom:3}}>📍 Posició actual</div><div style={{color:C.text}}>{pos.lat.toFixed(5)}, {pos.lng.toFixed(5)}</div><div style={{color:C.textDim,marginTop:2}}>Precisió: ±{Math.round(pos.acc)}m</div></div>}
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <span style={{fontSize:14,color:C.textDim}}>🔊 Lladruc d'alerta</span>
-          <div onClick={toggleSound} style={{width:44,height:24,borderRadius:12,background:sound?C.accent:C.border,position:"relative",cursor:"pointer",transition:"background 0.2s"}}>
-            <div style={{position:"absolute",top:2,left:sound?22:2,width:20,height:20,borderRadius:"50%",background:"#fff",transition:"left 0.2s"}}/>
-          </div>
-        </div>
-        <div>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:14,color:C.textDim}}>Llindar d'alerta</span><span style={{fontSize:14,color:C.accent}}>{Math.round(thresh*100)}%</span></div>
-          <input type="range" min={10} max={90} value={Math.round(thresh*100)} onChange={e=>setThresh(Number(e.target.value)/100)} style={{width:"100%",accentColor:C.accent}}/>
-          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Sensible</span><span>Estricte</span></div>
-        </div>
-      </div>
-      {active&&(
-        <div>
-          <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em"}}>Zones properes</div>
-          {nearby.length===0?(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}><div style={{fontSize:14,color:C.textDim}}>Cap zona a prop</div></div>
-          ):nearby.slice(0,5).map((z,i)=>{
-            const col=z.prob>0.6?C.danger:z.prob>0.35?C.warning:C.success;
-            const isDanger=z.dist<z.rKm&&z.prob>=thresh;
-            return(
-              <div key={i} style={{background:isDanger?`${C.danger}22`:C.surface,border:`1px solid ${isDanger?C.danger:C.border}`,borderLeft:`3px solid ${col}`,borderRadius:8,padding:"10px 12px",marginBottom:6,boxShadow:isDanger?`0 0 12px ${C.danger}44`:"none"}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:15,fontWeight:700,color:C.text}}>{z.id}</span><span style={{fontSize:16,fontWeight:800,color:col}}>{Math.round(z.prob*100)}%</span></div>
-                <div style={{display:"flex",justifyContent:"space-between"}}><span style={{fontSize:13,color:C.textDim}}>{isDanger?"🚨 ":"📍 "}{z.dist} km</span>{isDanger&&<span style={{fontSize:13,color:C.danger,fontWeight:700}}>ZONA DE RISC</span>}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {!active&&<div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:24,textAlign:"center"}}><img src={dogPhoto} alt="" style={{width:96,height:96,borderRadius:"50%",objectFit:"cover",objectPosition:"center 20%",marginBottom:12,border:`2px solid ${C.accent}55`}}/><div style={{fontSize:15,color:C.text,fontWeight:700,marginBottom:6}}>Radar de patrulles</div><div style={{fontSize:13,color:C.textDim,lineHeight:1.7}}>Activa el radar per rebre alertes automàtiques quan t'acostis a una zona de risc. Et ladrarà quan hi hagi perill!</div></div>}
-      <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
-    </div>
-  );
-}
-
-// ── Pestanya ESTADÍSTIQUES ────────────────────────────────────────────────
-function StatsTab({detections,onZoneTap}){
-  const C=useC();
-  const [selDay,setSelDay]=useState(-1);// -1 = tots
-  const [selHour,setSelHour]=useState(-1);
-
-  const filtered=detections.filter(d=>{
-    const dt=d.created_at?new Date(d.created_at):null;
-    if(!dt)return false;
-    if(selDay>=0&&dt.getDay()!==selDay)return false;
-    if(selHour>=0&&dt.getHours()!==selHour)return false;
-    return true;
-  });
-
-  // Comptadors per hora
-  const byHour=Array(24).fill(0);
-  detections.forEach(d=>{if(d.created_at)byHour[new Date(d.created_at).getHours()]++;});
-  const maxH=Math.max(...byHour,1);
-
-  // Comptadors per dia
-  const byDay=Array(7).fill(0);
-  detections.forEach(d=>{if(d.created_at)byDay[new Date(d.created_at).getDay()]++;});
-  const maxD=Math.max(...byDay,1);
-
-  // Top zones
-  const zoneCount={};
-  detections.forEach(d=>{const z=d.zone_norm||d.zone||"?";zoneCount[z]=(zoneCount[z]||0)+1;});
-  const topZones=Object.entries(zoneCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
-
-  // Per tipus
-  const typeCount={mossos:0,guardia:0,local:0,unknown:0};
-  detections.forEach(d=>{typeCount[d.patrol_type]=(typeCount[d.patrol_type]||0)+1;});
-
-  return(
-    <div>
-      {/* Gràfic per hora */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.accent,marginBottom:10}}>Deteccions per hora</div>
-        <div style={{display:"flex",gap:2,alignItems:"flex-end",height:64}}>
-          {byHour.map((n,h)=>{
-            const isSel=selHour===h,isNow=h===new Date().getHours();
-            const col=isNow?C.accent:isSel?C.accent:C.mossos;
-            return(
-              <div key={h} onClick={()=>setSelHour(selHour===h?-1:h)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,cursor:"pointer"}}>
-                <div style={{width:"100%",height:Math.round((n/maxH)*58)+2,background:col,borderRadius:"2px 2px 0 0",opacity:isSel||isNow?1:0.55,boxShadow:isSel?`0 0 6px ${C.accent}`:"none",transition:"height 0.4s"}}/>
-                {h%6===0&&<span style={{fontSize:10,color:C.textMuted}}>{h}h</span>}
-              </div>
-            );
-          })}
-        </div>
-        {selHour>=0&&<div style={{fontSize:12,color:C.accent,marginTop:6,textAlign:"center"}}>Filtrant per {selHour}:00h · {byHour[selHour]} deteccions — Toca per treure el filtre</div>}
-      </div>
-
-      {/* Gràfic per dia */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.accent,marginBottom:10}}>Deteccions per dia de la setmana</div>
-        <div style={{display:"flex",gap:4,alignItems:"flex-end",height:64}}>
-          {byDay.map((n,d)=>{
-            const isSel=selDay===d,isToday=d===new Date().getDay();
-            const col=isToday?C.accent:isSel?C.accent:C.guardia;
-            return(
-              <div key={d} onClick={()=>setSelDay(selDay===d?-1:d)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:4,cursor:"pointer"}}>
-                <div style={{width:"100%",height:Math.round((n/maxD)*52)+2,background:col,borderRadius:"2px 2px 0 0",opacity:isSel||isToday?1:0.55,boxShadow:isSel?`0 0 6px ${C.accent}`:"none",transition:"height 0.4s"}}/>
-                <span style={{fontSize:11,color:isSel?C.accent:C.textDim}}>{DAYS_SHORT[d]}</span>
-              </div>
-            );
-          })}
-        </div>
-        {selDay>=0&&<div style={{fontSize:12,color:C.accent,marginTop:6,textAlign:"center"}}>Filtrant per {DAYS_FULL[selDay]} · {byDay[selDay]} deteccions — Toca per treure el filtre</div>}
-      </div>
-
-      {/* Top zones — clicables per obrir el detall */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
-          <div style={{fontSize:14,fontWeight:700,color:C.accent}}>Zones més actives</div>
-          <div style={{fontSize:10,color:C.textMuted}}>toca per veure detall</div>
-        </div>
-        {topZones.length===0?<div style={{fontSize:13,color:C.textDim,textAlign:"center"}}>Sense dades</div>:
-        topZones.map(([zone,count],i)=>(
-          <div key={i} onClick={()=>onZoneTap&&onZoneTap(zone)} style={{marginBottom:8,padding:"6px 8px",margin:"0 -8px 4px",borderRadius:6,cursor:"pointer"}}>
-            <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:14,color:C.text}}>{zone}</span><span style={{fontSize:14,fontWeight:700,color:C.accent}}>{count}</span></div>
-            <div style={{height:5,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${(count/topZones[0][1])*100}%`,background:C.accent,borderRadius:3}}/></div>
-          </div>
-        ))}
-      </div>
-
-      {/* Per tipus */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{fontSize:14,fontWeight:700,color:C.accent,marginBottom:10}}>Per tipus de patrulla</div>
-        {Object.entries(typeCount).filter(([,n])=>n>0).map(([type,n])=>(
-          <div key={type} style={{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
-            <span style={{fontSize:14,color:PT[type]?.color||C.textDim}}>{PT[type]?.label||type}</span>
-            <span style={{fontSize:14,fontWeight:700,color:C.text}}>{n}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Deteccions filtrades */}
-      {(selDay>=0||selHour>=0)&&(
-        <div>
-          <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>Deteccions filtrades ({filtered.length})</div>
-          {filtered.slice(0,10).map((d,i)=>{
-            const ptype=PT[d.patrol_type]||PT.unknown;
-            const time=d.created_at?new Date(d.created_at).toLocaleString("ca-ES",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"??";
-            return(
-              <div key={i} style={{background:C.bg,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"8px 10px",marginBottom:4}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:3}}><span style={{fontSize:12,color:ptype.color}}>[{ptype.short}] {d.zone_norm||d.zone}</span><span style={{fontSize:12,color:C.accent}}>{time}</span></div>
-                {d.raw_message&&<div style={{fontSize:12,color:C.textDim,fontStyle:"italic"}}>"{d.raw_message.substring(0,50)}"</div>}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Pestanya CALENDARI ────────────────────────────────────────────────────
-function CalendarTab({detections}){
-  const C=useC();
-  const today=new Date();
-  const [year,setYear]=useState(today.getFullYear());
-  const [month,setMonth]=useState(today.getMonth());
-  const [selDate,setSelDate]=useState(null);
-
-  const detsByDate={};
-  detections.forEach(d=>{
-    if(!d.created_at)return;
-    const dt=new Date(d.created_at);
-    const key=`${dt.getFullYear()}-${dt.getMonth()}-${dt.getDate()}`;
-    detsByDate[key]=(detsByDate[key]||[]);
-    detsByDate[key].push(d);
-  });
-
-  const firstDay=new Date(year,month,1).getDay();
-  const daysInMonth=new Date(year,month+1,0).getDate();
-  const cells=[];
-  for(let i=0;i<firstDay;i++)cells.push(null);
-  for(let d=1;d<=daysInMonth;d++)cells.push(d);
-
-  const selKey=selDate?`${year}-${month}-${selDate}`:null;
-  const selDets=selKey?detsByDate[selKey]||[]:[];
-
-  const prevMonth=()=>{if(month===0){setMonth(11);setYear(y=>y-1);}else setMonth(m=>m-1);setSelDate(null);};
-  const nextMonth=()=>{if(month===11){setMonth(0);setYear(y=>y+1);}else setMonth(m=>m+1);setSelDate(null);};
-
-  return(
-    <div>
-      {/* Capçalera mes */}
-      <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-          <button onClick={prevMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>‹</button>
-          <span style={{fontSize:16,fontWeight:700,color:C.accent}}>{MONTHS[month]} {year}</span>
-          <button onClick={nextMonth} style={{background:"none",border:`1px solid ${C.border}`,color:C.text,borderRadius:6,width:32,height:32,cursor:"pointer",fontSize:18}}>›</button>
-        </div>
-
-        {/* Dies de la setmana */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
-          {DAYS_SHORT.map(d=><div key={d} style={{textAlign:"center",fontSize:12,color:C.textDim,padding:"2px 0"}}>{d}</div>)}
-        </div>
-
-        {/* Dies */}
-        <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
-          {cells.map((day,i)=>{
-            if(!day)return<div key={i}/>;
-            const key=`${year}-${month}-${day}`;
-            const dets=detsByDate[key]||[];
-            const isToday=day===today.getDate()&&month===today.getMonth()&&year===today.getFullYear();
-            const isSel=selDate===day;
-            const hasHigh=dets.some(d=>d.confidence==="alta");
-            const hasMid=dets.some(d=>d.confidence==="mitja");
-            const dotCol=hasHigh?C.danger:hasMid?C.warning:C.success;
-            return(
-              <div key={i} onClick={()=>setSelDate(isSel?null:day)} style={{
-                textAlign:"center",padding:"6px 2px",borderRadius:6,cursor:"pointer",
-                background:isSel?C.accentDim:isToday?`${C.accent}15`:"transparent",
-                border:`1px solid ${isSel?C.accent:isToday?`${C.accent}44`:C.border}`,
-                position:"relative",
-              }}>
-                <span style={{fontSize:15,color:isToday?C.accent:isSel?C.accent:C.text,fontWeight:isToday||isSel?700:400}}>{day}</span>
-                {dets.length>0&&(
-                  <div style={{position:"absolute",bottom:2,left:"50%",transform:"translateX(-50%)",display:"flex",gap:1}}>
-                    <div style={{width:5,height:5,borderRadius:"50%",background:dotCol}}/>
-                    {dets.length>1&&<div style={{width:5,height:5,borderRadius:"50%",background:dotCol,opacity:0.6}}/>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Deteccions del dia seleccionat */}
-      {selDate&&(
-        <div>
-          <div style={{fontSize:13,color:C.textDim,marginBottom:8}}>
-            {selDets.length>0?`${selDets.length} deteccions el ${selDate} de ${MONTHS[month]}`:`Cap detecció el ${selDate} de ${MONTHS[month]}`}
-          </div>
-          {selDets.length===0?(
-            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:16,textAlign:"center"}}>
-              <div style={{fontSize:14,color:C.textDim}}>Dia tranquil ✓</div>
-            </div>
-          ):selDets.map((d,i)=>{
-            const ptype=PT[d.patrol_type]||PT.unknown;
-            const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??";
-            return(
-              <div key={i} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:12,marginBottom:8}}>
-                <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                  <span style={{fontSize:12,color:ptype.color,background:`${ptype.color}22`,padding:"2px 7px",borderRadius:3}}>{ptype.label}</span>
-                  <span style={{fontSize:14,color:C.accent,fontWeight:700}}>{time}</span>
-                </div>
-                <div style={{fontSize:14,color:C.text,marginBottom:4}}>{d.zone_norm||d.zone}</div>
-                {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",marginBottom:6}}>"{d.raw_message.substring(0,65)}"</div>}
-                <div style={{display:"flex",gap:8}}>
-                  <span style={{fontSize:12,color:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>via {d.source?.toUpperCase()}</span>
-                  <span style={{fontSize:12,color:d.confidence==="alta"?C.success:d.confidence==="mitja"?C.warning:C.textMuted,background:C.border,padding:"2px 6px",borderRadius:3}}>conf. {d.confidence}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── App principal ─────────────────────────────────────────────────────────
 export default function App(){
@@ -600,8 +41,6 @@ export default function App(){
   const [queryDay,setQueryDay]=useState(new Date().getDay());
   const [queryPK,setQueryPK]=useState("");
   const [queryResult,setQueryResult]=useState(null);
-  const [sources,setSources]=useState({telegram:true,whatsapp:true});
-  const [hourlyData,setHourlyData]=useState({});
   const [zoneProbs,setZoneProbs]=useState({});
   const [filterType,setFilterType]=useState("all");
   const [newAlert,setNewAlert]=useState(null);
@@ -619,7 +58,7 @@ export default function App(){
   // App és qui munta el Provider).
   const C = currentTheme;
 
-  const radar=useRadar(zoneProbs);
+  const radar=useRadar(detections);
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
   const [showSplash,setShowSplash]=useState(true);
 
@@ -656,6 +95,20 @@ export default function App(){
   const [reporting,setReporting]=useState(false);
   const [reportResult,setReportResult]=useState(null);
 
+  // Diagnòstic Telegram
+  const [tgStatus,setTgStatus]=useState(null);
+  const [tgLoading,setTgLoading]=useState(false);
+  const checkTelegramStatus=async()=>{
+    setTgLoading(true);
+    try{
+      const r=await fetch(`${API}/api/telegram-status`,{cache:"no-store"});
+      const data=await r.json();
+      setTgStatus(data);
+    }catch(e){
+      setTgStatus({ok:false,reason:e.message||"Error de xarxa"});
+    }finally{setTgLoading(false);}
+  };
+
   const sendReport=async()=>{
     if(!apiToken){setReportResult({ok:false,reason:"Configura el token a la pestanya Configuració primer"});return;}
     if(!reportMsg.trim()){setReportResult({ok:false,reason:"Escriu o enganxa un missatge"});return;}
@@ -680,16 +133,36 @@ export default function App(){
     finally{setReporting(false);}
   };
 
-  const getHourly=(zone)=>{
-    const seed=zone.charCodeAt(0),d={};
-    HOURS.forEach(h=>{const b=((seed*h)%100)/200,r=(h>=7&&h<=9)||(h>=17&&h<=20)?0.25:0,n=h>=1&&h<=5?-0.2:0;d[h]=Math.max(0,Math.min(1,b+r+n));});
-    return d;
+  // Probabilitat per zona basada en deteccions REALS (no sintètic).
+  // Norma per la zona més activa per tenir valors 0-1.
+  const computeZoneProbs=(dets)=>{
+    const counts={};
+    MAP_ZONES.forEach(z=>{counts[z.id]=0;});
+    const cutoff=Date.now()-7*24*3600*1000; // setmana
+    for(const d of dets){
+      const ts=d.created_at?new Date(d.created_at).getTime():0;
+      if(ts<cutoff)continue;
+      const z=d.zone_norm||d.zone;
+      if(z in counts)counts[z]++;
+    }
+    const max=Math.max(1,...Object.values(counts));
+    const p={};
+    for(const k in counts) p[k]=counts[k]/max;
+    return p;
   };
 
-  const getZoneP=()=>{
-    const p={};
-    MAP_ZONES.forEach(z=>{const s=z.id.charCodeAt(0),h=new Date().getHours(),b=((s*h)%100)/200,r=(h>=7&&h<=9)||(h>=17&&h<=20)?0.25:0;p[z.id]=Math.max(0,Math.min(1,b+r+Math.random()*0.1));});
-    return p;
+  // Distribució per hora de les deteccions d'una zona (per al gràfic del dashboard)
+  const computeHourly=(dets,zone)=>{
+    const out=Array(24).fill(0);
+    for(const d of dets){
+      if((d.zone_norm||d.zone)!==zone)continue;
+      if(!d.created_at)continue;
+      out[new Date(d.created_at).getHours()]++;
+    }
+    const max=Math.max(1,...out);
+    const norm={};
+    for(let h=0;h<24;h++)norm[h]=out[h]/max;
+    return norm;
   };
 
   // Restaura el caché local immediatament: l'app mostra dades encara que el
@@ -703,43 +176,61 @@ export default function App(){
     }catch{}
   },[]);
 
+  // Ref al fetch2 perquè el puguem cridar des de visibility/focus listeners sense recrear-lo
+  const fetchRef=useRef(null);
+  const aliveRef=useRef(true);
+
   useEffect(()=>{
-    let alive=true;
+    aliveRef.current=true;
     const fetch2=async()=>{
       let ok=false;
       try{
         const[hr,dr]=await Promise.all([
           fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
-          fetch(`${API}/api/detections?limit=50`,{cache:"no-store"}).catch(()=>null),
+          fetch(`${API}/api/detections?limit=500`,{cache:"no-store"}).catch(()=>null),
         ]);
         const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
         const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
-        if(!alive)return;
+        if(!aliveRef.current)return;
         if(h){setHealth(h);try{localStorage.setItem("pt_health",JSON.stringify(h));}catch{}; ok=true;}
         if(Array.isArray(d)){
-          if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>{if(alive)setNewAlert(null);},4000);}
+          if(d.length>prevCount.current&&prevCount.current>0){setNewAlert(d[0]);setTimeout(()=>{if(aliveRef.current)setNewAlert(null);},4000);}
           prevCount.current=d.length;
           setDetections(d);
           try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
-          const p={...getZoneP()};
-          d.forEach(det=>{if(det.zone_norm&&p[det.zone_norm]!==undefined)p[det.zone_norm]=Math.min(1,(p[det.zone_norm]||0)+0.15);});
-          setZoneProbs(p);
+          setZoneProbs(computeZoneProbs(d));
           ok=true;
         }
       }catch{/* deixa l'estat anterior intacte */}
-      if(alive){
+      if(aliveRef.current){
         setOnline(ok);
         if(ok){const t=Date.now();setLastSync(t);try{localStorage.setItem("pt_lastSync",String(t));}catch{}}
       }
     };
+    fetchRef.current=fetch2;
     fetch2();
-    if(Object.keys(zoneProbs).length===0)setZoneProbs(getZoneP());
     const t=setInterval(fetch2,15000);
-    return()=>{alive=false;clearInterval(t);};
+    return()=>{aliveRef.current=false;clearInterval(t);};
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
-  useEffect(()=>{setHourlyData(getHourly(selectedZone));},[selectedZone]);
+  // Refresc immediat en tornar a obrir l'app (visibility) o focus de la finestra.
+  // setInterval queda pausat al mòbil quan l'app va a background → això resol "no s'actualitza".
+  useEffect(()=>{
+    const refresh=()=>{
+      if(document.visibilityState==="visible" && fetchRef.current){
+        fetchRef.current();
+      }
+    };
+    const onFocus=()=>{ if(fetchRef.current) fetchRef.current(); };
+    document.addEventListener("visibilitychange",refresh);
+    window.addEventListener("focus",onFocus);
+    return()=>{
+      document.removeEventListener("visibilitychange",refresh);
+      window.removeEventListener("focus",onFocus);
+    };
+  },[]);
+
 
   // Estat: grup seleccionat per veure detall + zona seleccionada per detall
   const [selectedGroup,setSelectedGroup]=useState(null);
@@ -789,7 +280,7 @@ export default function App(){
   useEffect(()=>{
     if(refreshTick===0)return;
     let alive=true;
-    fetch(`${API}/api/detections?limit=50`,{cache:"no-store"})
+    fetch(`${API}/api/detections?limit=500`,{cache:"no-store"})
       .then(r=>r.ok?r.json():null)
       .then(d=>{
         if(alive && Array.isArray(d)){
@@ -817,8 +308,15 @@ export default function App(){
   };
 
   const curH=new Date().getHours();
-  const curP=zoneProbs[selectedZone]||(hourlyData[curH]||0);
+  const curP=zoneProbs[selectedZone]||0;
   const filtDets=filterType==="all"?detections:detections.filter(d=>d.patrol_type===filterType);
+
+  // Dades reals per al Dashboard
+  const zoneDets=detections.filter(d=>(d.zone_norm||d.zone)===selectedZone);
+  const hourly=computeHourly(detections,selectedZone);
+  // Comptadors per tipus a aquesta zona
+  const zoneByType={mossos:0,guardia:0,local:0,unknown:0};
+  zoneDets.forEach(d=>{zoneByType[d.patrol_type]=(zoneByType[d.patrol_type]||0)+1;});
 
   const tabs=[
     {id:"dashboard",label:"Inici"},
@@ -826,7 +324,6 @@ export default function App(){
     {id:"radar",    label:"Radar"},
     {id:"query",    label:"Consulta"},
     {id:"stats",    label:"Stats"},
-    {id:"calendar", label:"Calendari"},
     {id:"history",  label:"Historial"},
     {id:"config",   label:"Config"},
   ];
@@ -840,7 +337,6 @@ export default function App(){
       case "radar":     return(<svg {...props}><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><circle cx="12" cy="20" r="1"/></svg>);
       case "query":     return(<svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>);
       case "stats":     return(<svg {...props}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
-      case "calendar":  return(<svg {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>);
       case "history":   return(<svg {...props}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="12" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="18" r="1.5" fill={color} stroke="none"/></svg>);
       case "config":    return(<svg {...props}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
       default:          return null;
@@ -915,86 +411,155 @@ export default function App(){
       <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto",position:"relative"}}>
 
         {/* Avisos sticky integrats sota el header (no fixed → no tapen el gos) */}
-        {(radar.alert||newAlert)&&(()=>{
-          const z=radar.alert?radar.nearby.find(n=>n.prob>=radar.thresh):null;
-          return(
-            <div style={{position:"sticky",top:-2,zIndex:50,marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
-              {radar.alert&&(
-                <div style={{background:C.danger,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 18px ${C.danger}66, 0 0 0 1px ${C.danger}`,animation:"pulse 0.6s infinite alternate",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        {(radar.alert||newAlert)&&(
+          <div style={{position:"sticky",top:-2,zIndex:50,marginBottom:12,display:"flex",flexDirection:"column",gap:6}}>
+            {radar.alert&&(()=>{
+              const d=radar.alert.det;
+              const ptype=PT[d.patrol_type]||PT.unknown;
+              return(
+                <div onClick={()=>setSelectedDet(d)} style={{background:C.danger,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 18px ${C.danger}66, 0 0 0 1px ${C.danger}`,animation:"pulse 0.6s infinite alternate",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}>
                   <span style={{fontSize:13,fontWeight:900,letterSpacing:"0.05em"}}>🚨 PATRULLA PROPERA</span>
-                  <span style={{fontSize:12,fontWeight:700,opacity:0.95}}>{z?.id} · {z?.dist} km</span>
+                  <span style={{fontSize:12,fontWeight:700,opacity:0.95}}>{ptype.short} · {d.zone_norm||d.zone||"?"} · {radar.alert.dist} km · fa {radar.alert.ageMin} min</span>
                 </div>
-              )}
-              {newAlert&&(
-                <div style={{background:`${C.danger}ee`,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 14px ${C.danger}55, 0 0 0 1px ${C.danger}88`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                  <span style={{fontSize:13,fontWeight:700}}>🔔 NOVA · {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
-                  <span style={{fontSize:11,opacity:0.85}}>{newAlert.source?.toUpperCase()}</span>
+              );
+            })()}
+            {newAlert&&(
+              <div onClick={()=>setSelectedDet(newAlert)} style={{background:`${C.danger}ee`,color:"#fff",padding:"10px 14px",borderRadius:10,boxShadow:`0 4px 14px ${C.danger}55, 0 0 0 1px ${C.danger}88`,display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,cursor:"pointer"}}>
+                <span style={{fontSize:13,fontWeight:700}}>🔔 NOVA · {PT[newAlert.patrol_type]?.short} · {newAlert.zone_norm}</span>
+                <span style={{fontSize:11,opacity:0.85}}>{newAlert.source?.toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+
+        {/* DASHBOARD — dades REALS de la BD */}
+        {tab==="dashboard"&&(()=>{
+          const now=new Date();
+          const cutoff24=Date.now()-24*3600*1000;
+          const last24=detections.filter(d=>d.created_at&&new Date(d.created_at).getTime()>=cutoff24);
+          // Top 5 zones reals últimes 24h
+          const zoneCount={};
+          for(const d of last24){const z=d.zone_norm||d.zone||"?";zoneCount[z]=(zoneCount[z]||0)+1;}
+          const topZones=Object.entries(zoneCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
+          const hourlyVals=Object.values(hourly);
+          const hourlyMax=Math.max(...hourlyVals);
+          return(
+            <div>
+              {/* Resum global 24h */}
+              <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
+                  <span style={{fontSize:13,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Activitat 24h</span>
+                  <span style={{fontSize:22,fontWeight:800,color:last24.length>5?C.danger:last24.length>2?C.warning:C.success}}>{last24.length}</span>
                 </div>
-              )}
+                {topZones.length===0?(
+                  <div style={{fontSize:13,color:C.textDim,textAlign:"center",padding:"8px 0"}}>Cap detecció a les últimes 24h</div>
+                ):(
+                  <div>
+                    <div style={{fontSize:11,color:C.textMuted,marginBottom:6}}>Zones més actives</div>
+                    {topZones.map(([z,n])=>(
+                      <div key={z} onClick={()=>setSelectedZone(z)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",cursor:"pointer",borderRadius:4}}>
+                        <span style={{fontSize:14,color:z===selectedZone?C.accent:C.text,fontWeight:z===selectedZone?700:500}}>{z}</span>
+                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                          <div style={{height:5,width:60,background:C.border,borderRadius:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${(n/topZones[0][1])*100}%`,background:C.accent,borderRadius:3}}/>
+                          </div>
+                          <span style={{fontSize:13,color:C.accent,fontWeight:700,minWidth:18,textAlign:"right"}}>{n}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Zona seleccionada — dades reals */}
+              <div onClick={()=>setZoneDetail(selectedZone)} style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10,cursor:"pointer",position:"relative"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
+                  <div style={{minWidth:0,flex:1}}>
+                    <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:2}}>ZONA SELECCIONADA</div>
+                    <div style={{fontSize:18,fontWeight:700,color:C.accent}}>{selectedZone}</div>
+                    <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{zoneDets.length} deteccions registrades · <span style={{color:C.accent}}>toca per detall</span></div>
+                  </div>
+                  <div style={{textAlign:"right",flexShrink:0,marginLeft:10}}>
+                    <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
+                    <div style={{fontSize:10,color:C.textMuted}}>relativa setm.</div>
+                  </div>
+                </div>
+
+                {/* Per tipus REAL */}
+                <div style={{display:"flex",gap:6,marginBottom:zoneDets.length>0?10:0,flexWrap:"wrap"}}>
+                  {Object.entries(zoneByType).filter(([,n])=>n>0).map(([t,n])=>{
+                    const pt=PT[t]||PT.unknown;
+                    return(<div key={t} style={{background:`${pt.color}22`,color:pt.color,padding:"3px 8px",borderRadius:5,fontSize:12,fontWeight:700}}>{pt.short} · {n}</div>);
+                  })}
+                </div>
+
+                {/* Histograma d'hores REAL */}
+                {zoneDets.length>0&&hourlyMax>0&&(
+                  <div>
+                    <div style={{fontSize:11,color:C.textDim,marginBottom:5,textTransform:"uppercase",letterSpacing:"0.08em"}}>Distribució per hora · històric</div>
+                    <div style={{display:"flex",gap:2,alignItems:"flex-end",height:42,background:C.bg,padding:"4px 6px",borderRadius:6,border:`1px solid ${C.border}`}}>
+                      {Array.from({length:24},(_,h)=>{
+                        const v=hourly[h]||0;
+                        const isNow=h===curH;
+                        const col=v>0.66?C.danger:v>0.33?C.warning:C.success;
+                        return(<div key={h} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                          <div title={`${h}h`} style={{width:"100%",height:Math.round(v*32)+2,background:isNow?C.accent:(v>0?col:C.border),opacity:v>0||isNow?(isNow?1:0.85):0.25,borderRadius:"2px 2px 0 0",boxShadow:isNow?`0 0 4px ${C.accent}`:"none"}}/>
+                          {h%6===0&&<span style={{fontSize:8,color:C.textMuted}}>{h}</span>}
+                        </div>);
+                      })}
+                    </div>
+                  </div>
+                )}
+                {zoneDets.length===0&&(
+                  <div style={{fontSize:12,color:C.textMuted,fontStyle:"italic"}}>Cap detecció encara en aquesta zona</div>
+                )}
+              </div>
+
+              {/* Últimes deteccions globals */}
+              <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em"}}>Últimes deteccions</div>
+              {detections.length===0?(
+                <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,textAlign:"center"}}>
+                  <div style={{fontSize:14,color:C.textDim}}>Sense deteccions encara</div>
+                  <div style={{fontSize:12,color:C.textMuted,marginTop:6,lineHeight:1.5}}>Reenvia un missatge al bot @{botUsername} de Telegram o usa el botó <b style={{color:C.accent}}>+</b></div>
+                </div>
+              ):detections.slice(0,4).map((d,i)=>{
+                const ptype=PT[d.patrol_type]||PT.unknown;
+                const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??:??";
+                return(
+                  <div key={i} onClick={()=>setSelectedDet(d)} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer"}}>
+                    <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
+                      <div style={{display:"flex",gap:6,alignItems:"center",minWidth:0,flex:1}}>
+                        <span style={{fontSize:12,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 6px",borderRadius:3,flexShrink:0}}>{ptype.short}</span>
+                        <span style={{fontSize:13,color:C.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{d.zone_norm||d.zone}</span>
+                      </div>
+                      <span style={{fontSize:13,color:C.accent,flexShrink:0}}>{time}</span>
+                    </div>
+                    {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>"{d.raw_message.substring(0,55)}"</div>}
+                  </div>
+                );
+              })}
             </div>
           );
         })()}
 
-
-        {/* DASHBOARD */}
-        {tab==="dashboard"&&(
-          <div>
-            <MapSVG zoneData={zoneProbs} onSelect={setSelectedZone} selected={selectedZone}/>
-            <div onClick={()=>setZoneDetail(selectedZone)} style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10,cursor:"pointer",position:"relative"}}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                <div>
-                  <div style={{fontSize:15,fontWeight:700}}>{selectedZone}</div>
-                  <div style={{fontSize:13,color:C.textDim,marginTop:2}}>Ara · {curH}:00h · <span style={{color:C.accent}}>toca per detall</span></div>
-                </div>
-                <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
-              </div>
-              <ProbBar value={curP*0.7} type="mossos"/>
-              <ProbBar value={curP*0.4} type="guardia"/>
-              <ProbBar value={curP*0.2} type="local"/>
-              <HourlyChart data={hourlyData}/>
-            </div>
-            <div style={{fontSize:13,color:C.textDim,marginBottom:8,textTransform:"uppercase",letterSpacing:"0.1em"}}>Últimes deteccions</div>
-            {detections.length===0?(
-              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,textAlign:"center"}}>
-                <div style={{fontSize:14,color:C.textDim}}>Sense deteccions encara</div>
-                <div style={{fontSize:13,color:C.accent,marginTop:8}}>"Mossos a la N-II km 45, cuidado"</div>
-              </div>
-            ):detections.slice(0,4).map((d,i)=>{
-              const ptype=PT[d.patrol_type]||PT.unknown;
-              const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??:??";
-              return(
-                <div key={i} onClick={()=>setSelectedZone(d.zone_norm)} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                      <span style={{fontSize:12,fontWeight:700,color:ptype.color,background:`${ptype.color}22`,padding:"1px 6px",borderRadius:3}}>{ptype.short}</span>
-                      <span style={{fontSize:13,color:C.textDim}}>{d.zone_norm||d.zone}</span>
-                    </div>
-                    <span style={{fontSize:13,color:C.accent}}>{time}</span>
-                  </div>
-                  {d.raw_message&&<div style={{fontSize:13,color:C.textDim,fontStyle:"italic"}}>"{d.raw_message.substring(0,55)}"</div>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         {tab==="osm"&&(
-          <div style={{height:"70vh",minHeight:420}}>
+          <div style={{height:"calc(100dvh - 280px)",minHeight:380,maxHeight:"calc(100vh - 220px)"}}>
             <MapTab
               zones={MAP_ZONES}
               probs={zoneProbs}
-              nearby={radar.nearby}
-              thresh={radar.thresh}
               selected={selectedZone}
               onSelect={setSelectedZone}
               theme={currentTheme}
+              themeName={themeName}
+              detections={detections}
+              radarPos={radar.active?radar.pos:null}
             />
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto}/>}
-        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)}/>}
-        {tab==="calendar"&&<CalendarTab detections={detections}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
         {tab==="query"&&(
@@ -1279,6 +844,115 @@ export default function App(){
                     </div>
                   );
                 })
+              )}
+            </div>
+
+            {/* 🔍 Estat Telegram — diagnòstic */}
+            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <div style={{fontSize:17,fontWeight:700,color:C.accent}}>🔍 Estat Telegram</div>
+                <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 12px",fontSize:12,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
+                  {tgLoading?"Comprovant…":"Comprovar"}
+                </button>
+              </div>
+              <div style={{fontSize:12,color:C.textDim,marginBottom:tgStatus?12:0,lineHeight:1.5}}>
+                Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Comprova hits del webhook, secret i configuració.
+              </div>
+              {tgStatus&&(
+                tgStatus.ok===false?(
+                  <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,fontSize:13,color:C.danger}}>
+                    ✗ Error: {tgStatus.reason||"desconegut"}
+                  </div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                    {/* Configuració */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Configuració del worker</div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
+                        <span style={{color:C.textDim}}>Webhook secret</span>
+                        <span style={{color:tgStatus.secret_configured?C.success:C.danger,fontWeight:700}}>{tgStatus.secret_configured?"✓ configurat":"✗ falta"}</span>
+                      </div>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                        <span style={{color:C.textDim}}>Bot token</span>
+                        <span style={{color:tgStatus.bot_token_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.bot_token_configured?"✓ configurat":"⚠ falta"}</span>
+                      </div>
+                      {!tgStatus.bot_token_configured&&(
+                        <div style={{fontSize:11,color:C.warning,marginTop:8,lineHeight:1.5}}>
+                          Per veure l'estat del webhook a Telegram, afegeix el token del bot com a secret:<br/>
+                          <code style={{background:C.surface,padding:"2px 5px",borderRadius:3,fontSize:11,color:C.text}}>wrangler secret put TELEGRAM_BOT_TOKEN</code>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Hits 24h */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Hits al webhook (últimes 24h)</div>
+                      {Object.keys(tgStatus.hits_24h||{}).length===0?(
+                        <div style={{fontSize:13,color:C.danger}}>⚠ Cap hit en 24h — Telegram no està arribant al worker</div>
+                      ):(
+                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                          {Object.entries(tgStatus.hits_24h).map(([outcome,n])=>{
+                            const labels={stored:["✓ Guardats",C.success],rejected_no_patrol:["⊘ Rebutjats (no parlen de patrulles)",C.warning],ignored_short:["… Missatges molt curts",C.textDim],ignored_no_msg:["… Updates sense text",C.textDim],auth_fail:["✗ Secret invàlid",C.danger],auth_missing:["✗ Secret no configurat",C.danger],json_error:["✗ JSON invàlid",C.danger]};
+                            const[lbl,col]=labels[outcome]||[outcome,C.textDim];
+                            return(
+                              <div key={outcome} style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
+                                <span style={{color:col}}>{lbl}</span>
+                                <span style={{color:col,fontWeight:700}}>{n}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {tgStatus.last_hit&&(
+                        <div style={{fontSize:11,color:C.textMuted,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
+                          Últim hit: {new Date(tgStatus.last_hit.received_at).toLocaleString("ca-ES")} · <b style={{color:C.textDim}}>{tgStatus.last_hit.outcome}</b>
+                          {tgStatus.last_hit.chat_title&&<><br/>Grup: {tgStatus.last_hit.chat_title}</>}
+                          {tgStatus.last_hit.text_preview&&<><br/><i>"{tgStatus.last_hit.text_preview}"</i></>}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Webhook info */}
+                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
+                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Webhook registrat a Telegram</div>
+                      {tgStatus.webhook_info?(
+                        <div style={{fontSize:13,display:"flex",flexDirection:"column",gap:3}}>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>URL</span>
+                            <span style={{color:tgStatus.webhook_info.url?C.success:C.danger,fontWeight:700,fontSize:11,wordBreak:"break-all",textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.url||"(cap)"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Pending updates</span>
+                            <span style={{color:tgStatus.webhook_info.pending_update_count>0?C.warning:C.text,fontWeight:700}}>{tgStatus.webhook_info.pending_update_count||0}</span>
+                          </div>
+                          {tgStatus.webhook_info.last_error_date&&(
+                            <div style={{display:"flex",justifyContent:"space-between"}}>
+                              <span style={{color:C.danger}}>Últim error</span>
+                              <span style={{color:C.danger,fontWeight:700,fontSize:11,textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.last_error_message||"?"}</span>
+                            </div>
+                          )}
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Allowed updates</span>
+                            <span style={{color:C.text,fontSize:11,textAlign:"right"}}>{(tgStatus.webhook_info.allowed_updates||[]).join(", ")||"(tots)"}</span>
+                          </div>
+                          <div style={{display:"flex",justifyContent:"space-between"}}>
+                            <span style={{color:C.textDim}}>Té secret</span>
+                            <span style={{color:tgStatus.webhook_info.has_custom_certificate||tgStatus.secret_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.secret_configured?"✓":"⚠ comprova"}</span>
+                          </div>
+                        </div>
+                      ):(
+                        <div style={{fontSize:12,color:C.warning,lineHeight:1.5}}>{tgStatus.webhook_error||"no disponible"}</div>
+                      )}
+                    </div>
+
+                    {/* Pista útil */}
+                    {tgStatus.hits_24h&&!tgStatus.hits_24h.stored&&!tgStatus.hits_24h.rejected_no_patrol&&!tgStatus.hits_24h.ignored_short&&(
+                      <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,fontSize:12,color:C.warning,lineHeight:1.5}}>
+                        💡 <b>El webhook no està rebent missatges normals.</b> Causa més probable: <b>privacy mode</b> del bot. Ves a <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={{color:C.warning,textDecoration:"underline"}}>@BotFather</a> → /mybots → @{botUsername} → Bot Settings → Group Privacy → <b>Disable</b>. Després envia /promote o treu i torna a afegir el bot al grup perquè es refresqui.
+                      </div>
+                    )}
+                  </div>
+                )
               )}
             </div>
 
@@ -1640,7 +1314,7 @@ export default function App(){
       )}
 
       {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))"}}>
+      <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
         {tabs.map(t=>{
           const active=tab===t.id;
           const col=active?C.accent:C.textMuted;
