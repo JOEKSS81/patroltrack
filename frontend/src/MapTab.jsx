@@ -179,10 +179,20 @@ export default function MapTab({
   // Sincronitza amb la posició del radar si el radar està actiu
   useEffect(() => {
     if (radarPos) {
+      if (manualRef.current && radarPos.acc > 300) return; // no trepitgis una posició marcada a mà amb un fix boirós
       setUserPos({ lat: radarPos.lat, lng: radarPos.lng, acc: radarPos.acc });
+      if (radarPos.acc <= 300) {
+        try { localStorage.setItem("pt_last_pos", JSON.stringify({ lat: radarPos.lat, lng: radarPos.lng, acc: radarPos.acc })); } catch {}
+        // Amb el radar actiu el watch base no corre: centra aquí la primera vegada.
+        if (mapInstance && !centeredRef.current && !manualRef.current) {
+          centeredRef.current = true;
+          const far = !lastPos || distKm(lastPos.lat, lastPos.lng, radarPos.lat, radarPos.lng) >= 0.5;
+          if (far) mapInstance.flyTo([radarPos.lat, radarPos.lng], radarPos.acc < 80 ? 16 : 14, { duration: 0.9 });
+        }
+      }
       if (followingRef.current && mapInstance) mapInstance.panTo([radarPos.lat, radarPos.lng], { animate: true, duration: 0.6 });
     }
-  }, [radarPos, mapInstance]);
+  }, [radarPos, mapInstance, lastPos]);
 
   // Deteccions de les últimes 24h amb coordenades vàlides
   const recentDets = useMemo(() => {
