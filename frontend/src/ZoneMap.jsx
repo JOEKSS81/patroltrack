@@ -12,6 +12,7 @@ const USER_COLOR = "#00e5ff";
 export default function ZoneMap({
   zones = [], probs = {}, selected, onSelect,
   detections = [], theme, radarPos = null, riskThreshold = 0.5,
+  mapHeight = "100%",        // alçada del mapa; la fitxa de zona va a sota (amb scroll)
 }) {
   const C = theme;
   const PT = ptWith(C);
@@ -161,7 +162,7 @@ export default function ZoneMap({
     const lats = zones.map(z => z.lat), lngs = zones.map(z => z.lng);
     const latMin = Math.min(...lats), latMax = Math.max(...lats);
     const lngMin = Math.min(...lngs), lngMax = Math.max(...lngs);
-    const padX = 36, padTop = 46, padBottom = 88; // espai per botó/badge i fitxa
+    const padX = 36, padTop = 46, padBottom = 36; // espai per botó/badge (la fitxa ja va a sota del mapa)
     const innerW = Math.max(10, w - 2 * padX);
     const innerH = Math.max(10, h - padTop - padBottom);
     const project = (lat, lng) => {
@@ -241,7 +242,8 @@ export default function ZoneMap({
   };
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", height: "100%", width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: `radial-gradient(120% 90% at 50% 0%, ${C.accent}14 0%, ${C.bg} 55%, ${C.bg} 100%)` }}>
+    <div>
+    <div ref={wrapRef} style={{ position: "relative", height: mapHeight, minHeight: 300, width: "100%", borderRadius: 12, overflow: "hidden", border: `1px solid ${C.border}`, background: `radial-gradient(120% 90% at 50% 0%, ${C.accent}14 0%, ${C.bg} 55%, ${C.bg} 100%)` }}>
       <style>{`
         @keyframes zmUser{0%,100%{opacity:1}50%{opacity:.5}}
         @keyframes zmRipple{0%{r:8px;opacity:.7}100%{r:46px;opacity:0}}
@@ -409,7 +411,9 @@ export default function ZoneMap({
         </div>
       ) : null}
 
-      {/* Fitxa de la zona SELECCIONADA (toca un cercle per canviar-la) — vidre + neó */}
+    </div>
+
+      {/* Fitxa de la zona SELECCIONADA — ara SOTA el mapa (fent scroll), perquè no en tapi res */}
       {selZone && (() => {
         const p = probs[selZone.id] || 0;
         const col = colorFor(p);
@@ -423,7 +427,7 @@ export default function ZoneMap({
         ];
         return (
           <div style={{
-            position: "absolute", bottom: 10, left: 10, right: 10, zIndex: 10,
+            position: "relative", marginTop: 10,
             background: `${C.surface}e6`, backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)",
             border: `1px solid ${col}66`, borderRadius: 14,
             boxShadow: `0 6px 22px rgba(0,0,0,.5), 0 0 18px ${col}33`,
@@ -434,7 +438,7 @@ export default function ZoneMap({
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.12em", display: "flex", alignItems: "center", gap: 6 }}>
-                  Zona seleccionada
+                  ▲ Zona seleccionada
                   {isNearest && <span style={{ color: USER_COLOR, fontWeight: 800 }}>· la més propera</span>}
                 </div>
                 <div style={{ fontSize: 17, fontWeight: 800, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 1 }}>
