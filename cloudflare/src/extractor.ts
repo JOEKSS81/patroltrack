@@ -6,6 +6,7 @@ const PATROL_KEYWORDS: Record<string, string[]> = {
     "mossos", "mosso", "mosus", "gossos d'esquadra",
     "policia catalana", "policía catalana",
     "esquadra", "escuadra", "mozos", "brimo", "pasma",
+    "pitufos", "pitufo", "pitufs",
   ],
   guardia: [
     "guardia civil", "guardias civiles", "guardia", "gc ", " gc,", "(gc)",
@@ -13,10 +14,11 @@ const PATROL_KEYWORDS: Record<string, string[]> = {
     "tricornio", "tricorni", "picoleto", "picolos",
     "policia nacional", "policía nacional", "nacionales",
     "madero", "la madera",
+    "civils", "civiles", "verds", "los verdes", "picos",
   ],
   local: [
     "policia local", "policía local",
-    "municipal", "munis",
+    "policia municipal", "els municipals", "los municipales", "municipales", "munis",
     "guardia urbana", "urbana", "urbanos", "guindilla",
   ],
 };
@@ -35,6 +37,13 @@ const PRESENCE_KEYWORDS = [
   "rotonda", "semàfor", "semáforo", "semaforo", "cruïlla", "cruce",
   "entrada", "sortida", "salida",
   "pk", "punt kilometric", "punto kilometrico", "punto kilométrico",
+  // Verbs i expressions habituals als grups
+  "parats", "parades", "parados", "aturats", "aturades", "posats", "puestos", "apostats", "apostados",
+  "sortint", "saliendo", "entrant", "entrando", "baixant", "bajando", "pujant", "subiendo",
+  "altura", "alcada", "direccio", "direccion", "sentit", "sentido", "prop de", "cerca de",
+  "ull", "ojo", "ojito", "vigileu", "vigilad", "atents", "atentos",
+  "alcoholemia", "alcoholemies", "drogotest", "atestat", "atestado", "cotxe", "coche", "furgo", "furgoneta",
+  "camuflat", "camuflats", "camuflado", "camuflados", "paisano", "de paisa",
 ];
 
 const NEGATIVE_KEYWORDS = [
@@ -43,6 +52,21 @@ const NEGATIVE_KEYWORDS = [
   "ja han marxat", "ya se han ido", "ja no hi són",
   "notícia", "noticia", "diari", "diario",
   "broma", "conya", "fake",
+  // Negacions: avisen que NO hi ha res
+  "no hi ha", "no n'hi ha", "no hay", "ja no", "ya no", "via lliure", "via libre",
+  "tot net", "todo limpio", "esta net", "esta limpio", "han marxat", "se han ido", "se fueron",
+  "han plegat", "ja han passat", "ya han pasado", "ni rastre", "ni rastro", "res de res",
+];
+
+const STRONG_KEYWORDS = [
+  "control", "radar", "patrull", "alcoholemi", "drogotest", "atestat", "atestado", "camuflat", "camuflad",
+];
+const STRONG_NORM = STRONG_KEYWORDS.map(normalizeText);
+
+// Preguntes ("hi ha mossos a ...?", "algú sap si...") no són avisos.
+const QUESTION_STARTS = [
+  "algu sap", "alguien sabe", "sabeu si", "sabeis si", "algu ha vist", "alguien ha visto",
+  "hi ha algo", "hay algo", "com esta", "como esta",
 ];
 
 const PK_PATTERN = /\b(?:pk|km|k\.m\.)\s*\.?\s*(\d+(?:[.,]\d+)?)\b/i;
@@ -290,10 +314,29 @@ function detectPk(textLower: string): string | null {
   return m ? m[0].trim() : null;
 }
 
+// Les llistes s'escriuen amb accents per llegibilitat; el text arriba sense accents.
+const PATROL_KEYWORDS_NORM: [string, string[]][] = Object.entries(PATROL_KEYWORDS)
+  .map(([k, list]) => [k, list.map(normalizeText)]);
+const PRESENCE_NORM = PRESENCE_KEYWORDS.map(normalizeText);
+const NEGATIVE_NORM = NEGATIVE_KEYWORDS.map(normalizeText);
+
+// Paraules curtes ("ull", "ojo", "hay", "pk") només compten com a paraula sencera:
+// si no, "full", "rojo" o "whay" farien saltar el filtre.
+const SHORT_WORD_RE = new Map<string, RegExp>();
+function hasKeyword(text: string, kw: string): boolean {
+  if (kw.trim().length > 5 || kw !== kw.trim()) return text.includes(kw);
+  let re = SHORT_WORD_RE.get(kw);
+  if (!re) {
+    re = new RegExp(`(^|[^a-z0-9])${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[^a-z0-9])`);
+    SHORT_WORD_RE.set(kw, re);
+  }
+  return re.test(text);
+}
+
 function detectPatrolType(textLower: string): string {
-  for (const [ptype, keywords] of Object.entries(PATROL_KEYWORDS)) {
+  for (const [ptype, keywords] of PATROL_KEYWORDS_NORM) {
     for (const kw of keywords) {
-      if (textLower.includes(kw)) return ptype;
+      if (hasKeyword(textLower, kw)) return ptype;
     }
   }
   return "unknown";
@@ -349,22 +392,30 @@ export function extractPatrolInfo(message: string, source: string = "unknown"): 
 
   const textLower = normalizeText(message);
 
-  for (const neg of NEGATIVE_KEYWORDS) {
+  for (const neg of NEGATIVE_NORM) {
     if (textLower.includes(neg)) return null;
   }
+  const trimmed = textLower.trim();
+  if (trimmed.endsWith("?") || QUESTION_STARTS.some(q => trimmed.startsWith(q))) return null;
 
-  const hasPresence = PRESENCE_KEYWORDS.some(kw => textLower.includes(kw));
+  const hasPresence = PRESENCE_NORM.some(kw => hasKeyword(textLower, kw));
   const patrolType = detectPatrolType(textLower);
   const hasPatrolWord = patrolType !== "unknown";
+  const { zoneLiteral, zoneNorm, lat, lng } = detectZone(textLower);
+  const hasZone = zoneNorm !== "Desconeguda";
 
   if (!hasPresence && !hasPatrolWord) return null;
 
-  if (hasPatrolWord && !hasPresence) {
+  // Sense cos policial, cal una paraula forta ("control", "radar"...): "està" o "hi ha"
+  // sols no fan d'un missatge qualsevol un avís.
+  if (!hasPatrolWord && !STRONG_NORM.some(kw => textLower.includes(kw))) return null;
+
+  // Cos policial + lloc conegut ja és un avís ("Mossos a Organyà").
+  if (hasPatrolWord && !hasPresence && !hasZone) {
     const roadHints = ["km", "pk", "rotonda", "carretera", "carrer", "calle", "avinguda"];
     if (!roadHints.some(h => textLower.includes(h))) return null;
   }
 
-  const { zoneLiteral, zoneNorm, lat, lng } = detectZone(textLower);
   const pk = detectPk(textLower);
   const confidence = calcConfidence(textLower, patrolType, zoneNorm);
 

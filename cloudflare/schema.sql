@@ -77,3 +77,43 @@ CREATE TABLE IF NOT EXISTS fuel_sms_log (
     price    REAL
 );
 CREATE INDEX IF NOT EXISTS idx_fuel_sms_alert ON fuel_sms_log (alert_id, sent_at);
+
+-- Grups de WhatsApp i Telegram que alimenten l'app, gestionables des de Config.
+-- status: 'active' (es desen els avisos), 'pending' (nou, esperant que algú l'activi),
+--         'off' (ignorat). Els grups de WhatsApp nous entren com a 'pending';
+--         els de Telegram com a 'active' (afegir-hi el bot ja és una decisió explícita).
+CREATE TABLE IF NOT EXISTS group_settings (
+    source     TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active',
+    added_by   TEXT,
+    first_seen TEXT,
+    last_seen  TEXT,
+    hits       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (source, name)
+);
+
+CREATE TABLE IF NOT EXISTS app_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+);
+
+-- Només la primera vegada: els grups que ja enviaven avisos queden actius,
+-- perquè el canvi no talli res del que ja funcionava.
+INSERT OR IGNORE INTO group_settings (source, name, status, first_seen, last_seen, hits)
+SELECT source, group_name, 'active', MIN(created_at), MAX(created_at), COUNT(*)
+FROM detections
+WHERE source IN ('whatsapp', 'telegram') AND group_name IS NOT NULL AND TRIM(group_name) != ''
+  AND group_name NOT IN ('WhatsApp', 'Telegram', 'Report manual')
+  AND NOT EXISTS (SELECT 1 FROM app_meta WHERE key = 'groups_seeded')
+GROUP BY source, group_name;
+
+INSERT OR IGNORE INTO group_settings (source, name, status, first_seen, last_seen, hits)
+SELECT source, group_name, 'active', MIN(received_at), MAX(received_at), COUNT(*)
+FROM ingest_hits
+WHERE source IN ('whatsapp', 'telegram') AND group_name IS NOT NULL AND TRIM(group_name) != ''
+  AND group_name NOT IN ('WhatsApp', 'Telegram', 'Report manual')
+  AND NOT EXISTS (SELECT 1 FROM app_meta WHERE key = 'groups_seeded')
+GROUP BY source, group_name;
+
+INSERT OR IGNORE INTO app_meta (key, value) VALUES ('groups_seeded', datetime('now'));
