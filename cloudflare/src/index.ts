@@ -165,11 +165,16 @@ async function readIngestBody(req: Request): Promise<IngestBody | null> {
   const text = await req.text();
   if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return null;
   const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
-  if (contentType.includes("application/json")) {
+  if (contentType.includes("application/json") || text.trim().startsWith("{")) {
     try {
       const parsed: unknown = JSON.parse(text);
       return isRecord(parsed) ? parsed as IngestBody : null;
-    } catch { return null; }
+    } catch {
+      // MacroDroid/Tasker no escapen les cometes ni els salts de línia del text de la
+      // notificació: el JSON queda trencat. Recupera els camps de la plantilla documentada.
+      const m = text.match(/"message"\s*:\s*"([\s\S]*?)"\s*,\s*"group_name"\s*:\s*"([\s\S]*?)"\s*,\s*"source"\s*:\s*"(\w*)"\s*}\s*$/);
+      return m ? { message: m[1], group_name: m[2], source: m[3] } : null;
+    }
   }
   const params = new URLSearchParams(text);
   return {
@@ -186,7 +191,10 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     return json({ ok: false, reason: "token invàlid" }, 401);
   }
   const body = await readIngestBody(req);
-  if (!body) return json({ ok: false, reason: "cos invàlid o massa gran" }, 400);
+  if (!body) {
+    await logIngestHit(env, "bad_body", "", "", "");
+    return json({ ok: false, reason: "cos invàlid o massa gran" }, 400);
+  }
   const message = stringValue(body.message).trim();
   if (!message) {
     await logIngestHit(env, "empty", stringValue(body.source), stringValue(body.group_name), "");
@@ -473,6 +481,8 @@ export default {
       if (url.pathname === "/api/telegram-setup") return await handleTelegramSetup(env, req);
       if (req.method === "POST" && url.pathname === "/api/detections/delete-by-group") return await handleDeleteByGroup(env, req);
       if (url.pathname === "/") return json({ name: "PatrolTrack API", ok: true });
+      // Diagnòstic: una URL o un mètode mal configurats al mòbil acaben aquí.
+      if (url.pathname.startsWith("/api/")) await logIngestHit(env, `route_404 ${req.method}`, "", "", url.pathname);
       return json({ error: "ruta no trobada" }, 404);
     } catch (error) {
       // Do not leak database errors, credentials, or request contents to clients.
