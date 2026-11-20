@@ -40,9 +40,45 @@ jobs:
           npm ci --prefix cloudflare
           npm ci --prefix frontend
 
+      - name: Aplica l'esquema de la base de dades (idempotent)
+        working-directory: cloudflare
+        run: npx wrangler d1 execute patroltrack --remote --file=schema.sql
+
       - name: Desplega l'API (Worker)
         working-directory: cloudflare
         run: npx wrangler deploy
+
+      # Les claus del Worker es guarden com a secrets de GitHub i es tornen a posar a
+      # cada desplegament: si el Worker es recrea, no es perden.
+      #  - INGEST_TOKEN: el mateix token de Config a l'app
+      #  - TELEGRAM_BOT_TOKEN: el de @BotFather
+      #  El secret del webhook es deriva del token del bot (no cal guardar-lo).
+      - name: Sincronitza les claus del Worker
+        working-directory: cloudflare
+        env:
+          INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -n "$INGEST_TOKEN" ]; then
+            printf '%s' "$INGEST_TOKEN" | npx wrangler secret put INGEST_TOKEN
+          else
+            echo "::warning::Falta el secret INGEST_TOKEN: el botó de reportar i MacroDroid no funcionaran"
+          fi
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            printf '%s' "$TELEGRAM_BOT_TOKEN" | npx wrangler secret put TELEGRAM_BOT_TOKEN
+            WEBHOOK_SECRET=$(printf 'patroltrack-webhook:%s' "$TELEGRAM_BOT_TOKEN" | sha256sum | cut -c1-48)
+            printf '%s' "$WEBHOOK_SECRET" | npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+          else
+            echo "::warning::Falta el secret TELEGRAM_BOT_TOKEN: el bot de Telegram no funcionarà"
+          fi
+
+      - name: Torna a registrar el webhook de Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ]; then echo "Sense bot: s'omet"; exit 0; fi
+          sleep 5
+          curl -sS -X POST "$VITE_API_URL/api/telegram-setup" | head -c 400; echo
 
       - name: Compila el frontend
         working-directory: frontend

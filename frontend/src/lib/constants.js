@@ -28,6 +28,10 @@ export const ZONES = [
   "Vilanova de Segrià","Vila-sana","Guimerà","L'Espluga Calba","Preixana",
   "Sant Martí de Riucorb","Vilagrassa","Àger","Cubells","Os de Balaguer",
   "Santa Linya","Gerri de la Sal","Tírvia","Montblanc",
+  // Valls del Pallars Sobirà i Alt Urgell
+  "Vall Ferrera (Alins)","Àreu","Vall de Cardós","Tavascan","La Guingueta d'Àneu",
+  "Espot","Escaló","Llessui","Senterada","Salàs de Pallars","Coll de Nargó",
+  "Adrall","Castellciutat","Noves de Segre","Pont de Bar","Martinet",
 ];
 
 // Zones del mapa OSM amb coordenades reals i radi d'influència (km)
@@ -48,6 +52,15 @@ export const MAP_ZONES = [
   { id: "Vielha",          label: "Vielha",   lat: 42.700, lng: 0.795, rKm: 5 },
   { id: "Artesa de Segre", label: "Artesa",   lat: 41.899, lng: 1.048, rKm: 5 },
   { id: "Ponts",           label: "Ponts",    lat: 41.920, lng: 1.195, rKm: 5 },
+  // Pallars i Alt Urgell (coordenades de Mapbox)
+  { id: "La Pobla de Segur",    label: "Pobla",    lat: 42.247,  lng: 0.972,  rKm: 5 },
+  { id: "Gerri de la Sal",      label: "Gerri",    lat: 42.3235, lng: 1.0648, rKm: 4 },
+  { id: "Rialp",                label: "Rialp",    lat: 42.357,  lng: 1.110,  rKm: 4 },
+  { id: "Llavorsí",             label: "Llavorsí", lat: 42.490,  lng: 1.215,  rKm: 4 },
+  { id: "Vall de Cardós",       label: "Cardós",   lat: 42.5634, lng: 1.2263, rKm: 5 },
+  { id: "Vall Ferrera (Alins)", label: "V.Ferrera",lat: 42.5489, lng: 1.3174, rKm: 5 },
+  { id: "Esterri d'Àneu",       label: "Esterri",  lat: 42.625,  lng: 1.140,  rKm: 5 },
+  { id: "Adrall",               label: "Adrall",   lat: 42.3271, lng: 1.4015, rKm: 4 },
 ];
 
 // Tipus de patrulla. Els colors s'agafen del tema, només l'estructura és constant.
