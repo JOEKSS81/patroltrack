@@ -39,3 +39,15 @@ CREATE TABLE IF NOT EXISTS telegram_updates (
     update_id INTEGER PRIMARY KEY,
     claim     TEXT NOT NULL
 );
+
+-- Diagnostic log for /api/ingest (MacroDroid, Tasker, report manual): permet
+-- comprovar que el mòbil arriba al servidor encara que el missatge es descarti.
+CREATE TABLE IF NOT EXISTS ingest_hits (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    received_at  TEXT NOT NULL,
+    outcome      TEXT NOT NULL,
+    source       TEXT,
+    group_name   TEXT,
+    text_preview TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_ingest_hits_received ON ingest_hits (received_at DESC);

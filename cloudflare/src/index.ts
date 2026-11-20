@@ -101,6 +101,19 @@ async function logTelegramHit(
   }
 }
 
+// Registre de diagnòstic de /api/ingest (best effort). Es queden els 500 més recents.
+async function logIngestHit(env: Env, outcome: string, source: string, groupName: string, text: string): Promise<void> {
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO ingest_hits (received_at, outcome, source, group_name, text_preview) VALUES (?, ?, ?, ?, ?)")
+        .bind(new Date().toISOString(), outcome, source.slice(0, 20), groupName.slice(0, MAX_GROUP_LENGTH), text.slice(0, 100)),
+      env.DB.prepare("DELETE FROM ingest_hits WHERE id <= (SELECT MAX(id) FROM ingest_hits) - 500"),
+    ]);
+  } catch {
+    // Mai fallar per culpa del registre.
+  }
+}
+
 async function storeDetection(
   env: Env,
   message: string,
@@ -168,11 +181,17 @@ async function readIngestBody(req: Request): Promise<IngestBody | null> {
 
 async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
-  if (!authenticated(req, env, new URL(req.url))) return json({ ok: false, reason: "token invàlid" }, 401);
+  if (!authenticated(req, env, new URL(req.url))) {
+    await logIngestHit(env, "auth_fail", "", "", "");
+    return json({ ok: false, reason: "token invàlid" }, 401);
+  }
   const body = await readIngestBody(req);
   if (!body) return json({ ok: false, reason: "cos invàlid o massa gran" }, 400);
   const message = stringValue(body.message).trim();
-  if (!message) return json({ ok: false, reason: "missatge buit" }, 400);
+  if (!message) {
+    await logIngestHit(env, "empty", stringValue(body.source), stringValue(body.group_name), "");
+    return json({ ok: false, reason: "missatge buit" }, 400);
+  }
   if (message.length > MAX_MESSAGE_LENGTH) return json({ ok: false, reason: "missatge massa llarg" }, 413);
 
   const sourceRaw = stringValue(body.source).trim().toLowerCase() || "whatsapp";
@@ -188,10 +207,14 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     const dup = await env.DB.prepare(
       "SELECT id FROM detections WHERE group_name = ? AND raw_message = ? AND created_at > ? LIMIT 1",
     ).bind(groupName, message.slice(0, MAX_RAW_MESSAGE_LENGTH), since).first();
-    if (dup) return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
+    if (dup) {
+      await logIngestHit(env, "duplicate", sourceRaw, groupName, message);
+      return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
+    }
   }
 
   const result = await storeDetection(env, message, groupName, sourceRaw);
+  await logIngestHit(env, result.stored ? "stored" : "not_patrol", sourceRaw, groupName, message);
   if (!result.stored) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
   return json({
     ok: true, stored: true, id: result.id,
