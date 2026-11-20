@@ -253,15 +253,24 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
               <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 86 }}>
                 {byHour.map((n, h) => {
                   const isSel = selHour === h, isNow = h === new Date().getHours(), isPeak = h === peakHour;
-                  const col = isSel || isNow ? C.accent : isPeak ? C.danger : C.mossos;
+                  const ratio = maxH > 0 ? n / maxH : 0;
+                  const col = isSel || isNow ? C.accent : ratio > 0.66 ? C.danger : ratio > 0.33 ? C.warning : C.mossos;
                   return (
                     <div key={h} onClick={() => setSelHour(selHour === h ? -1 : h)} title={`${h}:00h · ${n}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 2, cursor: "pointer" }}>
-                      <span style={{ fontSize: 8, color: C.textMuted, height: 9, lineHeight: "9px" }}>{n > 0 && (isPeak || isSel || n === maxH) ? n : ""}</span>
-                      <div style={{ width: "100%", height: Math.round((n / maxH) * 56) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isNow || isPeak ? 1 : 0.5, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
+                      <span style={{ fontSize: 8, color: C.textMuted, height: 9, lineHeight: "9px" }}>{n > 0 && (isPeak || isSel || ratio > 0.3) ? n : ""}</span>
+                      <div style={{ width: "100%", height: Math.round((n / maxH) * 56) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: n === 0 ? 0.15 : isSel || isNow || isPeak ? 1 : 0.8, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
                       {h % 3 === 0 && <span style={{ fontSize: 9, color: C.textMuted }}>{h}</span>}
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {totalDets > 0 && (
+              <div style={{ display: "flex", gap: 10, marginTop: 8, fontSize: 11, color: C.textMuted, flexWrap: "wrap" }}>
+                <span><span style={{ color: C.mossos }}>■</span> Baixa</span>
+                <span><span style={{ color: C.warning }}>■</span> Moderada</span>
+                <span><span style={{ color: C.danger }}>■</span> Alta</span>
+                <span><span style={{ color: C.accent }}>■</span> Ara / seleccionat</span>
               </div>
             )}
             {selHour >= 0 && <div style={{ fontSize: 12, color: C.accent, marginTop: 6, textAlign: "center" }}>Filtrant per {selHour}:00h · {byHour[selHour]} deteccions — Toca per treure el filtre</div>}
@@ -280,11 +289,12 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
                 {DAYS_ORDER_MON.map((d) => {
                   const n = byDay[d];
                   const isSel = selDay === d, isToday = d === new Date().getDay(), isPeak = d === peakDay;
-                  const col = isSel || isToday ? C.accent : isPeak ? C.danger : C.guardia;
+                  const ratio = maxD > 0 ? n / maxD : 0;
+                  const col = isSel || isToday ? C.accent : ratio > 0.66 ? C.danger : ratio > 0.33 ? C.warning : C.guardia;
                   return (
                     <div key={d} onClick={() => setSelDay(selDay === d ? -1 : d)} title={`${DAYS_FULL[d]} · ${n}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer" }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: n > 0 ? C.text : C.textMuted, height: 13, lineHeight: "13px" }}>{n > 0 ? n : ""}</span>
-                      <div style={{ width: "100%", height: Math.round((n / maxD) * 52) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: isSel || isToday || isPeak ? 1 : 0.55, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
+                      <div style={{ width: "100%", height: Math.round((n / maxD) * 52) + 2, background: col, borderRadius: "2px 2px 0 0", opacity: n === 0 ? 0.15 : isSel || isToday || isPeak ? 1 : 0.8, boxShadow: isSel ? `0 0 6px ${C.accent}` : "none", transition: "height 0.4s" }} />
                       <span style={{ fontSize: 11, color: isSel ? C.accent : isToday ? C.accent : C.textDim, fontWeight: isToday ? 700 : 400 }}>{DAYS_SHORT[d]}</span>
                     </div>
                   );

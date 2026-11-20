@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import dogComic from "./assets/dog-comic.webp";
 import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
@@ -63,6 +64,12 @@ export default function App(){
   const radar=useRadar(detections);
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
   const [showSplash,setShowSplash]=useState(true);
+
+  // Llindar de risc per al mapa (% probabilitat per marcar zona com a risc)
+  const [riskThreshold,setRiskThresholdRaw]=useState(()=>{
+    try{const v=Number(localStorage.getItem("pt_risk_thresh"));return v>=0.1&&v<=0.9?v:0.4;}catch{return 0.4;}
+  });
+  const setRiskThreshold=(v)=>{setRiskThresholdRaw(v);try{localStorage.setItem("pt_risk_thresh",String(v));}catch{}};
 
   // Token API + report manual ----------------------------------------------
   const [apiToken,setApiTokenRaw]=useState(()=>{
@@ -169,8 +176,8 @@ export default function App(){
   const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
-  // Foto del gos — hardcoded a /dog.png (sempre present, no personalitzable)
-  const dogPhoto = "/dog.png";
+  // Foto del gos cyborg (empaquetada per Vite; /dog.png ja no existeix)
+  const dogPhoto = dogComic;
 
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
@@ -671,6 +678,7 @@ export default function App(){
                   detections={detections}
                   theme={currentTheme}
                   radarPos={radar.active?radar.pos:null}
+                  riskThreshold={riskThreshold}
                 />
               ):(
                 <MapTab
@@ -682,13 +690,14 @@ export default function App(){
                   themeName={themeName}
                   detections={detections}
                   radarPos={radar.active?radar.pos:null}
+                  riskThreshold={riskThreshold}
                 />
               )}
             </div>
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} riskThreshold={riskThreshold} setRiskThreshold={setRiskThreshold}/>}
         {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
@@ -1086,43 +1095,40 @@ export default function App(){
               <div style={{fontSize:14,color:C.textDim,marginBottom:14,lineHeight:1.5}}>
                 Toca el botó i Telegram t'obrirà amb la llista dels teus grups. Tria un grup → el bot s'hi afegirà automàticament i els missatges començaran a arribar aquí. <b>No has de crear cap bot.</b>
               </div>
+
               <button
                 onClick={()=>{if(addGroupUrl)window.open(addGroupUrl,"_blank","noopener");}}
                 disabled={!botUsername}
                 style={{
-                  width:"100%",padding:"16px 18px",
+                  width:"100%",padding:"18px 18px",
                   background:botUsername?"#229ED9":C.border,
                   color:botUsername?"#fff":C.textDim,
                   border:"none",borderRadius:10,
-                  fontSize:16,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
-                  boxShadow:botUsername?"0 0 18px #229ED966":"none",
-                  marginBottom:14,
+                  fontSize:17,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
+                  boxShadow:botUsername?"0 0 20px #229ED977":"none",
+                  marginBottom:16,
+                  letterSpacing:"0.03em",
                 }}
-              >+ AFEGIR GRUP AL BOT</button>
+              >+ AFEGIR EL MEU GRUP</button>
 
-              {/* Per a TOTS els usuaris — instruccions simples i clares */}
-              <div style={{background:`${C.success}11`,borderRadius:8,border:`1px solid ${C.success}55`,padding:14,marginBottom:12}}>
-                <div style={{fontSize:13,fontWeight:800,color:C.success,marginBottom:8,letterSpacing:"0.03em"}}>✨ COM AFEGIR EL TEU GRUP (2 tocs)</div>
-                <ol style={{margin:0,paddingLeft:20,fontSize:13,color:C.text,lineHeight:1.7}}>
-                  <li>Toca el botó blau <b>"+ AFEGIR GRUP AL BOT"</b> de dalt</li>
-                  <li>Telegram s'obrirà i et mostrarà la llista dels teus grups → <b>tria el grup</b> on vols capturar les patrulles</li>
-                </ol>
-                <div style={{fontSize:12,color:C.textDim,marginTop:8,lineHeight:1.5}}>
-                  Llest. Els missatges d'aquell grup amb paraules tipus "mossos", "control", "patrulla"... apareixeran aquí automàticament. Pots afegir tants grups com vulguis repetint el procés.
+              {/* Camp nom del bot — ocult per defecte, amb toggle */}
+              <details style={{marginTop:4}}>
+                <summary style={{fontSize:12,color:C.textMuted,cursor:"pointer",userSelect:"none",listStyle:"none",display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:10}}>▶</span> Opcions avançades (nom del bot)
+                </summary>
+                <div style={{marginTop:10}}>
+                  <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom del bot de Telegram (sense @):</div>
+                  <input
+                    value={botUsername}
+                    onChange={e=>setBotUsername(e.target.value)}
+                    placeholder="Patrol_trackBot"
+                    style={{...ss,boxSizing:"border-box",fontSize:14,fontFamily:"monospace",padding:"12px 14px"}}
+                  />
+                  <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
+                    Canvia-ho només si qui ha configurat el sistema t'ha dit un nom diferent.
+                  </div>
                 </div>
-              </div>
-
-
-              <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom del bot (sense @):</div>
-              <input
-                value={botUsername}
-                onChange={e=>setBotUsername(e.target.value)}
-                placeholder="Patrol_trackBot"
-                style={{...ss,boxSizing:"border-box",fontSize:14,fontFamily:"monospace",padding:"12px 14px"}}
-              />
-              <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
-                Per defecte: Patrol_trackBot. Canvia-ho si has creat el bot amb un altre nom.
-              </div>
+              </details>
 
               <div style={{marginTop:16,padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
                 <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:8}}>📤 Compartir l'app amb amics</div>
@@ -1363,6 +1369,7 @@ export default function App(){
                   <span style={{fontSize:15,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
                 </div>
               ))}
+              <a href="/arquitectura.html" target="_blank" rel="noopener" style={{display:"block",marginTop:12,textAlign:"center",fontSize:13,color:C.accent,textDecoration:"underline"}}>📐 Com funciona PatrolTrack (arquitectura)</a>
             </Collapsible>
           </div>
         )}
@@ -1633,9 +1640,14 @@ export default function App(){
             <input
               value={reportGroup}
               onChange={e=>setReportGroup(e.target.value)}
-              placeholder="Nom del grup (opcional)"
+              placeholder={groupsAggregate.length?"Tria o escriu el grup (opcional)":"Nom del grup (opcional)"}
+              list="pt-group-list"
               style={{...ss,boxSizing:"border-box",fontSize:13,marginTop:8}}
             />
+            {/* Suggeriments: grups descoberts automàticament a partir de les deteccions */}
+            <datalist id="pt-group-list">
+              {groupsAggregate.filter(g=>g.name&&!["(sense grup)","Report manual","Telegram","WhatsApp"].includes(g.name)).map(g=><option key={g.name} value={g.name}/>)}
+            </datalist>
 
             {reportResult&&(
               <div style={{

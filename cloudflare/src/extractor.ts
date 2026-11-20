@@ -3,36 +3,38 @@
 
 const PATROL_KEYWORDS: Record<string, string[]> = {
   mossos: [
-    "mossos", "mosso",
+    "mossos", "mosso", "mosus", "gossos d'esquadra",
     "policia catalana", "policía catalana",
-    "esquadra",
+    "esquadra", "escuadra", "mozos", "brimo", "pasma",
   ],
   guardia: [
-    "guardia civil", "guardia", "gc ", " gc,", "(gc)",
+    "guardia civil", "guardias civiles", "guardia", "gc ", " gc,", "(gc)",
     "benemérita", "benemerita",
-    "tricornio", "tricorni",
+    "tricornio", "tricorni", "picoleto", "picolos",
+    "policia nacional", "policía nacional", "nacionales",
+    "madero", "la madera",
   ],
   local: [
     "policia local", "policía local",
     "municipal", "munis",
-    "guardia urbana", "urbana",
+    "guardia urbana", "urbana", "urbanos", "guindilla",
   ],
 };
 
 const PRESENCE_KEYWORDS = [
-  "control", "controls", "controlant",
-  "patrulla", "patrulles", "patrullant",
-  "radar", "radars",
-  "hi ha", "hay", "estan", "están", "está", "es troba",
+  "control", "controls", "controles", "controlant",
+  "patrulla", "patrulles", "patrullas", "patrullant",
+  "radar", "radars", "radares",
+  "hi ha", "hay", "estan", "están", "está", "es troba", "se encuentra",
   "acaben de", "acaban de",
   "cuidado", "compte", "atenció", "atención", "alerta",
   "pillat", "pillado", "aturat", "parado",
-  "multa", "multes", "multan",
+  "multa", "multes", "multas", "multan",
   "fent controls", "haciendo controles",
   "a l'altura", "a la altura", "al km", "kilómetro",
-  "rotonda", "semàfor", "semaforo", "cruïlla", "cruce",
+  "rotonda", "semàfor", "semáforo", "semaforo", "cruïlla", "cruce",
   "entrada", "sortida", "salida",
-  "pk", "punt kilometric", "punto kilometrico",
+  "pk", "punt kilometric", "punto kilometrico", "punto kilométrico",
 ];
 
 const NEGATIVE_KEYWORDS = [

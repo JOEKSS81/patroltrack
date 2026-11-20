@@ -215,6 +215,26 @@ export default function MapTab({
       .slice(0, 80);
   }, [detections, zones]);
 
+  const autoLocatedRef = useRef(false);
+
+  // Auto-centra al GPS de l'usuari quan el mapa és llest (una sola vegada, silenciós si falla)
+  useEffect(() => {
+    if (!mapInstance || autoLocatedRef.current || !navigator.geolocation) return;
+    autoLocatedRef.current = true;
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        // No trepitgis una posició fixada a mà ni la del radar
+        if (manualRef.current || centeredRef.current) return;
+        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
+        setUserPos(np);
+        const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
+        mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 1.2 });
+      },
+      () => {},
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
+    );
+  }, [mapInstance]);
+
   const errMsg = (e) => {
     if (!e) return "Error desconegut";
     if (e.code === 1) return "Permís d'ubicació denegat";
@@ -239,6 +259,8 @@ export default function MapTab({
     if (userPos && mapInstance) mapInstance.panTo([userPos.lat, userPos.lng], { animate: true, duration: 0.6 });
     followWatchRef.current = navigator.geolocation.watchPosition(
       (p) => {
+        // No trepitgis una posició fixada a mà ni la del radar
+        if (manualRef.current || centeredRef.current) return;
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
         if (mapInstance) mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.5 });
