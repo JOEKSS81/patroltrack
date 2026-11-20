@@ -8,6 +8,7 @@ import { computeZoneProbs, computeHourly } from "./lib/utils";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
+import GroupManager from "./components/GroupManager";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 import FuelTab from "./tabs/FuelTab";
@@ -1176,6 +1177,15 @@ export default function App(){
                   >Compartir</button>
                 </div>
               </div>
+            </Collapsible>
+
+            {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
+            <Collapsible
+              title="👥 Els meus grups"
+              subtitle="Activa, desactiva o afegeix grups de WhatsApp i Telegram"
+              defaultOpen={true}
+            >
+              <GroupManager apiToken={apiToken}/>
             </Collapsible>
 
             {/* 📡 Grups connectats */}

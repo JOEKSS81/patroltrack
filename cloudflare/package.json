@@ -6,7 +6,8 @@
     "deploy": "wrangler deploy",
     "db:schema": "wrangler d1 execute patroltrack --remote --file=schema.sql",
     "db:schema:local": "wrangler d1 execute patroltrack --local --file=schema.sql",
-    "secret:set": "wrangler secret put INGEST_TOKEN"
+    "secret:set": "wrangler secret put INGEST_TOKEN",
+    "test": "node --experimental-strip-types --test test/extractor.test.mts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",

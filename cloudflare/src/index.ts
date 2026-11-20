@@ -188,6 +188,43 @@ async function readIngestBody(req: Request): Promise<IngestBody | null> {
   };
 }
 
+// ── Grups gestionables des de Config ─────────────────────────────────────────
+type GroupStatus = "active" | "pending" | "off";
+const GENERIC_GROUP_NAMES = new Set(["", "whatsapp", "telegram", "report manual", "(sense grup)"]);
+
+// WhatsApp a vegades posa el comptador al títol ("Grup (3 missatges)") o el format
+// "Persona @ Grup". Es neteja perquè el mateix grup no surti repetit a Config.
+function normalizeGroupName(source: string, raw: string): string {
+  let name = raw.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").replace(/\s+/g, " ").trim();
+  if (source === "whatsapp") {
+    name = name.replace(/\s*\(\d+\s+[^)]*\)\s*$/u, "").trim();
+    const at = name.lastIndexOf(" @ ");
+    if (at > 0) name = name.slice(at + 3).trim();
+  }
+  return name.slice(0, MAX_GROUP_LENGTH);
+}
+
+// Decideix si s'han de desar els avisos d'un grup i en porta el compte.
+// Grups nous: WhatsApp → pendent (cal activar-lo a Config); Telegram → actiu.
+async function groupGate(env: Env, source: string, name: string): Promise<GroupStatus | "skip"> {
+  if ((source !== "whatsapp" && source !== "telegram") || GENERIC_GROUP_NAMES.has(name.toLowerCase())) return "skip";
+  const now = new Date().toISOString();
+  const initial: GroupStatus = source === "telegram" ? "active" : "pending";
+  try {
+    const row = await env.DB.prepare(`
+      INSERT INTO group_settings (source, name, status, first_seen, last_seen, hits)
+      VALUES (?, ?, ?, ?, ?, 1)
+      ON CONFLICT (source, name) DO UPDATE SET last_seen = excluded.last_seen, hits = hits + 1
+      RETURNING status
+    `).bind(source, name, initial, now, now).first<{ status: GroupStatus }>();
+    return row?.status ?? initial;
+  } catch (error) {
+    // Si la taula encara no existeix (desplegament a mitges), no bloquegis res.
+    console.error("groupGate failed", error);
+    return "skip";
+  }
+}
+
 async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
   if (!authenticated(req, env, new URL(req.url))) {
@@ -209,7 +246,17 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const sourceRaw = stringValue(body.source).trim().toLowerCase() || "whatsapp";
   const allowedSources = new Set(["whatsapp", "telegram", "manual", "test"]);
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
-  const groupName = stringValue(body.group_name).trim().slice(0, MAX_GROUP_LENGTH);
+  const groupName = normalizeGroupName(sourceRaw, stringValue(body.group_name));
+
+  const gate = await groupGate(env, sourceRaw, groupName);
+  if (gate === "pending" || gate === "off") {
+    // No es guarda el text: el grup no està autoritzat (pot ser un xat privat).
+    await logIngestHit(env, `group_${gate}`, sourceRaw, groupName, "");
+    return json({
+      ok: true, stored: false, group_status: gate,
+      reason: gate === "pending" ? "grup nou: activa'l a Config → Grups" : "grup desactivat a Config",
+    });
+  }
 
   // Les notificacions del mòbil (MacroDroid/Tasker) es poden repetir: Android torna a
   // publicar la mateixa notificació quan s'actualitza. Ignora el mateix missatge del
@@ -293,6 +340,11 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const topicSuffix = msg.is_topic_message && threadId ? ` › topic#${threadId}` : "";
   const groupName = `${chatTitle} (${chatId ?? "?"})${topicSuffix}`.slice(0, MAX_GROUP_LENGTH);
   const updateId = Number.isSafeInteger(update.update_id) ? update.update_id : undefined;
+  const gate = await groupGate(env, "telegram", groupName);
+  if (gate === "off" || gate === "pending") {
+    await logTelegramHit(env, `group_${gate}`, { chat_id: chatId, chat_title: chatTitle });
+    return json({ ok: true, stored: false, reason: "grup desactivat a Config" });
+  }
   const result = await storeDetection(env, text, groupName, "telegram", updateId);
   if (!result.info) {
     await logTelegramHit(env, "rejected_no_patrol", { chat_id: chatId, chat_title: chatTitle, text });
@@ -467,6 +519,48 @@ async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
   if (!groupName) return json({ ok: false, reason: "group_name buit" }, 400);
   const result = await env.DB.prepare("DELETE FROM detections WHERE group_name = ?").bind(groupName).run();
   return json({ ok: true, deleted: result.meta?.changes ?? 0, group_name: groupName });
+}
+
+async function handleGroupSettingsList(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  const { results } = await env.DB.prepare(`
+    SELECT g.source, g.name, g.status, g.added_by, g.first_seen, g.last_seen, g.hits,
+           (SELECT COUNT(*) FROM detections d WHERE d.group_name = g.name AND d.source = g.source) AS detections
+    FROM group_settings g
+    ORDER BY CASE g.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, g.last_seen DESC
+  `).all();
+  return json({ ok: true, groups: results });
+}
+
+async function handleGroupSettingsSave(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
+  const source = stringValue(body.source).trim().toLowerCase();
+  const status = stringValue(body.status).trim() || "active";
+  if (source !== "whatsapp" && source !== "telegram") return json({ ok: false, reason: "origen ha de ser whatsapp o telegram" }, 400);
+  if (!["active", "pending", "off"].includes(status)) return json({ ok: false, reason: "estat invàlid" }, 400);
+  const name = normalizeGroupName(source, stringValue(body.name));
+  if (GENERIC_GROUP_NAMES.has(name.toLowerCase()) || name.length < 2) return json({ ok: false, reason: "nom de grup invàlid" }, 400);
+  const addedBy = stringValue(body.added_by).trim().slice(0, 40) || null;
+  await env.DB.prepare(`
+    INSERT INTO group_settings (source, name, status, added_by, first_seen, hits)
+    VALUES (?, ?, ?, ?, ?, 0)
+    ON CONFLICT (source, name) DO UPDATE SET status = excluded.status,
+      added_by = COALESCE(excluded.added_by, group_settings.added_by)
+  `).bind(source, name, status, addedBy, new Date().toISOString()).run();
+  return json({ ok: true, source, name, status });
+}
+
+async function handleGroupSettingsDelete(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
+  const r = await env.DB.prepare("DELETE FROM group_settings WHERE source = ? AND name = ?")
+    .bind(stringValue(body.source).trim().toLowerCase(), stringValue(body.name)).run();
+  return json({ ok: true, deleted: r.meta?.changes ?? 0 });
 }
 
 // ── Preus de carburants (dades obertes del Ministeri, província de Lleida = 25) ──
@@ -707,6 +801,9 @@ export default {
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
+      if (req.method === "GET" && url.pathname === "/api/group-settings") return await handleGroupSettingsList(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/group-settings") return await handleGroupSettingsSave(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/group-settings/delete") return await handleGroupSettingsDelete(env, req, url);
       if (req.method === "GET" && url.pathname === "/api/fuel") return await handleFuel(ctx);
       if (req.method === "POST" && url.pathname === "/api/fuel/alerts") return await handleFuelAlertCreate(env, req, ctx);
       if (req.method === "GET" && url.pathname === "/api/fuel/alerts") return await handleFuelAlertList(env, req, url);
