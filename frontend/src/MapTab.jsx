@@ -91,13 +91,14 @@ function distKm(a1, o1, a2, o2) {
 }
 
 // Tile providers — tots gratuïts, sense API key.
+// (CARTO ara demana API key i mostrava "API KEY REQUIRED": substituït per Esri Canvas.)
 // Sense `{r}` per evitar URLs malformades en navegadors que no actualitzen Leaflet:
 // el placeholder {r} només es substitueix si `detectRetina` està activat al TileLayer.
 const TILE_SETS = {
-  dark:     { url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",      attr: "© OpenStreetMap, © CARTO", label: "Fosc",        emoji: "🌑" },
-  darkmin:  { url: "https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}.png", attr: "© OpenStreetMap, © CARTO", label: "Fosc mínim", emoji: "⚫" },
-  voyager:  { url: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png", attr: "© OpenStreetMap, © CARTO", label: "Voyager", emoji: "🗺" },
-  positron: { url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",     attr: "© OpenStreetMap, © CARTO", label: "Clar",        emoji: "☀" },
+  dark:     { url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}", attr: "© Esri, HERE, Garmin, © OpenStreetMap", label: "Fosc", emoji: "🌑", noSub: true, maxNative: 16 },
+  darkmin:  { url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}", attr: "© Esri, HERE, Garmin, © OpenStreetMap", label: "Fosc mínim", emoji: "⚫", noSub: true, maxNative: 16 },
+  voyager:  { url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}", attr: "© Esri", label: "Voyager", emoji: "🗺", noSub: true },
+  positron: { url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}", labels: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}", attr: "© Esri, HERE, Garmin, © OpenStreetMap", label: "Clar", emoji: "☀", noSub: true, maxNative: 16 },
   osm:      { url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",                attr: "© OpenStreetMap",            label: "OSM clàssic", emoji: "🌍" },
   // Esri — proveïdor DIFERENT (no OSM), CDN pròpia. Útil si CARTO/OSM no carrega.
   // Sense subdomini {s}: Esri serveix des d'un únic host.
@@ -397,7 +398,8 @@ export default function MapTab({
       `}</style>
 
       <MapContainer center={[41.95, 0.95]} zoom={8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
-        <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} detectRetina={true} maxZoom={19} />
+        <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} detectRetina={true} maxZoom={19} maxNativeZoom={currentTile.maxNative || 19} />
+        {currentTile.labels && <TileLayer key={tileKey + "-labels"} url={currentTile.labels} detectRetina={true} maxZoom={19} maxNativeZoom={currentTile.maxNative || 19} />}
         <MapHandle onReady={setMapInstance} />
         <ClickToPlace active={placing} onPlace={placePos} />
         <FitAll points={points} />
