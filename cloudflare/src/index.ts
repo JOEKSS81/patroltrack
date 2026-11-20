@@ -229,9 +229,14 @@ const GENERIC_GROUP_NAMES = new Set(["", "whatsapp", "telegram", "report manual"
 function normalizeGroupName(source: string, raw: string): string {
   let name = raw.replace(/[\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").replace(/\s+/g, " ").trim();
   if (source === "whatsapp") {
-    name = name.replace(/\s*\(\d+\s+[^)]*\)\s*$/u, "").trim();
+    // El títol de la notificació d'un grup porta el comptador i qui escriu:
+    //   "Controlant (4 mensajes): Vilber", "Controlant: ~ Pep", "Grup (2 messages)"
+    // Sense netejar-ho, cada variant es tractava com un grup nou (pendent).
+    name = name.replace(/\s*\(\d+\s+[^)]*\)/gu, "").trim();
     const at = name.lastIndexOf(" @ ");
     if (at > 0) name = name.slice(at + 3).trim();
+    const colon = name.indexOf(": ");
+    if (colon > 0) name = name.slice(0, colon).trim();
   }
   return name.slice(0, MAX_GROUP_LENGTH);
 }
