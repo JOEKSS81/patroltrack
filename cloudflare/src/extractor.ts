@@ -56,6 +56,11 @@ const NEGATIVE_KEYWORDS = [
   "no hi ha", "no n'hi ha", "no hay", "ja no", "ya no", "via lliure", "via libre",
   "tot net", "todo limpio", "esta net", "esta limpio", "han marxat", "se han ido", "se fueron",
   "han plegat", "ja han passat", "ya han pasado", "ni rastre", "ni rastro", "res de res",
+  // Notificacions del sistema de WhatsApp/Telegram (no són missatges de ningú)
+  "comprobando si hay mensajes", "comprovant si hi ha missatges", "checking for new messages",
+  "mensajes nuevos", "missatges nous", "new messages", "nuevos mensajes",
+  "copia de seguridad", "copia de seguretat", "llamada perdida", "trucada perduda",
+  "videollamada", "videotrucada", "whatsapp web", "mensajes de ", "missatges de ",
 ];
 
 const STRONG_KEYWORDS = [

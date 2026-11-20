@@ -33,6 +33,9 @@ const NO_AVISOS = [
   "Bon dia a tothom",
   "Demà sopar a la Seu?",
   "M'he comprat un full nou per a la impressora",
+  "Comprobando si hay mensajes nuevos",
+  "Comprovant si hi ha missatges nous",
+  "5 mensajes de 3 chats",
 ];
 
 for (const [msg, tipus, zona] of AVISOS) {
