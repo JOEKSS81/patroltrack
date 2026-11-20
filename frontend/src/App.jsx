@@ -68,7 +68,12 @@ export default function App(){
 
   const radar=useRadar(detections);
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
-  const [showSplash,setShowSplash]=useState(true);
+  // Si l'app s'obre des de «Compartir», es va directe al formulari (sense pantalla d'inici).
+  const [showSplash,setShowSplash]=useState(()=>{
+    if(typeof window==="undefined") return true;
+    const q=new URLSearchParams(window.location.search);
+    return !(q.get("share_text")||q.get("share_title")||q.get("share_url"));
+  });
 
   // Llindar de risc per al mapa (% probabilitat per marcar zona com a risc)
   const [riskThreshold,setRiskThresholdRaw]=useState(()=>{
@@ -214,8 +219,24 @@ export default function App(){
   // Estat per al modal de detall del historial -------------------------------
   const [selectedDet,setSelectedDet]=useState(null);
 
-  const [showReport,setShowReport]=useState(false);
-  const [reportMsg,setReportMsg]=useState("");
+  // «Compartir → PatrolTrack» des de WhatsApp (Web Share Target del manifest):
+  // l'app s'obre amb ?share_text=… i el formulari de report ja ple.
+  const [sharedText]=useState(()=>{
+    if(typeof window==="undefined") return "";
+    const q=new URLSearchParams(window.location.search);
+    const parts=[q.get("share_title"),q.get("share_text"),q.get("share_url")].map(v=>(v||"").trim()).filter(Boolean);
+    // Quan es comparteixen missatges, WhatsApp hi pot afegir "[20/11 12:00] Nom: ": es treu.
+    return [...new Set(parts)].join("\n").replace(/^\[[^\]]{4,30}\]\s*[^:\n]{1,40}:\s*/gm,"").trim();
+  });
+  useEffect(()=>{
+    if(!sharedText) return;
+    const q=new URLSearchParams(window.location.search);
+    ["share_title","share_text","share_url"].forEach(k=>q.delete(k));
+    const rest=q.toString();
+    history.replaceState(null,"",window.location.pathname+(rest?`?${rest}`:"")+window.location.hash);
+  },[sharedText]);
+  const [showReport,setShowReport]=useState(()=>Boolean(sharedText));
+  const [reportMsg,setReportMsg]=useState(sharedText);
   const [reportGroup,setReportGroup]=useState("");
   const [reporting,setReporting]=useState(false);
   const [reportResult,setReportResult]=useState(null);
@@ -1723,8 +1744,15 @@ export default function App(){
             </div>
 
             <div style={{fontSize:12,color:C.textDim,marginBottom:8}}>
-              Enganxa o escriu el missatge. L'app extreu zona, tipus de patrulla i PK automàticament.
+              {sharedText&&reportMsg===sharedText
+                ? <>Missatge rebut de <b>Compartir</b>. Revisa'l, posa-hi el grup si vols i toca Enviar.</>
+                : "Enganxa o escriu el missatge. L'app extreu zona, tipus de patrulla i PK automàticament."}
             </div>
+            {!sharedText&&(
+              <div style={{fontSize:11,color:C.textMuted,marginBottom:8,lineHeight:1.4}}>
+                💡 Més ràpid: a WhatsApp, mantén premut l'avís → <b>Compartir</b> → <b>PatrolTrack</b> (Android, amb l'app afegida a la pantalla d'inici).
+              </div>
+            )}
 
             <textarea
               value={reportMsg}

@@ -200,6 +200,7 @@ export default function GroupManager({ apiToken }) {
           <div>Per a <b>Telegram</b> no cal MacroDroid: el botó «Afegir el meu grup» de més amunt hi afegeix el bot i el grup queda vinculat al teu accés.</div>
           <div>4. Quan arribi el primer missatge d'un grup, sortirà aquí a <b>🆕 Nous</b>: toca <b>Activar</b>. Els xats privats o els grups que no vulguis, toca <b>Ignorar</b> i no se'n desarà res.</div>
           <div style={{ marginTop: 4 }}>El grup no pot estar silenciat: si WhatsApp no mostra la notificació, MacroDroid no la veu.</div>
+          <div style={{ marginTop: 8 }}><b>Sense MacroDroid:</b> a WhatsApp, mantén premut un avís → <b>Compartir</b> → <b>PatrolTrack</b> i toca Enviar. Cal tenir l'app afegida a la pantalla d'inici (Android). Si no surt a la llista, treu-la de la pantalla d'inici i torna-la a afegir.</div>
         </div>
       )}
     </div>
