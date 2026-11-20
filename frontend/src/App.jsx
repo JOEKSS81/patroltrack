@@ -688,9 +688,10 @@ export default function App(){
                 <button key={k} onClick={()=>setMapMode(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:mapMode===k?C.accent:"transparent",color:mapMode===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
               ))}
             </div>
-            <div ref={mapBoxRef} style={{height:mapH?`${mapH}px`:"calc(100dvh - 320px)",minHeight:300}}>
+            <div ref={mapBoxRef} style={mapMode==="schema"?undefined:{height:mapH?`${mapH}px`:"calc(100dvh - 320px)",minHeight:300}}>
               {mapMode==="schema"?(
                 <ZoneMap
+                  mapHeight={mapH?`${Math.max(300,mapH-56)}px`:"calc(100dvh - 376px)"}
                   zones={MAP_ZONES}
                   probs={zoneProbs}
                   selected={selectedZone}
