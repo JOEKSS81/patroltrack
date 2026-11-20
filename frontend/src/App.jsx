@@ -71,6 +71,12 @@ export default function App(){
   });
   const setRiskThreshold=(v)=>{setRiskThresholdRaw(v);try{localStorage.setItem("pt_risk_thresh",String(v));}catch{}};
 
+  // Alçada del mapa: que càpiga just entre la seva part de dalt i la barra de navegació
+  // (abans era fixa i, amb capçaleres altes, la part de baix quedava amagada).
+  const mapBoxRef=useRef(null);
+  const navRef=useRef(null);
+  const [mapH,setMapH]=useState(null);
+
   // Token API + report manual ----------------------------------------------
   const [apiToken,setApiTokenRaw]=useState(()=>{
     try{return localStorage.getItem("pt_token")||"";}catch{return "";}
@@ -348,6 +354,20 @@ export default function App(){
     try{return localStorage.getItem("pt_map_mode")||"schema";}catch{return "schema";}
   });
   useEffect(()=>{try{localStorage.setItem("pt_map_mode",mapMode);}catch{}},[mapMode]);
+  useEffect(()=>{
+    if(tab!=="osm") return;
+    const calc=()=>{
+      const el=mapBoxRef.current; if(!el) return;
+      const top=el.getBoundingClientRect().top+window.scrollY;      // posició al document
+      const navH=navRef.current?navRef.current.offsetHeight:70;
+      setMapH(Math.max(300,Math.round(window.innerHeight-top-navH-12)));
+    };
+    calc();
+    const t1=setTimeout(calc,300), t2=setTimeout(calc,1200);        // la capçalera (foto del gos) pot créixer en carregar
+    window.addEventListener("resize",calc);
+    window.addEventListener("orientationchange",calc);
+    return()=>{clearTimeout(t1);clearTimeout(t2);window.removeEventListener("resize",calc);window.removeEventListener("orientationchange",calc);};
+  },[tab,mapMode]);
 
   // Estat: grup seleccionat per veure detall + zona seleccionada per detall
   const [selectedGroup,setSelectedGroup]=useState(null);
@@ -668,7 +688,7 @@ export default function App(){
                 <button key={k} onClick={()=>setMapMode(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:mapMode===k?C.accent:"transparent",color:mapMode===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
               ))}
             </div>
-            <div style={{height:"calc(100dvh - 230px)",minHeight:480,maxHeight:"calc(100vh - 180px)"}}>
+            <div ref={mapBoxRef} style={{height:mapH?`${mapH}px`:"calc(100dvh - 320px)",minHeight:300}}>
               {mapMode==="schema"?(
                 <ZoneMap
                   zones={MAP_ZONES}
@@ -1689,7 +1709,7 @@ export default function App(){
       {/* Bottom nav — 7 pestanyes que comparteixen ample equitatiu, icones SVG.
           Alçada FIXA per evitar que els botons es moguin: icona sempre size 22,
           només color i pes del text canvien per l'estat actiu. */}
-      <div style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
+      <div ref={navRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
         {tabs.map(t=>{
           const active=tab===t.id;
           const col=active?C.accent:C.textMuted;

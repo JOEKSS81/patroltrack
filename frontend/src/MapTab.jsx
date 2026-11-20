@@ -539,10 +539,11 @@ export default function MapTab({
         </div>
       )}
 
-      {/* Llegenda — bottom-left, plegable. Inclou explicació dels colors I dels botons. */}
-      <div style={{ position: "absolute", bottom: 10, left: 10, zIndex: 500, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: showLegend ? "8px 10px" : "6px 10px", fontSize: 11, color: t.textDim, boxShadow: "0 2px 8px rgba(0,0,0,.4)", maxWidth: 220 }}>
+      {/* Llegenda — a dalt a l'esquerra, sota el badge de GPS: a baix quedava amagada
+          darrere la barra de navegació en mòbils amb capçalera alta. */}
+      <div style={{ position: "absolute", top: locErr ? 78 : userPos ? 46 : 10, left: 10, zIndex: 500, maxHeight: "calc(100% - 60px)", overflowY: "auto", background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8, padding: showLegend ? "8px 10px" : "6px 10px", fontSize: 11, color: t.textDim, boxShadow: "0 2px 8px rgba(0,0,0,.4)", maxWidth: 220 }}>
         <div onClick={() => setShowLegend((v) => !v)} style={{ cursor: "pointer", fontWeight: 700, color: t.text, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-          <span>{showLegend ? "Llegenda" : "ⓘ Llegenda"}</span><span style={{ opacity: 0.6 }}>{showLegend ? "▼" : "▲"}</span>
+          <span>{showLegend ? "Llegenda" : "ⓘ Llegenda"}</span><span style={{ opacity: 0.6 }}>{showLegend ? "▲" : "▼"}</span>
         </div>
         {showLegend && (
           <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 3 }}>
