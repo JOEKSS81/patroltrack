@@ -619,6 +619,17 @@ async function handleGroupSettingsDelete(env: Env, req: Request, url: URL): Prom
   return json({ ok: true, deleted: r.meta?.changes ?? 0 });
 }
 
+// Esborra un sol avís (p. ex. una notificació del sistema que es va colar). Només admin.
+async function handleDetectionDelete(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!(await identify(req, env, url))?.admin) return json({ ok: false, reason: "només l'administrador pot esborrar" }, 403);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  const id = isRecord(body) && typeof body.id === "number" ? body.id : null;
+  if (id === null) return json({ ok: false, reason: "id invàlid" }, 400);
+  const r = await env.DB.prepare("DELETE FROM detections WHERE id = ?").bind(id).run();
+  return json({ ok: true, deleted: r.meta?.changes ?? 0 });
+}
+
 // ── Accessos per amic ───────────────────────────────────────────────────────
 async function handleMe(env: Env, req: Request, url: URL): Promise<Response> {
   const who = await identify(req, env, url);
@@ -903,6 +914,7 @@ export default {
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
+      if (req.method === "POST" && url.pathname === "/api/detections/delete") return await handleDetectionDelete(env, req, url);
       if (req.method === "GET" && url.pathname === "/api/me") return await handleMe(env, req, url);
       if (req.method === "GET" && url.pathname === "/api/users") return await handleUsersList(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/users") return await handleUsersCreate(env, req, url);

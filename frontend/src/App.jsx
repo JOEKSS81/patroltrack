@@ -10,6 +10,7 @@ import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
 import GroupManager from "./components/GroupManager";
 import FriendsManager from "./components/FriendsManager";
+import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 import FuelTab from "./tabs/FuelTab";
@@ -46,6 +47,7 @@ export default function App(){
   const [queryHour,setQueryHour]=useState(new Date().getHours());
   const [queryDay,setQueryDay]=useState(new Date().getDay());
   const [queryPK,setQueryPK]=useState("");
+  const [showPkPicker,setShowPkPicker]=useState(false);
   const [queryResult,setQueryResult]=useState(null);
   const [zoneProbs,setZoneProbs]=useState({});
   const [filterType,setFilterType]=useState("all");
@@ -761,15 +763,23 @@ export default function App(){
         {/* QUERY */}
         {tab==="query"&&(
           <div>
+            {showPkPicker&&(
+              <PkPicker zone={queryZone} pkText={queryPK} onClose={()=>setShowPkPicker(false)}
+                onUse={({zone,pk})=>{setQueryZone(zone);setQueryPK(pk);setShowPkPicker(false);}}/>
+            )}
             <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:12}}>
               <div style={{fontSize:15,fontWeight:700,marginBottom:14,color:C.accent}}>Consulta de probabilitat</div>
               <div style={{marginBottom:10}}>
                 <label style={{fontSize:13,color:C.textDim,display:"block",marginBottom:5}}>Zona / Municipi</label>
-                <select value={queryZone} onChange={e=>setQueryZone(e.target.value)} style={ss}>{ZONES.map(z=><option key={z} value={z}>{z}</option>)}</select>
+                <select value={queryZone} onChange={e=>setQueryZone(e.target.value)} style={ss}>{(ZONES.includes(queryZone)?ZONES:[queryZone,...ZONES]).map(z=><option key={z} value={z}>{z}</option>)}</select>
               </div>
               <div style={{marginBottom:10}}>
                 <label style={{fontSize:13,color:C.textDim,display:"block",marginBottom:5}}>Punt Quilomètric (opcional)</label>
-                <input type="text" value={queryPK} onChange={e=>setQueryPK(e.target.value)} placeholder="ex: km 45" style={{...ss,boxSizing:"border-box"}}/>
+                <div style={{display:"flex",gap:6}}>
+                  <input type="text" value={queryPK} onChange={e=>setQueryPK(e.target.value)} placeholder="ex: km 45" style={{...ss,boxSizing:"border-box",flex:1,minWidth:0}}/>
+                  <button onClick={()=>setShowPkPicker(true)} style={{flexShrink:0,padding:"0 12px",background:C.accentDim,color:C.accent,border:`1px solid ${C.accent}`,borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>🗺 Al mapa</button>
+                </div>
+                <div style={{fontSize:11,color:C.textMuted,marginTop:4}}>No el saps? Toca <b>🗺 Al mapa</b> i marca el punt de la carretera.</div>
               </div>
               <div style={{marginBottom:10}}>
                 <label style={{fontSize:13,color:C.textDim,display:"block",marginBottom:5}}>Dia de la setmana</label>
@@ -1650,6 +1660,20 @@ export default function App(){
                   <span style={{color:C.textMuted,fontSize:12,fontFamily:"monospace"}}>#{d.id}</span>
                 </>}
               </div>
+
+              {me?.admin&&d.id&&(
+                <button onClick={async()=>{
+                  if(!confirm("Esborrar aquest avís? Desapareixerà del mapa i de les estadístiques."))return;
+                  try{
+                    const r=await fetch(`${API}/api/detections/delete`,{method:"POST",headers:{"content-type":"application/json","x-ingest-token":apiToken},body:JSON.stringify({id:d.id})});
+                    const j=await r.json().catch(()=>({}));
+                    if(!r.ok||!j.ok){alert(j.reason||`Error ${r.status}`);return;}
+                    setSelectedDet(null); setRefreshTick(t=>t+1);
+                  }catch(e){alert(e.message);}
+                }} style={{width:"100%",marginTop:14,padding:10,background:"transparent",color:C.danger,border:`1px solid ${C.danger}`,borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                  🗑 Esborrar aquest avís (no és real)
+                </button>
+              )}
 
               {(d.lat!=null&&d.lng!=null)&&(
                 <a

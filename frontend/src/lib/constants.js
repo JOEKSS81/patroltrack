@@ -69,7 +69,7 @@ export const PT_LABELS = {
   mossos:  { label: "Mossos d'Esquadra", short: "MSE", colorKey: "mossos" },
   guardia: { label: "Guardia Civil",     short: "GC",  colorKey: "guardia" },
   local:   { label: "Policia Local",     short: "PL",  colorKey: "local" },
-  unknown: { label: "Desconegut",        short: "???", colorKey: "textDim" },
+  unknown: { label: "Cos no identificat", short: "???", colorKey: "textDim" },
 };
 
 // Helper: PT amb colors del tema actual
