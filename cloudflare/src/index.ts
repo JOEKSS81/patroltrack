@@ -64,14 +64,46 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
-function authenticated(req: Request, env: Env, url: URL): boolean {
-  if (!env.INGEST_TOKEN) return false;
-  const supplied = req.headers.get("x-ingest-token") || url.searchParams.get("token") || "";
+function isAdminToken(env: Env, supplied: string): boolean {
+  if (!env.INGEST_TOKEN || !supplied) return false;
   // Constant-time comparison for equal-length strings.
   if (supplied.length !== env.INGEST_TOKEN.length) return false;
   let diff = 0;
   for (let i = 0; i < supplied.length; i++) diff |= supplied.charCodeAt(i) ^ env.INGEST_TOKEN.charCodeAt(i);
   return diff === 0;
+}
+
+type Identity = { id: string; name: string; admin: boolean; code: string };
+
+async function sha256Hex(text: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function randomToken(bytes: number): string {
+  const a = crypto.getRandomValues(new Uint8Array(bytes));
+  return btoa(String.fromCharCode(...a)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+// Qui fa la petició: l'admin (INGEST_TOKEN) o un amic amb el seu token personal.
+async function identify(req: Request, env: Env, url: URL): Promise<Identity | null> {
+  const supplied = (req.headers.get("x-ingest-token") || url.searchParams.get("token") || "").trim();
+  if (!supplied) return null;
+  if (isAdminToken(env, supplied)) return { id: "admin", name: "Admin", admin: true, code: "admin" };
+  if (!supplied.startsWith("pt_")) return null;
+  try {
+    const hash = await sha256Hex(supplied);
+    const u = await env.DB.prepare("SELECT id, name, code, last_seen FROM users WHERE token_hash = ? AND revoked = 0")
+      .bind(hash).first<{ id: string; name: string; code: string; last_seen: string | null }>();
+    if (!u) return null;
+    const now = new Date();
+    if (!u.last_seen || now.getTime() - Date.parse(u.last_seen) > 3_600_000) {
+      await env.DB.prepare("UPDATE users SET last_seen = ? WHERE id = ?").bind(now.toISOString(), u.id).run();
+    }
+    return { id: u.id, name: u.name, admin: false, code: u.code };
+  } catch {
+    return null;
+  }
 }
 
 // Europe/Madrid local time, including daylight-saving changes.
@@ -206,17 +238,17 @@ function normalizeGroupName(source: string, raw: string): string {
 
 // Decideix si s'han de desar els avisos d'un grup i en porta el compte.
 // Grups nous: WhatsApp → pendent (cal activar-lo a Config); Telegram → actiu.
-async function groupGate(env: Env, source: string, name: string): Promise<GroupStatus | "skip"> {
+async function groupGate(env: Env, owner: string, source: string, name: string): Promise<GroupStatus | "skip"> {
   if ((source !== "whatsapp" && source !== "telegram") || GENERIC_GROUP_NAMES.has(name.toLowerCase())) return "skip";
   const now = new Date().toISOString();
   const initial: GroupStatus = source === "telegram" ? "active" : "pending";
   try {
     const row = await env.DB.prepare(`
-      INSERT INTO group_settings (source, name, status, first_seen, last_seen, hits)
-      VALUES (?, ?, ?, ?, ?, 1)
-      ON CONFLICT (source, name) DO UPDATE SET last_seen = excluded.last_seen, hits = hits + 1
+      INSERT INTO user_groups (owner, source, name, status, first_seen, last_seen, hits)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+      ON CONFLICT (owner, source, name) DO UPDATE SET last_seen = excluded.last_seen, hits = hits + 1
       RETURNING status
-    `).bind(source, name, initial, now, now).first<{ status: GroupStatus }>();
+    `).bind(owner, source, name, initial, now, now).first<{ status: GroupStatus }>();
     return row?.status ?? initial;
   } catch (error) {
     // Si la taula encara no existeix (desplegament a mitges), no bloquegis res.
@@ -227,7 +259,8 @@ async function groupGate(env: Env, source: string, name: string): Promise<GroupS
 
 async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
-  if (!authenticated(req, env, new URL(req.url))) {
+  const who = await identify(req, env, new URL(req.url));
+  if (!who) {
     await logIngestHit(env, "auth_fail", "", "", "");
     return json({ ok: false, reason: "token invàlid" }, 401);
   }
@@ -248,7 +281,7 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
   const groupName = normalizeGroupName(sourceRaw, stringValue(body.group_name));
 
-  const gate = await groupGate(env, sourceRaw, groupName);
+  const gate = await groupGate(env, who.id, sourceRaw, groupName);
   if (gate === "pending" || gate === "off") {
     // No es guarda el text: el grup no està autoritzat (pot ser un xat privat).
     await logIngestHit(env, `group_${gate}`, sourceRaw, groupName, "");
@@ -321,6 +354,23 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const chatId = chat.id;
   const chatTitle = stringValue(chat.title) || stringValue(chat.username) || (chatId != null ? `chat:${chatId}` : "Telegram");
   const text = (stringValue(msg.text) || stringValue(msg.caption)).trim();
+  // En afegir el bot amb l'enllaç personal (startgroup=<codi>), Telegram envia
+  // "/start@bot <codi>" al grup: així sabem de qui és aquest grup.
+  const startMatch = /^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{4,64})$/.exec(text);
+  if (startMatch && chatId != null) {
+    const code = startMatch[1];
+    const owner = code === "admin" || code === "true"
+      ? "admin"
+      : (await env.DB.prepare("SELECT id FROM users WHERE code = ? AND revoked = 0").bind(code).first<{ id: string }>())?.id;
+    if (owner) {
+      await env.DB.prepare(`
+        INSERT INTO telegram_chat_owner (chat_id, owner, assigned_at) VALUES (?, ?, ?)
+        ON CONFLICT (chat_id) DO UPDATE SET owner = excluded.owner, assigned_at = excluded.assigned_at
+      `).bind(String(chatId), owner, new Date().toISOString()).run();
+      await logTelegramHit(env, "owner_assigned", { chat_id: chatId, chat_title: chatTitle, reason: owner });
+    }
+    return json({ ok: true, ignored: "start", owner: owner ?? null });
+  }
   if (!text || text.length < 5) {
     await logTelegramHit(env, "ignored_short", { chat_id: chatId, chat_title: chatTitle, text });
     return json({ ok: true, ignored: "missatge buit/curt" });
@@ -340,7 +390,9 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const topicSuffix = msg.is_topic_message && threadId ? ` › topic#${threadId}` : "";
   const groupName = `${chatTitle} (${chatId ?? "?"})${topicSuffix}`.slice(0, MAX_GROUP_LENGTH);
   const updateId = Number.isSafeInteger(update.update_id) ? update.update_id : undefined;
-  const gate = await groupGate(env, "telegram", groupName);
+  const chatOwner = chatId == null ? null : await env.DB.prepare("SELECT owner FROM telegram_chat_owner WHERE chat_id = ?")
+    .bind(String(chatId)).first<{ owner: string }>().catch(() => null);
+  const gate = await groupGate(env, chatOwner?.owner ?? "admin", "telegram", groupName);
   if (gate === "off" || gate === "pending") {
     await logTelegramHit(env, `group_${gate}`, { chat_id: chatId, chat_title: chatTitle });
     return json({ ok: true, stored: false, reason: "grup desactivat a Config" });
@@ -511,7 +563,7 @@ async function handleTelegramSetup(env: Env, req: Request): Promise<Response> {
 async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  if (!(await identify(req, env, url))?.admin) return json({ ok: false, reason: "només l'administrador pot esborrar" }, 403);
   let parsed: unknown;
   try { parsed = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   if (!isRecord(parsed)) return json({ ok: false, reason: "cos invàlid" }, 400);
@@ -522,18 +574,21 @@ async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
 }
 
 async function handleGroupSettingsList(env: Env, req: Request, url: URL): Promise<Response> {
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
   const { results } = await env.DB.prepare(`
     SELECT g.source, g.name, g.status, g.added_by, g.first_seen, g.last_seen, g.hits,
            (SELECT COUNT(*) FROM detections d WHERE d.group_name = g.name AND d.source = g.source) AS detections
-    FROM group_settings g
+    FROM user_groups g
+    WHERE g.owner = ?
     ORDER BY CASE g.status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 ELSE 2 END, g.last_seen DESC
-  `).all();
+  `).bind(who.id).all();
   return json({ ok: true, groups: results });
 }
 
 async function handleGroupSettingsSave(env: Env, req: Request, url: URL): Promise<Response> {
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
@@ -543,24 +598,71 @@ async function handleGroupSettingsSave(env: Env, req: Request, url: URL): Promis
   if (!["active", "pending", "off"].includes(status)) return json({ ok: false, reason: "estat invàlid" }, 400);
   const name = normalizeGroupName(source, stringValue(body.name));
   if (GENERIC_GROUP_NAMES.has(name.toLowerCase()) || name.length < 2) return json({ ok: false, reason: "nom de grup invàlid" }, 400);
-  const addedBy = stringValue(body.added_by).trim().slice(0, 40) || null;
+  const addedBy = stringValue(body.added_by).trim().slice(0, 40) || (who.admin ? null : who.name);
   await env.DB.prepare(`
-    INSERT INTO group_settings (source, name, status, added_by, first_seen, hits)
-    VALUES (?, ?, ?, ?, ?, 0)
-    ON CONFLICT (source, name) DO UPDATE SET status = excluded.status,
-      added_by = COALESCE(excluded.added_by, group_settings.added_by)
-  `).bind(source, name, status, addedBy, new Date().toISOString()).run();
+    INSERT INTO user_groups (owner, source, name, status, added_by, first_seen, hits)
+    VALUES (?, ?, ?, ?, ?, ?, 0)
+    ON CONFLICT (owner, source, name) DO UPDATE SET status = excluded.status,
+      added_by = COALESCE(excluded.added_by, user_groups.added_by)
+  `).bind(who.id, source, name, status, addedBy, new Date().toISOString()).run();
   return json({ ok: true, source, name, status });
 }
 
 async function handleGroupSettingsDelete(env: Env, req: Request, url: URL): Promise<Response> {
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
-  const r = await env.DB.prepare("DELETE FROM group_settings WHERE source = ? AND name = ?")
-    .bind(stringValue(body.source).trim().toLowerCase(), stringValue(body.name)).run();
+  const r = await env.DB.prepare("DELETE FROM user_groups WHERE owner = ? AND source = ? AND name = ?")
+    .bind(who.id, stringValue(body.source).trim().toLowerCase(), stringValue(body.name)).run();
   return json({ ok: true, deleted: r.meta?.changes ?? 0 });
+}
+
+// ── Accessos per amic ───────────────────────────────────────────────────────
+async function handleMe(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
+  return json({ ok: true, ...who });
+}
+
+async function handleUsersList(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who?.admin) return json({ ok: false, reason: "només l'administrador" }, 403);
+  const { results } = await env.DB.prepare(`
+    SELECT u.id, u.name, u.created_at, u.last_seen, u.revoked,
+           (SELECT COUNT(*) FROM user_groups g WHERE g.owner = u.id AND g.status = 'active') AS groups
+    FROM users u ORDER BY u.revoked, u.created_at DESC
+  `).all();
+  return json({ ok: true, users: results });
+}
+
+// Crea l'accés d'un amic. El token només es retorna aquesta vegada (es desa el hash).
+async function handleUsersCreate(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who?.admin) return json({ ok: false, reason: "només l'administrador" }, 403);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  const name = isRecord(body) ? stringValue(body.name).replace(/\s+/g, " ").trim().slice(0, 40) : "";
+  if (name.length < 2) return json({ ok: false, reason: "posa el nom de l'amic" }, 400);
+  const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM users WHERE revoked = 0").first<{ n: number }>();
+  if ((total?.n ?? 0) >= 50) return json({ ok: false, reason: "màxim 50 accessos" }, 429);
+  const id = `u_${randomToken(6)}`;
+  const token = `pt_${randomToken(24)}`;
+  const code = randomToken(8);
+  await env.DB.prepare("INSERT INTO users (id, name, token_hash, code, created_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, name, await sha256Hex(token), code, new Date().toISOString()).run();
+  return json({ ok: true, id, name, token });
+}
+
+async function handleUsersRevoke(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who?.admin) return json({ ok: false, reason: "només l'administrador" }, 403);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  const id = isRecord(body) ? stringValue(body.id) : "";
+  const r = await env.DB.prepare("UPDATE users SET revoked = 1 WHERE id = ?").bind(id).run();
+  return json({ ok: true, revoked: r.meta?.changes ?? 0 });
 }
 
 // ── Preus de carburants (dades obertes del Ministeri, província de Lleida = 25) ──
@@ -687,7 +789,7 @@ function fuelSmsText(name: string, town: string, fuel: string, price: number, re
 
 async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid (configura'l a la pestanya Config)" }, 401);
+  if (!(await identify(req, env, url))) return json({ ok: false, reason: "token invàlid (configura'l a la pestanya Config)" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
@@ -723,7 +825,7 @@ async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionConte
 }
 
 async function handleFuelAlertList(env: Env, req: Request, url: URL): Promise<Response> {
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  if (!(await identify(req, env, url))) return json({ ok: false, reason: "token invàlid" }, 401);
   const { results } = await env.DB.prepare(
     "SELECT id, phone, station_id, station_name, fuel, target, last_price, last_sent_at FROM fuel_alerts ORDER BY id DESC",
   ).all<{ phone: string }>();
@@ -731,7 +833,7 @@ async function handleFuelAlertList(env: Env, req: Request, url: URL): Promise<Re
 }
 
 async function handleFuelAlertDelete(env: Env, req: Request, url: URL): Promise<Response> {
-  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  if (!(await identify(req, env, url))) return json({ ok: false, reason: "token invàlid" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   const id = isRecord(body) && typeof body.id === "number" ? body.id : null;
@@ -801,6 +903,10 @@ export default {
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
+      if (req.method === "GET" && url.pathname === "/api/me") return await handleMe(env, req, url);
+      if (req.method === "GET" && url.pathname === "/api/users") return await handleUsersList(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/users") return await handleUsersCreate(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/users/revoke") return await handleUsersRevoke(env, req, url);
       if (req.method === "GET" && url.pathname === "/api/group-settings") return await handleGroupSettingsList(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/group-settings") return await handleGroupSettingsSave(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/group-settings/delete") return await handleGroupSettingsDelete(env, req, url);

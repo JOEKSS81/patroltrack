@@ -9,6 +9,7 @@ import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
 import GroupManager from "./components/GroupManager";
+import FriendsManager from "./components/FriendsManager";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 import FuelTab from "./tabs/FuelTab";
@@ -80,13 +81,33 @@ export default function App(){
   const [mapH,setMapH]=useState(null);
 
   // Token API + report manual ----------------------------------------------
+  // Enllaç d'invitació (#invite=pt_…): el token personal de l'amic té prioritat i es desa.
+  const [inviteToken]=useState(()=>{
+    const m=/[#&]invite=(pt_[A-Za-z0-9_-]+)/.exec(typeof window!=="undefined"?window.location.hash||"":"");
+    return m?m[1]:null;
+  });
   const [apiToken,setApiTokenRaw]=useState(()=>{
+    if(inviteToken){ try{localStorage.setItem("pt_token",inviteToken);}catch{ /* sense emmagatzematge */ } return inviteToken; }
     try{return localStorage.getItem("pt_token")||"";}catch{return "";}
   });
   const setApiToken=(t)=>{
     setApiTokenRaw(t);
     try{ if(t) localStorage.setItem("pt_token",t); else localStorage.removeItem("pt_token"); }catch{}
   };
+  const [inviteWelcome,setInviteWelcome]=useState(()=>Boolean(inviteToken));
+  // Treu el token de l'adreça perquè no quedi a l'historial ni es comparteixi per error.
+  useEffect(()=>{
+    if(inviteToken) history.replaceState(null,"",window.location.pathname+window.location.search);
+  },[inviteToken]);
+  // Qui sóc (admin o amic) i el meu codi per vincular grups de Telegram.
+  const [me,setMe]=useState(null);
+  useEffect(()=>{
+    if(!apiToken) return;
+    let alive=true;
+    fetch(`${API}/api/me`,{headers:{"x-ingest-token":apiToken}})
+      .then(r=>r.ok?r.json():null).then(d=>{ if(alive) setMe(d&&d.ok?d:null); }).catch(()=>{});
+    return ()=>{alive=false;};
+  },[apiToken]);
   const [showToken,setShowToken]=useState(false);
   const [tokenCopied,setTokenCopied]=useState(false);
   const [cmdCopied,setCmdCopied]=useState(false);
@@ -181,7 +202,8 @@ export default function App(){
     setBotUsernameRaw(clean);
     try{ if(clean) localStorage.setItem("pt_bot",clean); else localStorage.removeItem("pt_bot"); }catch{}
   };
-  const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=true` : "";
+  // El codi personal fa que el grup de Telegram quedi vinculat a qui ha afegit el bot.
+  const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=${me?.code||"true"}` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
   // Foto del gos cyborg (empaquetada per Vite; /dog.png ja no existeix)
@@ -500,6 +522,16 @@ export default function App(){
     }}>
       {showSplash&&<Splash wasActive={wasActive} dogPhoto={dogPhoto} onActivate={()=>{radar.start();setShowSplash(false);}} onSkip={()=>setShowSplash(false)}/>}
       <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
+      {inviteWelcome&&(
+        <div style={{position:"fixed",top:12,left:12,right:12,zIndex:9900,background:C.surface,border:`1px solid ${C.success}`,borderRadius:12,padding:"12px 14px",boxShadow:"0 6px 24px rgba(0,0,0,0.5)",fontSize:13,color:C.text,lineHeight:1.5}}>
+          <b style={{color:C.success}}>✓ Benvingut{me&&!me.admin?`, ${me.name}`:""}!</b> L'app ja té el teu accés.
+          Ves a <b>Config → 👥 Els meus grups</b> per connectar els teus grups de WhatsApp o Telegram.
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            <button onClick={()=>{setInviteWelcome(false);setTab("config");}} style={{background:C.accent,color:C.bg,border:"none",borderRadius:7,padding:"7px 12px",fontWeight:700,fontFamily:"inherit",cursor:"pointer"}}>Anar-hi</button>
+            <button onClick={()=>setInviteWelcome(false)} style={{background:"none",color:C.textDim,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 12px",fontFamily:"inherit",cursor:"pointer"}}>Després</button>
+          </div>
+        </div>
+      )}
 
       {/* Header — la foto del gos al centre, mida moderada perquè la resta respiri */}
       {(()=>{
@@ -1182,11 +1214,18 @@ export default function App(){
             {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
             <Collapsible
               title="👥 Els meus grups"
-              subtitle="Activa, desactiva o afegeix grups de WhatsApp i Telegram"
+              subtitle={me?`Connectat com a ${me.admin?"administrador":me.name}`:"Activa, desactiva o afegeix grups de WhatsApp i Telegram"}
               defaultOpen={true}
             >
               <GroupManager apiToken={apiToken}/>
             </Collapsible>
+
+            {/* 🤝 Accessos per amic (només admin) */}
+            {me?.admin&&(
+              <Collapsible title="🤝 Amics" subtitle="Crea un accés personal per a cada amic" defaultOpen={false}>
+                <FriendsManager apiToken={apiToken}/>
+              </Collapsible>
+            )}
 
             {/* 📡 Grups connectats */}
             <Collapsible
