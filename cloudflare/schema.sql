@@ -117,3 +117,44 @@ WHERE source IN ('whatsapp', 'telegram') AND group_name IS NOT NULL AND TRIM(gro
 GROUP BY source, group_name;
 
 INSERT OR IGNORE INTO app_meta (key, value) VALUES ('groups_seeded', datetime('now'));
+
+-- Accessos per persona: cada amic té el seu token (es desa només el hash SHA-256)
+-- i un codi públic per vincular-hi els grups de Telegram on afegeix el bot.
+-- El token d'administració (INGEST_TOKEN) correspon a l'usuari 'admin'.
+CREATE TABLE IF NOT EXISTS users (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    code       TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_seen  TEXT,
+    revoked    INTEGER NOT NULL DEFAULT 0
+);
+
+-- Grups per persona (substitueix group_settings, que queda sense ús).
+CREATE TABLE IF NOT EXISTS user_groups (
+    owner      TEXT NOT NULL,
+    source     TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    status     TEXT NOT NULL DEFAULT 'active',
+    added_by   TEXT,
+    first_seen TEXT,
+    last_seen  TEXT,
+    hits       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner, source, name)
+);
+
+-- Quin usuari ha afegit el bot a cada xat de Telegram (enllaç startgroup=<codi>).
+CREATE TABLE IF NOT EXISTS telegram_chat_owner (
+    chat_id     TEXT PRIMARY KEY,
+    owner       TEXT NOT NULL,
+    assigned_at TEXT NOT NULL
+);
+
+-- Només la primera vegada: els grups configurats fins ara passen a ser de l'admin.
+INSERT OR IGNORE INTO user_groups (owner, source, name, status, added_by, first_seen, last_seen, hits)
+SELECT 'admin', source, name, status, added_by, first_seen, last_seen, hits
+FROM group_settings
+WHERE NOT EXISTS (SELECT 1 FROM app_meta WHERE key = 'user_groups_migrated');
+
+INSERT OR IGNORE INTO app_meta (key, value) VALUES ('user_groups_migrated', datetime('now'));

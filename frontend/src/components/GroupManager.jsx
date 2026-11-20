@@ -188,15 +188,16 @@ export default function GroupManager({ apiToken }) {
       </button>
       {showHelp && (
         <div style={{ fontSize: 12, color: C.textDim, lineHeight: 1.55, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
-          <div>1. Obre PatrolTrack, ves a <b>Config</b> i enganxa el <b>token</b> (demana-te'l a qui t'ha passat l'app).</div>
+          <div>1. Obre l'<b>enllaç personal</b> que t'ha enviat l'administrador (Config → 🤝 Amics): l'app queda configurada amb el teu accés.</div>
           <div>2. Instal·la <b>MacroDroid</b> i dona-li accés a les notificacions.</div>
           <div>3. Crea una macro: <b>Disparador</b> Notificació rebuda → WhatsApp. <b>Acció</b> Petició HTTP POST a<br />
             <code style={{ fontSize: 11, color: C.text, wordBreak: "break-all" }}>{API || window.location.origin}/api/ingest</code><br />
-            amb la capçalera <code style={{ color: C.text }}>x-ingest-token</code> = el token i aquest cos:</div>
+            amb la capçalera <code style={{ color: C.text }}>x-ingest-token</code> = el teu token (Config → Assistent) i aquest cos:</div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0" }}>
             <code style={{ flex: 1, fontSize: 10.5, color: C.text, background: C.surface, padding: 6, borderRadius: 6, wordBreak: "break-all" }}>{MACRODROID_BODY}</code>
             <button onClick={copyBody} style={btn(C.accent, C.bg)}>{copied ? "✓" : "Copiar"}</button>
           </div>
+          <div>Per a <b>Telegram</b> no cal MacroDroid: el botó «Afegir el meu grup» de més amunt hi afegeix el bot i el grup queda vinculat al teu accés.</div>
           <div>4. Quan arribi el primer missatge d'un grup, sortirà aquí a <b>🆕 Nous</b>: toca <b>Activar</b>. Els xats privats o els grups que no vulguis, toca <b>Ignorar</b> i no se'n desarà res.</div>
           <div style={{ marginTop: 4 }}>El grup no pot estar silenciat: si WhatsApp no mostra la notificació, MacroDroid no la veu.</div>
         </div>
