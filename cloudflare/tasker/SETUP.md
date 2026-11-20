@@ -36,3 +36,22 @@ No se debe poner el token en una URL compartida, en un perfil público ni en log
 - Revisa la respuesta del endpoint: `stored: true` significa que pasó el filtro; `stored: false` significa que llegó pero no se clasificó como alerta.
 - Android/WhatsApp puede agrupar, ocultar o retrasar notificaciones. Una notificación de resumen no permite recuperar necesariamente cada mensaje original.
 - Respeta la privacidad de las personas del grupo y comparte solo mensajes para los que tengas autorización.
+
+## Telegram sin bot: leer las notificaciones con MacroDroid
+
+Para grupos donde solo los administradores pueden añadir bots (error `CHAT_ADMIN_REQUIRED`). El móvil lee las notificaciones de Telegram que ya te llegan y las envía a la API. No necesita permisos en el grupo ni dar acceso a tu cuenta.
+
+1. Instala **MacroDroid** y concédele **acceso a notificaciones**. En Huawei/EMUI, excluye MacroDroid de la optimización de batería.
+2. Crea una macro:
+   - **Disparador:** Notificación → *Notificación recibida* → app **Telegram** (o **Plus Messenger**). Opcional: filtra por el nombre del grupo.
+   - **Acción:** Web → **Petición HTTP**
+     - Método: `POST`
+     - URL: `https://patroltrack-api.patroltrack.workers.dev/api/ingest`
+     - Cabecera: `x-ingest-token` = el mismo token de Config en la app
+     - Cuerpo (`application/json`):
+       ```json
+       {"message":"[notification]","group_name":"[notification_title]","source":"telegram"}
+       ```
+3. El grupo **no debe estar silenciado**: si Telegram no muestra la notificación, MacroDroid no la ve.
+
+La API descarta mensajes que no son avisos de patrulla e ignora el mismo mensaje del mismo grupo si llega repetido en menos de 15 minutos.

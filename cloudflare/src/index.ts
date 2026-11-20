@@ -179,6 +179,18 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const allowedSources = new Set(["whatsapp", "telegram", "manual", "test"]);
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
   const groupName = stringValue(body.group_name).trim().slice(0, MAX_GROUP_LENGTH);
+
+  // Les notificacions del mòbil (MacroDroid/Tasker) es poden repetir: Android torna a
+  // publicar la mateixa notificació quan s'actualitza. Ignora el mateix missatge del
+  // mateix grup si ja l'hem desat en els darrers 15 minuts.
+  if (sourceRaw !== "manual") {
+    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const dup = await env.DB.prepare(
+      "SELECT id FROM detections WHERE group_name = ? AND raw_message = ? AND created_at > ? LIMIT 1",
+    ).bind(groupName, message.slice(0, MAX_RAW_MESSAGE_LENGTH), since).first();
+    if (dup) return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
+  }
+
   const result = await storeDetection(env, message, groupName, sourceRaw);
   if (!result.stored) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
   return json({

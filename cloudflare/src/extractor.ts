@@ -101,6 +101,20 @@ const ZONE_PATTERNS: [RegExp, string][] = [
   [/\bllavorsí\b|\bllavors[ií]\b/i, "Llavorsí"],
   [/\btírvia\b|\btirvoa\b/i, "Tírvia"],
 
+  // Valls del Pallars Sobirà i Alt Urgell (afegits; coordenades de Mapbox)
+  [/\bvall\s*ferrera\b|\balins\b/i, "Vall Ferrera (Alins)"],
+  [/\bareu\b/i, "Àreu"],
+  [/\bvall\s*de\s*cardos\b|\bvall\s*cardos\b|\bribera\s*de\s*cardos\b|\bcardos\b/i, "Vall de Cardós"],
+  [/\btavascan\b/i, "Tavascan"],
+  [/\bespot\b/i, "Espot"],
+  [/\bescalo\b/i, "Escaló"],
+  [/\bllessui\b/i, "Llessui"],
+  [/\bsenterada\b/i, "Senterada"],
+  [/\badrall\b/i, "Adrall"],
+  [/\bcastellciutat\b/i, "Castellciutat"],
+  [/\bmartinet\b/i, "Martinet"],
+  [/\bnoves\s*de\s*segre\b/i, "Noves de Segre"],
+
   // Noguera
   [/\bbalaguer\b/i, "Balaguer"],
   [/\bbellcaire\b/i, "Bellcaire d'Urgell"],
@@ -176,6 +190,8 @@ const ZONE_PATTERNS: [RegExp, string][] = [
   // Referències genèriques
   [/\bpeatge\b|\bpeaje\b/i, "A-2 (peatge)"],
   [/\baeroport\b|\baeroporto\b|\baeroproto\b/i, "Aeroport de Lleida"],
+  // "la Pobla" sola: a la zona de l'app és gairebé sempre la Pobla de Segur
+  [/\bpobla\b/i, "La Pobla de Segur"],
 ];
 
 export const ZONE_COORDS: Record<string, [number, number]> = {
@@ -230,6 +246,25 @@ export const ZONE_COORDS: Record<string, [number, number]> = {
   "Camarasa":                [41.990, 0.877],
   "Menàrguens":              [41.860, 0.757],
   "Aeroport de Lleida":      [41.728, 0.535],
+  // Coordenades obtingudes amb Mapbox (geocodificació, 2026-11)
+  "Vall Ferrera (Alins)":    [42.5489, 1.3174],
+  "Àreu":                    [42.5886, 1.3267],
+  "Vall de Cardós":          [42.5634, 1.2263],
+  "Tavascan":                [42.6434, 1.2567],
+  "Tírvia":                  [42.5149, 1.2428],
+  "Gerri de la Sal":         [42.3235, 1.0648],
+  "La Guingueta d'Àneu":     [42.5945, 1.1318],
+  "Espot":                   [42.5754, 1.0897],
+  "Escaló":                  [42.5497, 1.1563],
+  "Llessui":                 [42.4511, 1.0735],
+  "Coll de Nargó":           [42.1719, 1.3133],
+  "Pont de Bar":             [42.3588, 1.6394],
+  "Salàs de Pallars":        [42.2113, 0.9322],
+  "Senterada":               [42.3243, 0.9366],
+  "Adrall":                  [42.3271, 1.4015],
+  "Castellciutat":           [42.3541, 1.4436],
+  "Martinet":                [42.3597, 1.6956],
+  "Noves de Segre":          [42.2939, 1.3422],
 };
 
 function normalizeText(text: string): string {
@@ -242,6 +277,13 @@ function normalizeText(text: string): string {
   for (const [o, r] of subs) t = t.replaceAll(o, r);
   return t;
 }
+
+// El text es normalitza sense accents (normalizeText), així que els patrons amb accents
+// obligatoris (p. ex. "coll de nargó", "llavorsí") no coincidien mai. Es normalitzen
+// un cop aquí. Només usen \b i \s, que no canvien en passar a minúscules.
+const ZONE_PATTERNS_NORM: [RegExp, string][] = ZONE_PATTERNS.map(
+  ([re, zone]) => [new RegExp(normalizeText(re.source), re.flags), zone],
+);
 
 function detectPk(textLower: string): string | null {
   const m = textLower.match(PK_PATTERN);
@@ -263,7 +305,7 @@ function detectZone(textLower: string): {
   lat: number | null;
   lng: number | null;
 } {
-  for (const [pattern, zoneNorm] of ZONE_PATTERNS) {
+  for (const [pattern, zoneNorm] of ZONE_PATTERNS_NORM) {
     const m = textLower.match(pattern);
     if (m) {
       const coords = ZONE_COORDS[zoneNorm];
