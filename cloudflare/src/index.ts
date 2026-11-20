@@ -9,6 +9,10 @@ export interface Env {
   TELEGRAM_BOT_TOKEN?: string;
   // Opcional para instalaciones con un dominio Pages personalizado.
   APP_ORIGIN?: string;
+  // Avisos SMS de la pestanya Benzina (Bird). Clau de workspace bk_eu1_… o bk_us1_….
+  BIRD_API_KEY?: string;
+  // Remitent alfanumèric reclamat a Bird (màx. 11 caràcters). Per defecte "PatrolTrak".
+  SMS_FROM?: string;
 }
 
 type IngestBody = { message?: unknown; group_name?: unknown; source?: unknown };
@@ -485,19 +489,18 @@ function parseEsNumber(value: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-async function handleFuel(ctx: ExecutionContext): Promise<Response> {
-  // `lib` DOM no coneix caches.default; als Workers sí que existeix.
-  const cache = (caches as unknown as { default: Cache }).default;
-  const cacheKey = new Request("https://patroltrack.internal/api/fuel-v1");
-  const hit = await cache.match(cacheKey);
-  if (hit) return hit;
+type FuelStation = {
+  id: string; name: string; address: string; town: string; hours: string;
+  lat: number | null; lng: number | null; prices: Record<string, number>;
+};
+type FuelData = { updated: string; count: number; stations: FuelStation[] };
 
+async function fetchFuelData(): Promise<FuelData> {
   const upstream = await fetch(FUEL_SOURCE, { headers: { accept: "application/json" } });
-  if (!upstream.ok) return json({ error: "font no disponible", status: upstream.status }, 502);
+  if (!upstream.ok) throw new Error(`font no disponible (${upstream.status})`);
   const raw: unknown = await upstream.json();
-  if (!isRecord(raw) || !Array.isArray(raw.ListaEESSPrecio)) return json({ error: "format inesperat" }, 502);
-
-  const stations = raw.ListaEESSPrecio.filter(isRecord).map((s) => {
+  if (!isRecord(raw) || !Array.isArray(raw.ListaEESSPrecio)) throw new Error("format inesperat");
+  const stations = raw.ListaEESSPrecio.filter(isRecord).map((s): FuelStation => {
     const prices: Record<string, number> = {};
     for (const [key, field] of Object.entries(FUEL_FIELDS)) {
       const p = parseEsNumber(s[field]);
@@ -514,16 +517,183 @@ async function handleFuel(ctx: ExecutionContext): Promise<Response> {
       prices,
     };
   }).filter((s) => s.id && s.lat !== null && s.lng !== null && Object.keys(s.prices).length > 0);
+  return { updated: stringValue(raw.Fecha), count: stations.length, stations };
+}
 
-  const res = new Response(JSON.stringify({ updated: stringValue(raw.Fecha), count: stations.length, stations }), {
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": `public, max-age=${FUEL_CACHE_SECONDS}`,
-      ...CORS,
-    },
+// Llegeix de la memòria cau (30 min) o del Ministeri, i desa el resultat a la cau.
+async function getFuelData(ctx: ExecutionContext): Promise<FuelData> {
+  // `lib` DOM no coneix caches.default; als Workers sí que existeix.
+  const cache = (caches as unknown as { default: Cache }).default;
+  const cacheKey = new Request("https://patroltrack.internal/api/fuel-v1");
+  const hit = await cache.match(cacheKey);
+  if (hit) return await hit.json() as FuelData;
+  const data = await fetchFuelData();
+  const res = new Response(JSON.stringify(data), {
+    headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${FUEL_CACHE_SECONDS}` },
   });
-  ctx.waitUntil(cache.put(cacheKey, res.clone()));
-  return res;
+  ctx.waitUntil(cache.put(cacheKey, res));
+  return data;
+}
+
+async function handleFuel(ctx: ExecutionContext): Promise<Response> {
+  try {
+    const data = await getFuelData(ctx);
+    return new Response(JSON.stringify(data), {
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": `public, max-age=${FUEL_CACHE_SECONDS}`,
+        ...CORS,
+      },
+    });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "font no disponible" }, 502);
+  }
+}
+
+// ── Avisos SMS de preu (Bird) ────────────────────────────────────────────────
+const FUEL_LABELS: Record<string, string> = {
+  g95: "Gasolina 95", g98: "Gasolina 98", diesel: "Diesel", dieselp: "Diesel+", glp: "GLP",
+};
+const MAX_FUEL_ALERTS = 20;            // límit global: cada SMS costa diners
+const MAX_SMS_PER_ALERT_PER_DAY = 3;
+const SMS_QUIET_START = 22;            // no s'envia de 22 h a 8 h (hora de Madrid)
+const SMS_QUIET_END = 8;
+
+function normalizePhone(input: string): string | null {
+  let p = input.replace(/[\s.\-()]/g, "");
+  if (/^[6789]\d{8}$/.test(p)) p = `+34${p}`;  // mòbil o fix espanyol sense prefix
+  if (p.startsWith("0034")) p = `+${p.slice(2)}`;
+  return /^\+\d{8,15}$/.test(p) ? p : null;
+}
+
+function maskPhone(p: string): string {
+  return p.length > 6 ? `${p.slice(0, 3)}•••${p.slice(-3)}` : "•••";
+}
+
+async function sendSms(env: Env, to: string, text: string): Promise<{ ok: boolean; status: number; detail?: string }> {
+  if (!env.BIRD_API_KEY) return { ok: false, status: 0, detail: "BIRD_API_KEY no configurada" };
+  const region = /^b[km]_(eu1|us1)_/.exec(env.BIRD_API_KEY)?.[1] ?? "eu1";
+  const res = await fetch(`https://${region}.platform.bird.com/v1/sms/messages`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${env.BIRD_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      to, from: env.SMS_FROM || "PatrolTrak", text, category: "transactional",
+      options: { smart_encoding: true }, tags: [{ name: "app", value: "patroltrack-benzina" }],
+    }),
+  });
+  if (res.ok) return { ok: true, status: res.status };
+  const detail = (await res.text()).slice(0, 300);
+  console.error("Bird SMS error", res.status, detail);
+  return { ok: false, status: res.status, detail };
+}
+
+function fuelSmsText(name: string, town: string, fuel: string, price: number, reason: string): string {
+  return `PatrolTrack: ${FUEL_LABELS[fuel] ?? fuel} a ${name} (${town}) ara ${price.toFixed(3).replace(".", ",")} EUR. ${reason}`;
+}
+
+async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
+  const url = new URL(req.url);
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid (configura'l a la pestanya Config)" }, 401);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
+  const phone = normalizePhone(stringValue(body.phone));
+  const stationId = stringValue(body.station_id).trim();
+  const fuel = stringValue(body.fuel).trim();
+  const target = typeof body.target === "number" && body.target > 0 ? body.target : null;
+  if (!phone) return json({ ok: false, reason: "telèfon invàlid (ex. 612345678 o +34612345678)" }, 400);
+  if (!stationId || !FUEL_FIELDS[fuel]) return json({ ok: false, reason: "gasolinera o carburant invàlid" }, 400);
+
+  const data = await getFuelData(ctx);
+  const st = data.stations.find((s) => s.id === stationId);
+  const price = st?.prices[fuel];
+  if (!st || price == null) return json({ ok: false, reason: "aquesta gasolinera no ven aquest carburant" }, 404);
+
+  const existing = await env.DB.prepare("SELECT id FROM fuel_alerts WHERE phone = ? AND station_id = ? AND fuel = ?")
+    .bind(phone, stationId, fuel).first();
+  if (!existing) {
+    const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM fuel_alerts").first<{ n: number }>();
+    if ((total?.n ?? 0) >= MAX_FUEL_ALERTS) return json({ ok: false, reason: `màxim ${MAX_FUEL_ALERTS} avisos` }, 429);
+  }
+  await env.DB.prepare(`
+    INSERT INTO fuel_alerts (phone, station_id, station_name, fuel, target, last_price, target_hit, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+    ON CONFLICT (phone, station_id, fuel) DO UPDATE SET
+      target = excluded.target, last_price = excluded.last_price, station_name = excluded.station_name, target_hit = 0
+  `).bind(phone, stationId, `${st.name} (${st.town})`, fuel, target, price, new Date().toISOString()).run();
+
+  // SMS de confirmació: comprova de seguida que l'enviament funciona.
+  const reason = target ? `Avis actiu: t'escriurem si baixa o passa per sota de ${target.toFixed(3).replace(".", ",")}.` : "Avis actiu: t'escriurem quan baixi.";
+  const sms = await sendSms(env, phone, fuelSmsText(st.name, st.town, fuel, price, reason));
+  return json({ ok: true, phone: maskPhone(phone), price, sms_sent: sms.ok, sms_error: sms.ok ? undefined : (sms.detail || `HTTP ${sms.status}`) });
+}
+
+async function handleFuelAlertList(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  const { results } = await env.DB.prepare(
+    "SELECT id, phone, station_id, station_name, fuel, target, last_price, last_sent_at FROM fuel_alerts ORDER BY id DESC",
+  ).all<{ phone: string }>();
+  return json({ ok: true, sms_configured: Boolean(env.BIRD_API_KEY), alerts: results.map((a) => ({ ...a, phone: maskPhone(a.phone) })) });
+}
+
+async function handleFuelAlertDelete(env: Env, req: Request, url: URL): Promise<Response> {
+  if (!authenticated(req, env, url)) return json({ ok: false, reason: "token invàlid" }, 401);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  const id = isRecord(body) && typeof body.id === "number" ? body.id : null;
+  if (id === null) return json({ ok: false, reason: "id invàlid" }, 400);
+  const r = await env.DB.prepare("DELETE FROM fuel_alerts WHERE id = ?").bind(id).run();
+  return json({ ok: true, deleted: r.meta?.changes ?? 0 });
+}
+
+type FuelAlertRow = {
+  id: number; phone: string; station_id: string; fuel: string; target: number | null;
+  last_price: number | null; target_hit: number; last_sent_at: string | null;
+};
+
+// Cron: compara cada avís amb el preu actual i envia SMS si baixa o creua l'objectiu.
+async function runFuelAlerts(env: Env, ctx: ExecutionContext): Promise<void> {
+  const { results } = await env.DB.prepare("SELECT * FROM fuel_alerts").all<FuelAlertRow>();
+  if (!results.length) return;
+  const data = await getFuelData(ctx);
+  const { hour } = lleidaHourAndDow(new Date());
+  const quiet = hour >= SMS_QUIET_START || hour < SMS_QUIET_END;
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const a of results) {
+    const st = data.stations.find((s) => s.id === a.station_id);
+    const now = st?.prices[a.fuel];
+    if (!st || now == null) continue;
+    const dropped = a.last_price != null && now < a.last_price - 0.0005;
+    const under = a.target != null && now <= a.target;
+    const crossed = under && !a.target_hit;
+    // De nit no s'envia ni s'actualitza last_price: la baixada s'avisarà al matí.
+    if (quiet) continue;
+
+    let sent = false;
+    if (dropped || crossed) {
+      const sentToday = await env.DB.prepare(
+        "SELECT COUNT(*) AS n FROM fuel_sms_log WHERE alert_id = ? AND substr(sent_at, 1, 10) = ?",
+      ).bind(a.id, today).first<{ n: number }>().catch(() => ({ n: 0 }));
+      if ((sentToday?.n ?? 0) < MAX_SMS_PER_ALERT_PER_DAY) {
+        const reason = dropped && a.last_price != null
+          ? `Ha baixat ${((a.last_price - now) * 100).toFixed(1).replace(".", ",")} cent.`
+          : "Per sota del teu objectiu.";
+        const r = await sendSms(env, a.phone, fuelSmsText(st.name, st.town, a.fuel, now, reason));
+        sent = r.ok;
+        if (r.ok) {
+          await env.DB.prepare("INSERT INTO fuel_sms_log (alert_id, sent_at, price) VALUES (?, ?, ?)")
+            .bind(a.id, new Date().toISOString(), now).run();
+        }
+      }
+    }
+    await env.DB.prepare(`
+      UPDATE fuel_alerts SET last_price = ?, target_hit = ?,
+        last_sent_at = CASE WHEN ? THEN ? ELSE last_sent_at END,
+        last_sent_price = CASE WHEN ? THEN ? ELSE last_sent_price END
+      WHERE id = ?
+    `).bind(now, under ? 1 : 0, sent ? 1 : 0, new Date().toISOString(), sent ? 1 : 0, now, a.id).run();
+  }
 }
 
 export default {
@@ -538,6 +708,9 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
       if (req.method === "GET" && url.pathname === "/api/fuel") return await handleFuel(ctx);
+      if (req.method === "POST" && url.pathname === "/api/fuel/alerts") return await handleFuelAlertCreate(env, req, ctx);
+      if (req.method === "GET" && url.pathname === "/api/fuel/alerts") return await handleFuelAlertList(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/fuel/alerts/delete") return await handleFuelAlertDelete(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
       if (req.method === "GET" && url.pathname === "/api/telegram-status") return await handleTelegramStatus(env);
       if (url.pathname === "/api/telegram-setup") return await handleTelegramSetup(env, req);
@@ -550,6 +723,14 @@ export default {
       // Do not leak database errors, credentials, or request contents to clients.
       console.error("PatrolTrack request failed", error);
       return json({ error: "error intern" }, 500);
+    }
+  },
+
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    try {
+      await runFuelAlerts(env, ctx);
+    } catch (error) {
+      console.error("Fuel alerts cron failed", error);
     }
   },
 } satisfies ExportedHandler<Env>;

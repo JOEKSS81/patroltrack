@@ -52,13 +52,25 @@ jobs:
       # cada desplegament: si el Worker es recrea, no es perden.
       #  - INGEST_TOKEN: el mateix token de Config a l'app
       #  - TELEGRAM_BOT_TOKEN: el de @BotFather
+      #  - BIRD_API_KEY: clau de workspace de Bird (bk_eu1_…) per als avisos SMS de Benzina
+      #  - SMS_FROM (opcional): remitent alfanumèric aprovat a Bird; per defecte "PatrolTrak"
       #  El secret del webhook es deriva del token del bot (no cal guardar-lo).
       - name: Sincronitza les claus del Worker
         working-directory: cloudflare
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          BIRD_API_KEY: ${{ secrets.BIRD_API_KEY }}
+          SMS_FROM: ${{ secrets.SMS_FROM }}
         run: |
+          if [ -n "$BIRD_API_KEY" ]; then
+            printf '%s' "$BIRD_API_KEY" | npx wrangler secret put BIRD_API_KEY
+          else
+            echo "::warning::Falta el secret BIRD_API_KEY: els avisos SMS de la pestanya Benzina no s'enviaran"
+          fi
+          if [ -n "$SMS_FROM" ]; then
+            printf '%s' "$SMS_FROM" | npx wrangler secret put SMS_FROM
+          fi
           if [ -n "$INGEST_TOKEN" ]; then
             printf '%s' "$INGEST_TOKEN" | npx wrangler secret put INGEST_TOKEN
           else

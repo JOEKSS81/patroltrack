@@ -99,7 +99,7 @@ function FlyTo({ target }) {
 
 const fmt = (p) => (p == null ? "—" : `${p.toFixed(3)} €`);
 
-export default function FuelTab() {
+export default function FuelTab({ apiToken = "" }) {
   const C = useC();
   const prefs0 = readLS(PREF_KEY, {});
   const [fuel, setFuel] = useState(prefs0.fuel || "g95");
@@ -112,6 +112,9 @@ export default function FuelTab() {
   const [drop, setDrop] = useState(null);
   const [me, setMe] = useState(null);
   const [focus, setFocus] = useState(null);
+  const [smsPhone, setSmsPhone] = useState(() => readLS("pt_fuel_phone", ""));
+  const [smsState, setSmsState] = useState(null); // {ok, msg}
+  const [smsBusy, setSmsBusy] = useState(false);
 
   useEffect(() => { writeLS(PREF_KEY, { fuel, area }); }, [fuel, area]);
 
@@ -170,6 +173,28 @@ export default function FuelTab() {
     if (!fav) return;
     const next = { ...fav, target: num(v) };
     setFav(next); writeLS(FAV_KEY, next);
+  };
+
+  // Avís per SMS: el Worker revisa el preu cada 30 min encara que l'app estigui tancada.
+  const activateSms = async () => {
+    if (!fav) return;
+    if (!apiToken) { setSmsState({ ok: false, msg: "Primer configura el token a la pestanya Config." }); return; }
+    setSmsBusy(true); setSmsState(null);
+    writeLS("pt_fuel_phone", smsPhone);
+    try {
+      const r = await fetch(`${API}/api/fuel/alerts`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-ingest-token": apiToken },
+        body: JSON.stringify({ phone: smsPhone, station_id: fav.id, fuel: fav.fuel, target: fav.target ?? undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) setSmsState({ ok: false, msg: d.reason || `Error ${r.status}` });
+      else if (!d.sms_sent) setSmsState({ ok: false, msg: `Avís desat, però l'SMS de prova no ha sortit: ${d.sms_error || "revisa la configuració de Bird"}` });
+      else setSmsState({ ok: true, msg: `Avís actiu per a ${d.phone}. T'hem enviat un SMS de prova.` });
+    } catch (e) {
+      setSmsState({ ok: false, msg: e.message || "Error de xarxa" });
+    }
+    setSmsBusy(false);
   };
 
   const locate = () => {
@@ -242,6 +267,17 @@ export default function FuelTab() {
             <span>€</span>
             <button onClick={clearFav} style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Treure</button>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: C.textDim }}>
+            <span>📱 SMS</span>
+            <input type="tel" inputMode="tel" placeholder="612 345 678" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)}
+              style={{ flex: 1, minWidth: 0, padding: "5px 6px", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontFamily: "inherit", fontSize: 13 }} />
+            <button onClick={activateSms} disabled={smsBusy || !smsPhone.trim()}
+              style={{ background: C.accent, color: C.bg, border: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700, opacity: smsBusy || !smsPhone.trim() ? 0.6 : 1 }}>
+              {smsBusy ? "…" : "Activar"}
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>T'avisa encara que l'app estigui tancada (de 8 a 22 h, màx. 3 SMS al dia). Desa l'objectiu abans d'activar.</div>
+          {smsState && <div style={{ fontSize: 12, marginTop: 6, color: smsState.ok ? C.success : C.danger }}>{smsState.ok ? "✓" : "⚠"} {smsState.msg}</div>}
         </div>
       )}
 

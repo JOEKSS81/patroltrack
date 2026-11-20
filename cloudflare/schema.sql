@@ -51,3 +51,29 @@ CREATE TABLE IF NOT EXISTS ingest_hits (
     text_preview TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ingest_hits_received ON ingest_hits (received_at DESC);
+
+-- Avisos de preu de carburant per SMS (pestanya Benzina).
+-- last_price: últim preu comparat; target_hit: 1 si ja s'ha avisat d'estar per sota de l'objectiu.
+CREATE TABLE IF NOT EXISTS fuel_alerts (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone           TEXT NOT NULL,
+    station_id      TEXT NOT NULL,
+    station_name    TEXT,
+    fuel            TEXT NOT NULL,
+    target          REAL,
+    last_price      REAL,
+    target_hit      INTEGER NOT NULL DEFAULT 0,
+    last_sent_at    TEXT,
+    last_sent_price REAL,
+    created_at      TEXT NOT NULL,
+    UNIQUE (phone, station_id, fuel)
+);
+
+-- Registre d'SMS enviats per avís (límit diari i traçabilitat).
+CREATE TABLE IF NOT EXISTS fuel_sms_log (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    alert_id INTEGER NOT NULL,
+    sent_at  TEXT NOT NULL,
+    price    REAL
+);
+CREATE INDEX IF NOT EXISTS idx_fuel_sms_alert ON fuel_sms_log (alert_id, sent_at);

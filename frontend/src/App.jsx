@@ -722,7 +722,7 @@ export default function App(){
         )}
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} riskThreshold={riskThreshold} setRiskThreshold={setRiskThreshold}/>}
-        {tab==="fuel"&&<FuelTab/>}
+        {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
         {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}

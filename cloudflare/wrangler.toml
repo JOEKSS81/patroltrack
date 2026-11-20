@@ -14,3 +14,7 @@ database_id = "3f55e731-9cb8-4940-a390-309fea018e6b"
 
 # CORS i URL pública configurats al codi (src/index.ts).
 # Per habilitar un domini personalitzat, vegeu cloudflare/README.md.
+
+# Cada 30 min: revisa els preus de carburant i envia els avisos SMS (pestanya Benzina).
+[triggers]
+crons = ["*/30 * * * *"]
