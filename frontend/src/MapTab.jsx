@@ -124,6 +124,10 @@ export default function MapTab({
   const sel = zones.find((z) => z.id === selected);
   const target = sel ? [sel.lat, sel.lng] : null;
   const points = zones.map((z) => [z.lat, z.lng]);
+  // Darrera posició GPS bona (d'una sessió anterior): el mapa s'obre directament allà
+  const [lastPos] = useState(() => {
+    try { const p = JSON.parse(localStorage.getItem("pt_last_pos") || "null"); return p && typeof p.lat === "number" ? p : null; } catch { return null; }
+  });
 
   const [showDets, setShowDets] = useState(true);     // capa deteccions 24h
   const [showLegend, setShowLegend] = useState(false);    // per defecte plegada, ocupa menys
@@ -216,26 +220,6 @@ export default function MapTab({
       .slice(0, 80);
   }, [detections, zones]);
 
-  const autoLocatedRef = useRef(false);
-
-  // Auto-centra al GPS de l'usuari quan el mapa és llest (una sola vegada, silenciós si falla)
-  useEffect(() => {
-    if (!mapInstance || autoLocatedRef.current || !navigator.geolocation) return;
-    autoLocatedRef.current = true;
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        // No trepitgis una posició fixada a mà ni la del radar
-        if (manualRef.current || centeredRef.current) return;
-        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
-        setUserPos(np);
-        const zoom = np.acc < 100 ? 15 : np.acc < 500 ? 13 : np.acc < 2000 ? 11 : 9;
-        mapInstance.flyTo([np.lat, np.lng], zoom, { duration: 1.2 });
-      },
-      () => {},
-      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
-    );
-  }, [mapInstance]);
-
   const errMsg = (e) => {
     if (!e) return "Error desconegut";
     if (e.code === 1) return "Permís d'ubicació denegat";
@@ -260,8 +244,6 @@ export default function MapTab({
     if (userPos && mapInstance) mapInstance.panTo([userPos.lat, userPos.lng], { animate: true, duration: 0.6 });
     followWatchRef.current = navigator.geolocation.watchPosition(
       (p) => {
-        // No trepitgis una posició fixada a mà ni la del radar
-        if (manualRef.current || centeredRef.current) return;
         const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
         setUserPos(np);
         if (mapInstance) mapInstance.panTo([np.lat, np.lng], { animate: true, duration: 0.5 });
@@ -288,8 +270,11 @@ export default function MapTab({
         if (np.acc <= 300) manualRef.current = false;
         setUserPos(np);
         if (!bestPosRef.current || np.acc < bestPosRef.current.acc) bestPosRef.current = np;
+        if (np.acc <= 300) { try { localStorage.setItem("pt_last_pos", JSON.stringify({ lat: np.lat, lng: np.lng, acc: np.acc })); } catch {} }
         if (mapInstance && !centeredRef.current && np.acc <= 300) {
           centeredRef.current = true;
+          // Si ja hem obert el mapa a la darrera posició i és a prop, no tornem a volar
+          if (lastPos && distKm(lastPos.lat, lastPos.lng, np.lat, np.lng) < 0.5) return;
           mapInstance.flyTo([np.lat, np.lng], zoomForAcc(np.acc), { duration: 0.9 });
         }
         // El seguiment continu el gestiona el watch propi de toggleFollow.
@@ -397,12 +382,12 @@ export default function MapTab({
         .pt-mapbtn.active{background:${t.accent};color:${t.bg};border-color:${t.accent}}
       `}</style>
 
-      <MapContainer center={[41.95, 0.95]} zoom={8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
+      <MapContainer center={lastPos ? [lastPos.lat, lastPos.lng] : [41.95, 0.95]} zoom={lastPos ? (lastPos.acc < 80 ? 16 : 14) : 8} zoomControl={false} style={{ height: "100%", width: "100%", background: t.bg }}>
         <TileLayer key={tileKey} url={currentTile.url} attribution={currentTile.attr} detectRetina={true} maxZoom={19} maxNativeZoom={currentTile.maxNative || 19} />
         {currentTile.labels && <TileLayer key={tileKey + "-labels"} url={currentTile.labels} detectRetina={true} maxZoom={19} maxNativeZoom={currentTile.maxNative || 19} />}
         <MapHandle onReady={setMapInstance} />
         <ClickToPlace active={placing} onPlace={placePos} />
-        <FitAll points={points} />
+        {!lastPos && <FitAll points={points} />}
         <FlyTo target={target} />
 
         {/* Pin zones + risc */}
