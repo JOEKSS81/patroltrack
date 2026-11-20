@@ -465,8 +465,69 @@ async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
   return json({ ok: true, deleted: result.meta?.changes ?? 0, group_name: groupName });
 }
 
+// ── Preus de carburants (dades obertes del Ministeri, província de Lleida = 25) ──
+// El Ministeri actualitza cada ~30 min. Es guarda a la Cache API per no saturar-lo.
+const FUEL_SOURCE =
+  "https://sedeaplicaciones.minetur.gob.es/ServiciosRESTCarburantes/PreciosCarburantes/EstacionesTerrestres/FiltroProvincia/25";
+const FUEL_CACHE_SECONDS = 1800;
+const FUEL_FIELDS: Record<string, string> = {
+  g95: "Precio Gasolina 95 E5",
+  g98: "Precio Gasolina 98 E5",
+  diesel: "Precio Gasoleo A",
+  dieselp: "Precio Gasoleo Premium",
+  glp: "Precio Gases licuados del petróleo",
+};
+
+function parseEsNumber(value: unknown): number | null {
+  const s = stringValue(value).trim().replace(",", ".");
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+async function handleFuel(ctx: ExecutionContext): Promise<Response> {
+  // `lib` DOM no coneix caches.default; als Workers sí que existeix.
+  const cache = (caches as unknown as { default: Cache }).default;
+  const cacheKey = new Request("https://patroltrack.internal/api/fuel-v1");
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
+
+  const upstream = await fetch(FUEL_SOURCE, { headers: { accept: "application/json" } });
+  if (!upstream.ok) return json({ error: "font no disponible", status: upstream.status }, 502);
+  const raw: unknown = await upstream.json();
+  if (!isRecord(raw) || !Array.isArray(raw.ListaEESSPrecio)) return json({ error: "format inesperat" }, 502);
+
+  const stations = raw.ListaEESSPrecio.filter(isRecord).map((s) => {
+    const prices: Record<string, number> = {};
+    for (const [key, field] of Object.entries(FUEL_FIELDS)) {
+      const p = parseEsNumber(s[field]);
+      if (p !== null) prices[key] = p;
+    }
+    return {
+      id: stringValue(s.IDEESS),
+      name: stringValue(s["Rótulo"]).trim(),
+      address: stringValue(s["Dirección"]).trim(),
+      town: stringValue(s.Municipio).trim(),
+      hours: stringValue(s.Horario).trim(),
+      lat: parseEsNumber(s.Latitud),
+      lng: parseEsNumber(s["Longitud (WGS84)"]),
+      prices,
+    };
+  }).filter((s) => s.id && s.lat !== null && s.lng !== null && Object.keys(s.prices).length > 0);
+
+  const res = new Response(JSON.stringify({ updated: stringValue(raw.Fecha), count: stations.length, stations }), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": `public, max-age=${FUEL_CACHE_SECONDS}`,
+      ...CORS,
+    },
+  });
+  ctx.waitUntil(cache.put(cacheKey, res.clone()));
+  return res;
+}
+
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const url = new URL(req.url);
     try {
@@ -476,6 +537,7 @@ export default {
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
+      if (req.method === "GET" && url.pathname === "/api/fuel") return await handleFuel(ctx);
       if (req.method === "POST" && url.pathname === "/api/telegram-webhook") return await handleTelegramWebhook(env, req);
       if (req.method === "GET" && url.pathname === "/api/telegram-status") return await handleTelegramStatus(env);
       if (url.pathname === "/api/telegram-setup") return await handleTelegramSetup(env, req);
