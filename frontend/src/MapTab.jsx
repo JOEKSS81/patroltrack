@@ -51,13 +51,18 @@ function userIcon() {
 }
 
 // Vola cap a la zona seleccionada (només quan canvia, no al muntar)
+// Important: depèn de lat/lng (números), no de l'array `target`. L'array es crea de nou a
+// cada render i, com que el GPS fa re-render cada segon, el mapa tornava sol a la zona
+// seleccionada (Lleida) i semblava que no es podia moure.
 function FlyTo({ target, zoom = 12 }) {
   const map = useMap();
   const first = useRef(true);
+  const lat = target ? target[0] : null;
+  const lng = target ? target[1] : null;
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    if (target) map.flyTo(target, zoom, { duration: 0.8 });
-  }, [target, zoom, map]);
+    if (lat != null && lng != null) map.flyTo([lat, lng], zoom, { duration: 0.8 });
+  }, [lat, lng, zoom, map]);
   return null;
 }
 
