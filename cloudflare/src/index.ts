@@ -150,6 +150,27 @@ async function logIngestHit(env: Env, outcome: string, source: string, groupName
   }
 }
 
+// Clau de comparació d'un missatge: minúscules, sense accents, emojis ni puntuació, i
+// espais compactats. Així "Mossos a Sort!!" i "mossos a sort" compten com el mateix.
+function messageKey(text: string): string {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+// El mateix avís sovint es copia o reenvia a diversos grups (i WhatsApp torna a publicar
+// la notificació agrupada hores després). Es considera repetit si ja s'ha desat un avís
+// amb el mateix text, de QUALSEVOL grup o font, en les darreres 12 hores.
+const DUPLICATE_WINDOW_MS = 12 * 3600 * 1000;
+async function isRecentDuplicate(env: Env, message: string): Promise<boolean> {
+  const key = messageKey(message);
+  if (!key) return false;
+  const since = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
+  const rs = await env.DB.prepare(
+    "SELECT raw_message FROM detections WHERE created_at > ? ORDER BY created_at DESC LIMIT 300",
+  ).bind(since).all<{ raw_message: string | null }>();
+  return (rs.results ?? []).some((r) => r.raw_message != null && messageKey(r.raw_message) === key);
+}
+
 async function storeDetection(
   env: Env,
   message: string,
@@ -296,20 +317,10 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     });
   }
 
-  // Les notificacions del mòbil (MacroDroid/Tasker) es poden repetir: WhatsApp torna a
-  // publicar la notificació agrupada ("4 mensajes") amb l'últim missatge cada cop que
-  // n'arriba un de nou, fins i tot hores després. Ignora el mateix missatge del mateix
-  // grup si ja l'hem desat en les darreres 12 hores (abans 15 min: el mateix avís de
-  // Tornafort es va desar 6 vegades en 6 hores).
-  if (sourceRaw !== "manual") {
-    const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
-    const dup = await env.DB.prepare(
-      "SELECT id FROM detections WHERE group_name = ? AND raw_message = ? AND created_at > ? LIMIT 1",
-    ).bind(groupName, message.slice(0, MAX_RAW_MESSAGE_LENGTH), since).first();
-    if (dup) {
-      await logIngestHit(env, "duplicate", sourceRaw, groupName, message);
-      return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
-    }
+  // Repetits: mateix text ja desat en 12 h, de qualsevol grup (vegeu isRecentDuplicate).
+  if (sourceRaw !== "manual" && await isRecentDuplicate(env, message)) {
+    await logIngestHit(env, "duplicate", sourceRaw, groupName, message);
+    return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
   }
 
   const result = await storeDetection(env, message, groupName, sourceRaw);
@@ -403,6 +414,10 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   if (gate === "off" || gate === "pending") {
     await logTelegramHit(env, `group_${gate}`, { chat_id: chatId, chat_title: chatTitle });
     return json({ ok: true, stored: false, reason: "grup desactivat a Config" });
+  }
+  if (await isRecentDuplicate(env, text)) {
+    await logTelegramHit(env, "duplicate", { chat_id: chatId, chat_title: chatTitle, text });
+    return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
   }
   const result = await storeDetection(env, text, groupName, "telegram", updateId);
   if (!result.info) {
