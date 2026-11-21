@@ -296,11 +296,13 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     });
   }
 
-  // Les notificacions del mòbil (MacroDroid/Tasker) es poden repetir: Android torna a
-  // publicar la mateixa notificació quan s'actualitza. Ignora el mateix missatge del
-  // mateix grup si ja l'hem desat en els darrers 15 minuts.
+  // Les notificacions del mòbil (MacroDroid/Tasker) es poden repetir: WhatsApp torna a
+  // publicar la notificació agrupada ("4 mensajes") amb l'últim missatge cada cop que
+  // n'arriba un de nou, fins i tot hores després. Ignora el mateix missatge del mateix
+  // grup si ja l'hem desat en les darreres 12 hores (abans 15 min: el mateix avís de
+  // Tornafort es va desar 6 vegades en 6 hores).
   if (sourceRaw !== "manual") {
-    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
     const dup = await env.DB.prepare(
       "SELECT id FROM detections WHERE group_name = ? AND raw_message = ? AND created_at > ? LIMIT 1",
     ).bind(groupName, message.slice(0, MAX_RAW_MESSAGE_LENGTH), since).first();
