@@ -12,9 +12,9 @@ export function distKm(a1, o1, a2, o2) {
 
 // So d'alerta del radar (lladruc curt). `ctx` és un AudioContext.
 // Lladruc REAL (gravació) en lloc d'un so sintetitzat: el sintetitzat sonava a
-// "piu piu" o a ànec. Fitxer per defecte: /bark.mp3 (lladruc de gos gran, del
-// paquet npm dsh-client-ui-sound-effects, llicència MIT). L'usuari pot posar el
-// seu propi so des del Radar ("🎵 El meu so"); es desa al navegador.
+// "piu piu" o a ànec. Fitxer per defecte: /bark.mp3 — "Excited barking of a hungry
+// dog", triat per l'usuari (Pixabay), retallat a 2,2 s (6 lladrucs) i normalitzat.
+// Cada usuari pot posar el seu propi so des del Radar ("🎵 El meu so").
 export const CUSTOM_BARK_KEY = "pt_bark_custom";
 const barkCache = { url: null, buf: null, loading: null };
 
