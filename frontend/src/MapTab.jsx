@@ -124,6 +124,7 @@ export default function MapTab({
   detections = [],           // deteccions reals (per la capa 24h)
   radarPos = null,           // posició del radar si està actiu (estalvia geo)
   riskThreshold = 0.5,        // probabilitat (0..1) sobre la qual la zona es marca com a risc
+  onPosition,                 // avisa l'app de la teva posició (per triar la zona més propera)
 }) {
   const t = { ...FALLBACK, ...theme };
   const sel = zones.find((z) => z.id === selected);
@@ -285,7 +286,10 @@ export default function MapTab({
         if (np.acc <= 300) manualRef.current = false;
         setUserPos(np);
         if (!bestPosRef.current || np.acc < bestPosRef.current.acc) bestPosRef.current = np;
-        if (np.acc <= 300) { try { localStorage.setItem("pt_last_pos", JSON.stringify({ lat: np.lat, lng: np.lng, acc: np.acc })); } catch {} }
+        if (np.acc <= 300) {
+          try { localStorage.setItem("pt_last_pos", JSON.stringify({ lat: np.lat, lng: np.lng, acc: np.acc })); } catch {}
+          onPosition && onPosition(np.lat, np.lng);
+        }
         if (mapInstance && !centeredRef.current && np.acc <= 300) {
           centeredRef.current = true;
           // Si ja hem obert el mapa a la darrera posició i és a prop, no tornem a volar

@@ -4,7 +4,7 @@ import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
-import { computeZoneProbs, computeHourly } from "./lib/utils";
+import { computeZoneProbs, computeHourly, distKm } from "./lib/utils";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
@@ -38,11 +38,42 @@ function ProbBar({value,type}){
 
 
 // ── App principal ─────────────────────────────────────────────────────────
+// Zona del mapa més propera a una posició (null si estàs a més de 40 km de totes).
+function nearestMapZone(lat, lng) {
+  let best = null, bestD = Infinity;
+  for (const z of MAP_ZONES) {
+    const d = distKm(lat, lng, z.lat, z.lng);
+    if (d < bestD) { bestD = d; best = z; }
+  }
+  return best && bestD <= 40 ? best.id : null;
+}
+// Darrera posició GPS bona desada pels mapes o el radar.
+function lastKnownPos() {
+  try { const p = JSON.parse(localStorage.getItem("pt_last_pos") || "null"); return p && typeof p.lat === "number" ? p : null; } catch { return null; }
+}
+
 export default function App(){
   const [tab,setTab]=useState("dashboard");
   const [detections,setDetections]=useState([]);
   const [health,setHealth]=useState(null);
-  const [selectedZone,setSelectedZone]=useState("N-II");
+  // Zona seleccionada: per defecte la MÉS PROPERA a on ets (abans sempre "N-II").
+  // Si en toques una al mapa o a la llista, es respecta durant aquesta sessió.
+  const zoneManualRef=useRef((()=>{try{return !!sessionStorage.getItem("pt_sel_zone");}catch{return false;}})());
+  const [selectedZone,setSelectedZoneRaw]=useState(()=>{
+    try{const m=sessionStorage.getItem("pt_sel_zone");if(m)return m;}catch{}
+    const p=lastKnownPos();
+    return (p&&nearestMapZone(p.lat,p.lng))||"N-II";
+  });
+  const setSelectedZone=(z)=>{
+    zoneManualRef.current=true;
+    try{sessionStorage.setItem("pt_sel_zone",z);}catch{}
+    setSelectedZoneRaw(z);
+  };
+  const followMyZone=(lat,lng)=>{
+    if(zoneManualRef.current)return;
+    const z=nearestMapZone(lat,lng);
+    if(z)setSelectedZoneRaw(prev=>prev===z?prev:z);
+  };
   const [queryZone,setQueryZone]=useState("N-II");
   const [queryHour,setQueryHour]=useState(new Date().getHours());
   const [queryDay,setQueryDay]=useState(new Date().getDay());
@@ -67,6 +98,17 @@ export default function App(){
   const C = currentTheme;
 
   const radar=useRadar(detections);
+  // Segueix la teva zona: amb el radar actiu, a cada posició nova…
+  useEffect(()=>{ if(radar.pos) followMyZone(radar.pos.lat,radar.pos.lng); },[radar.pos]); // eslint-disable-line react-hooks/exhaustive-deps
+  // …i, en obrir l'app, si el permís d'ubicació ja està donat (sense tornar a preguntar).
+  useEffect(()=>{
+    let alive=true;
+    navigator.permissions?.query({name:"geolocation"}).then(st=>{
+      if(!alive||st.state!=="granted")return;
+      navigator.geolocation.getCurrentPosition(p=>{ if(alive) followMyZone(p.coords.latitude,p.coords.longitude); },()=>{},{enableHighAccuracy:false,maximumAge:600000,timeout:15000});
+    }).catch(()=>{});
+    return()=>{alive=false;};
+  },[]); // eslint-disable-line react-hooks/exhaustive-deps
   const wasActive=typeof window!=="undefined"&&(()=>{try{return localStorage.getItem("pt_auto")==="1";}catch{return false;}})();
   // Si l'app s'obre des de «Compartir», es va directe al formulari (sense pantalla d'inici).
   const [showSplash,setShowSplash]=useState(()=>{
@@ -755,6 +797,7 @@ export default function App(){
                   probs={zoneProbs}
                   selected={selectedZone}
                   onSelect={setSelectedZone}
+                  onPosition={followMyZone}
                   detections={detections}
                   theme={currentTheme}
                   radarPos={radar.active?radar.pos:null}
@@ -766,6 +809,7 @@ export default function App(){
                   probs={zoneProbs}
                   selected={selectedZone}
                   onSelect={setSelectedZone}
+                  onPosition={followMyZone}
                   theme={currentTheme}
                   themeName={themeName}
                   detections={detections}
