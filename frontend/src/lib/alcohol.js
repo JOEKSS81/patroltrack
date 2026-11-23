@@ -4,17 +4,17 @@
 
 // Grams d'alcohol = ml × graduació × 0,8 (densitat de l'etanol)
 export const DRINKS = [
-  { id: "canya",    name: "Canya",            detail: "200 ml · 5 %",          grams: 8.0 },
-  { id: "terc",     name: "Terç / mitjana",   detail: "330 ml · 5,2 %",        grams: 13.7 },
-  { id: "vi",       name: "Copa de vi",       detail: "150 ml · 13 %",         grams: 15.6 },
-  { id: "combinat", name: "Combinat / cubata", detail: "70 ml de destil·lat · 40 %", grams: 22.4 },
-  { id: "xupito",   name: "Xupito",           detail: "40 ml · 40 %",          grams: 12.8 },
+  { id: "canya",    name: "Canya",             detail: "200 ml · 5 %",                 grams: 8.0 },
+  { id: "terc",     name: "Terç / botellí",    detail: "330 ml · 5,2 %",               grams: 13.7 },
+  { id: "vi",       name: "Copa de vi",        detail: "125 ml · 13 %",                grams: 13.0 },
+  { id: "combinat", name: "Combinat / cubata", detail: "50 ml de destil·lat · 40 %",   grams: 16.0 },
+  { id: "xupito",   name: "Xupito",            detail: "30 ml · 35 %",                 grams: 8.4 },
 ];
 
 export const PRESETS = [
-  { id: "feina", label: "Després de la feina", drinks: { terc: 2 }, stomach: "empty" },
-  { id: "sopar", label: "Sopar", drinks: { vi: 2, combinat: 1 }, stomach: "full" },
-  { id: "festa", label: "Festa", drinks: { combinat: 3, xupito: 1 }, stomach: "empty" },
+  { id: "feina", label: "Només 2 terços", drinks: { terc: 2 }, stomach: "empty" },
+  { id: "sopar", label: "Sopar: 2 vins + copa", drinks: { vi: 2, combinat: 1 }, stomach: "full" },
+  { id: "festa", label: "Nit: 3 cubates + xupito", drinks: { combinat: 3, xupito: 1 }, stomach: "empty" },
 ];
 
 // Límits en aire espirat (mg/L)

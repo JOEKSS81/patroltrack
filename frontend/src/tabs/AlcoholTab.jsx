@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useC } from "../lib/themes";
 import Collapsible from "../components/Collapsible";
+import SubstancesView from "../components/SubstancesView";
 import { DRINKS, PRESETS, LIMITS, bacAt, simulate, fmtDur, clockPlus, hoursSince, level } from "../lib/alcohol";
 
 // Números a la catalana: 0,77 en lloc de 0.77
@@ -28,7 +29,24 @@ const nowHHMM = () => {
   return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 };
 
+// Dues parts: calculadora d'alcohol i finestres de detecció de substàncies.
 export default function AlcoholTab() {
+  const C = useC();
+  const [mode, setModeRaw] = useState(() => { try { return localStorage.getItem("pt_alc_mode") || "alcohol"; } catch { return "alcohol"; } });
+  const setMode = (m) => { setModeRaw(m); try { localStorage.setItem("pt_alc_mode", m); } catch { /* */ } };
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, background: C.surface, padding: 4, borderRadius: 10, border: `1px solid ${C.border}` }}>
+        {[["alcohol", "🍺 Alcohol"], ["subs", "💊 Substàncies"]].map(([k, l]) => (
+          <button key={k} onClick={() => setMode(k)} style={{ flex: 1, padding: "9px 8px", borderRadius: 8, border: "none", background: mode === k ? C.accent : "transparent", color: mode === k ? C.bg : C.textDim, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
+        ))}
+      </div>
+      {mode === "subs" ? <SubstancesView /> : <AlcoholView />}
+    </div>
+  );
+}
+
+function AlcoholView() {
   const C = useC();
   const [saved] = useState(load);
   const [sex, setSex] = useState(saved?.sex || "M");
