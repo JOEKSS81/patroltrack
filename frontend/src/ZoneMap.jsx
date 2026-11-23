@@ -45,38 +45,36 @@ export default function ZoneMap({
     return e.message || "Error de GPS";
   };
 
-  // Localitza: millor fix en uns segons (l'esquema tolera imprecisió).
-  // `zoomToMe` (botó Jo) centra i fa zoom al punt de l'usuari en acabar.
-  const locate = (zoomToMe = false) => {
-    if (!navigator.geolocation) { setLocErr("GPS no disponible al navegador"); return; }
-    setLocErr(null); setLocating(true);
-    let best = null, done = false, tId = null;
-    const finish = () => {
-      if (done) return; done = true;
-      if (tId) clearTimeout(tId);
-      if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; }
-      setLocating(false);
-      if (best || userPos) { setJustLocated(true); setTimeout(() => setJustLocated(false), 2000); if (zoomToMe) zoomToUserRef.current = true; }
-      else setLocErr("No s'ha pogut obtenir la posició — activa el GPS i surt a fora");
-    };
-    watchRef.current = navigator.geolocation.watchPosition(
-      (p) => {
-        const np = { lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy };
-        setUserPos(np);
-        if (!best || np.acc < best.acc) best = np;
-        if (np.acc <= 150) finish();
-      },
-      (e) => { if (!best) { setLocErr(errMsg(e)); setLocating(false); done = true; if (watchRef.current != null) { navigator.geolocation.clearWatch(watchRef.current); watchRef.current = null; } } },
-      { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 },
-    );
-    tId = setTimeout(finish, 10000);
-  };
-
+  // Posició CONTÍNUA mentre el mapa és obert (com al mapa real): abans només es
+  // buscava uns segons en obrir-lo i, si el GPS trigava o et movies, el punt no
+  // sortia o es quedava quiet. Si el radar és actiu, la posició ve del radar.
   useEffect(() => {
-    if (!radarPos) locate();
-    return () => { if (watchRef.current != null) navigator.geolocation.clearWatch(watchRef.current); };
+    if (radarPos || !navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
+      (p) => {
+        setUserPos({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
+        setLocErr(null);
+        setLocating(false);
+      },
+      (e) => {
+        // Només el permís denegat és un error definitiu; la resta (timeout, sense
+        // senyal) és temporal i el watch continua.
+        if (e && e.code === 1) { setLocErr(errMsg(e)); setLocating(false); }
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 30000 },
+    );
+    watchRef.current = id;
+    return () => { navigator.geolocation.clearWatch(id); if (watchRef.current === id) watchRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [!!radarPos]);
+
+  // Botó "Jo": centra al teu punt (ara mateix si ja hi ha posició, o quan arribi).
+  const locate = () => {
+    if (!navigator.geolocation && !radarPos) { setLocErr("GPS no disponible al navegador"); return; }
+    zoomToUserRef.current = true;
+    if (userPos) { setJustLocated(true); setTimeout(() => setJustLocated(false), 2000); setUserPos({ ...userPos }); }
+    else setLocating(true);
+  };
 
   // Quan el botó Jo aconsegueix posició, centra i fa zoom al punt de l'usuari.
   useEffect(() => {
@@ -378,7 +376,7 @@ export default function ZoneMap({
       </svg>
 
       {/* Botó localitza */}
-      <button onClick={() => locate(true)} disabled={locating} style={{
+      <button onClick={locate} style={{
         position: "absolute", top: 10, right: 10, zIndex: 10,
         background: locating ? C.border : C.accent, color: locating ? C.textDim : C.bg,
         border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 14, fontWeight: 800,

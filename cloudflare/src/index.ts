@@ -245,6 +245,13 @@ async function readIngestBody(req: Request): Promise<IngestBody | null> {
 type GroupStatus = "active" | "pending" | "off";
 const GENERIC_GROUP_NAMES = new Set(["", "whatsapp", "telegram", "report manual", "(sense grup)"]);
 
+// Notificacions del sistema de WhatsApp/Telegram (còpies de seguretat, enviaments, etc.).
+// No són missatges de cap grup: s'ignoren del tot i no apareixen a Config → Grups.
+const SYSTEM_NOTIFICATION = /^(copia de seguridad|copia finalizada|c[oò]pia de seguretat|backup|eliminando|esborrant|comprobando si hay mensajes|checking for new messages|sending|enviando|enviant|descargando|subiendo|restaurando|whatsapp web)\b/i;
+function isSystemNotification(title: string, text: string): boolean {
+  return SYSTEM_NOTIFICATION.test(title.trim()) || SYSTEM_NOTIFICATION.test(text.trim());
+}
+
 // WhatsApp a vegades posa el comptador al títol ("Grup (3 missatges)") o el format
 // "Persona @ Grup". Es neteja perquè el mateix grup no surti repetit a Config.
 function normalizeGroupName(source: string, raw: string): string {
@@ -263,11 +270,13 @@ function normalizeGroupName(source: string, raw: string): string {
 }
 
 // Decideix si s'han de desar els avisos d'un grup i en porta el compte.
-// Grups nous: WhatsApp → pendent (cal activar-lo a Config); Telegram → actiu.
+// Grups nous: sempre pendents (cal triar "Seguir" a Config → Els meus grups).
 async function groupGate(env: Env, owner: string, source: string, name: string): Promise<GroupStatus | "skip"> {
   if ((source !== "whatsapp" && source !== "telegram") || GENERIC_GROUP_NAMES.has(name.toLowerCase())) return "skip";
   const now = new Date().toISOString();
-  const initial: GroupStatus = source === "telegram" ? "active" : "pending";
+  // Tots els xats nous (WhatsApp i Telegram) queden pendents fins que algú tria "Seguir":
+  // via MacroDroid també hi arriben xats privats, i no se n'ha de desar res sense permís.
+  const initial: GroupStatus = "pending";
   try {
     const row = await env.DB.prepare(`
       INSERT INTO user_groups (owner, source, name, status, first_seen, last_seen, hits)
@@ -306,6 +315,10 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const allowedSources = new Set(["whatsapp", "telegram", "manual", "test"]);
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
   const groupName = normalizeGroupName(sourceRaw, stringValue(body.group_name));
+  if (sourceRaw !== "manual" && isSystemNotification(groupName, message)) {
+    await logIngestHit(env, "system", sourceRaw, groupName, "");
+    return json({ ok: true, stored: false, reason: "notificació del sistema" });
+  }
 
   const gate = await groupGate(env, who.id, sourceRaw, groupName);
   if (gate === "pending" || gate === "off") {

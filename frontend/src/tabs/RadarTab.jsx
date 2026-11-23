@@ -1,149 +1,139 @@
 import { useC } from "../lib/themes";
 import { ptWith } from "../lib/constants";
+import { RADIUS_CHOICES } from "../lib/useRadar";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
-export default function RadarTab({ radar, dogPhoto, onDetTap, riskThreshold = 0.4, setRiskThreshold }) {
+// Disseny: un SEMÀFOR (avisos reals recents prop teu), el radi en 3 botons i la llista
+// d'avisos "davant teu" (en la direcció que circules) i "a prop".
+// El % que es mostra és només l'històric de la zona a aquesta hora (informatiu).
+export default function RadarTab({ radar, dogPhoto, onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
   const {
     active, pos, err, nearby, riskPct, zoneName, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, start, stop,
+    alertRadiusKm, setAlertRadiusKm, start, stop, heading, level,
   } = radar;
-  // Color segons nivell de possibilitat
-  const riskCol = riskPct > 60 ? C.danger : riskPct > 30 ? C.warning : C.success;
-  const threshPct = Math.round(riskThreshold * 100);
-  const threshCol = riskThreshold > 0.6 ? C.danger : riskThreshold > 0.35 ? C.warning : C.success;
+
+  const ahead = nearby.filter(d => d._ahead && d._dist <= alertRadiusKm * 2);
+  const around = nearby.filter(d => !ahead.includes(d) && d._dist <= alertRadiusKm * 2);
+  const closest = (ahead[0] && ahead[0]._dist <= alertRadiusKm) ? ahead[0] : nearby.find(d => d._dist <= alertRadiusKm);
+
+  const LIGHTS = {
+    calm:    { col: C.success, icon: "🟢", title: "Tranquil",        sub: "Cap avís recent dins del radi" },
+    caution: { col: C.warning, icon: "🟡", title: "Precaució",       sub: "Hi ha hagut activitat a la zona" },
+    danger:  { col: C.danger,  icon: "🔴", title: "Control a prop!", sub: "Avís recent dins del radi" },
+  };
+  const L = LIGHTS[active ? level : "calm"];
+  const pType = (d) => PT[d.patrol_type] || PT.unknown;
+  const histCol = riskPct >= 40 ? C.warning : C.textDim;
+
+  const Row = ({ d }) => {
+    const t = pType(d);
+    const inside = d._dist <= alertRadiusKm;
+    const time = d.created_at ? new Date(d.created_at).toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" }) : "?";
+    return (
+      <div onClick={() => onDetTap && onDetTap(d)} style={{ background: inside ? `${C.danger}18` : C.surface, border: `1px solid ${inside ? C.danger + "88" : C.border}`, borderLeft: `3px solid ${t.color}`, borderRadius: 8, padding: "9px 12px", marginBottom: 6, cursor: "pointer" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: t.color, background: `${t.color}22`, padding: "1px 7px", borderRadius: 3 }}>{t.short}</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {d.zone_norm && d.zone_norm !== "Desconeguda" ? d.zone_norm : (d.zone || "Zona desconeguda")}
+          </span>
+          <span style={{ fontSize: 15, fontWeight: 900, color: inside ? C.danger : C.text }}>{d._dist} km</span>
+        </div>
+        {d.raw_message && (
+          <div style={{ fontSize: 11.5, color: C.textDim, fontStyle: "italic", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{d.raw_message}"</div>
+        )}
+        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>fa {d._ageMin} min · {time}{!d._exact ? " · posició aproximada" : ""}</div>
+      </div>
+    );
+  };
 
   return (
     <div>
-      <div style={{ background: C.surface, borderRadius: 12, padding: 16, border: `1px solid ${C.border}`, marginBottom: 12 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 12, color: C.accent }}>🐕 Radar GPS</div>
-        <button onClick={active ? stop : start} style={{ width: "100%", padding: 14, background: active ? C.danger : C.success, color: "#fff", border: "none", borderRadius: 8, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", marginBottom: 12, boxShadow: active ? `0 0 20px ${C.danger}66` : `0 0 20px ${C.success}66` }}>
-          {active ? "⏹ ATURAR RADAR" : "▶ ACTIVAR RADAR GPS"}
+      {/* SEMÀFOR */}
+      <div style={{ background: C.surface, borderRadius: 14, padding: 16, border: `1px solid ${active ? L.col + "88" : C.border}`, marginBottom: 12, boxShadow: active ? `0 0 24px ${L.col}33` : "none" }}>
+        {active ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+            <div style={{ width: 64, height: 64, borderRadius: "50%", flexShrink: 0, background: L.col, boxShadow: `0 0 26px ${L.col}aa`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, animation: level === "danger" ? "rdPulse 1s ease-in-out infinite alternate" : "none" }}>
+              {level === "danger" ? "🚨" : level === "caution" ? "⚠" : "✓"}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 22, fontWeight: 900, color: L.col, lineHeight: 1.1 }}>{L.title}</div>
+              <div style={{ fontSize: 13, color: C.textDim, marginTop: 4, lineHeight: 1.35 }}>
+                {closest
+                  ? <>{pType(closest).short} a <b style={{ color: C.text }}>{closest._dist} km</b>{closest._ahead ? " davant teu" : ""} · fa {closest._ageMin} min</>
+                  : L.sub}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 14 }}>
+            <img src={dogPhoto} alt="" style={{ width: 64, height: 64, borderRadius: "50%", objectFit: "cover", objectPosition: "center 20%", border: `2px solid ${C.accent}55`, flexShrink: 0 }} />
+            <div style={{ fontSize: 13, color: C.textDim, lineHeight: 1.5 }}>
+              Activa el radar i et dirà amb un <b style={{ color: C.text }}>semàfor</b> si hi ha controls reals a prop o en la direcció que circules. Lladra quan n'entra un dins del radi.
+            </div>
+          </div>
+        )}
+
+        <button onClick={active ? stop : start} style={{ width: "100%", padding: 14, background: active ? C.danger : C.success, color: "#fff", border: "none", borderRadius: 10, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", marginBottom: 12, boxShadow: `0 0 18px ${(active ? C.danger : C.success)}55` }}>
+          {active ? "⏹ ATURAR RADAR" : "▶ ACTIVAR RADAR"}
         </button>
-        {err && (
-          <div style={{ background: `${C.danger}22`, border: `1px solid ${C.danger}`, borderRadius: 8, padding: 10, fontSize: 13, color: C.danger, marginBottom: 12 }}>⚠ {err}</div>
-        )}
-        {pos && (
-          <div style={{ background: C.bg, borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>
-            <div style={{ color: C.textDim, marginBottom: 3 }}>📍 Posició actual</div>
-            <div style={{ color: C.text }}>{pos.lat.toFixed(5)}, {pos.lng.toFixed(5)}</div>
-            <div style={{ color: C.textDim, marginTop: 2 }}>Precisió: ±{Math.round(pos.acc)}m</div>
-          </div>
-        )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <span style={{ fontSize: 14, color: C.textDim }}>🔊 Lladruc d'alerta</span>
-          <div onClick={toggleSound} style={{ width: 44, height: 24, borderRadius: 12, background: sound ? C.accent : C.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-            <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
-          </div>
-        </div>
-        {/* Barra de DISTÀNCIA — controla el radi dins del qual es mesura el % */}
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Distància a mesurar</span>
-            <span style={{ fontSize: 14, color: C.accent, fontWeight: 700 }}>{alertRadiusKm} km</span>
-          </div>
-          <input type="range" min={1} max={20} value={alertRadiusKm} onChange={e => setAlertRadiusKm(Number(e.target.value))} style={{ width: "100%", accentColor: riskCol }} />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>1 km</span><span>Mou-la per triar la distància</span><span>20 km</span>
-          </div>
-        </div>
-        {/* Possibilitat de control DINS de la distància triada */}
-        <div style={{ background: C.bg, borderRadius: 8, padding: "12px 12px 10px", border: `1px solid ${active && riskPct > 0 ? riskCol + "66" : C.border}` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>
-              Possibilitat de control dins de <b style={{ color: C.accent }}>{alertRadiusKm} km</b>
-              {active && zoneName ? <span style={{ color: C.textMuted }}> · {zoneName}</span> : null}
-            </span>
-            <span style={{ fontSize: 26, fontWeight: 800, color: active ? riskCol : C.textMuted, lineHeight: 1 }}>{active ? `${riskPct}%` : "—"}</span>
-          </div>
-          <div style={{ height: 10, background: C.border, borderRadius: 5, overflow: "hidden" }}>
-            <div style={{ height: "100%", width: `${active ? riskPct : 0}%`, background: riskCol, borderRadius: 5, transition: "width 0.5s", boxShadow: active && riskPct > 0 ? `0 0 8px ${riskCol}88` : "none" }} />
-          </div>
-          <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
-            {!active ? "Activa el radar per calcular-ho segons on ets, l'hora i la distància triada."
-              : riskPct === 0 ? "Cap activitat dins d'aquesta distància. Prova d'ampliar el radi."
-              : riskPct > 60 ? "🚨 Alta — molt probable trobar un control en aquesta distància"
-              : riskPct > 30 ? "⚠ Moderada — vés amb compte"
-              : "Baixa — poca activitat dins d'aquesta distància"}
+        {err && <div style={{ background: `${C.danger}22`, border: `1px solid ${C.danger}`, borderRadius: 8, padding: 10, fontSize: 13, color: C.danger, marginBottom: 12 }}>⚠ {err}</div>}
+
+        {/* Radi en 3 botons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: C.textDim, flexShrink: 0 }}>Avisa'm a</span>
+          <div style={{ display: "flex", gap: 6, flex: 1 }}>
+            {RADIUS_CHOICES.map(km => (
+              <button key={km} onClick={() => setAlertRadiusKm(km)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: `1px solid ${alertRadiusKm === km ? C.accent : C.border}`, background: alertRadiusKm === km ? C.accent : "transparent", color: alertRadiusKm === km ? C.bg : C.textDim, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>{km} km</button>
+            ))}
           </div>
         </div>
 
-        {/* Llindar de risc (% probabilitat per marcar zones en vermell al mapa) */}
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-            <span style={{ fontSize: 14, color: C.textDim }}>Llindar de risc al mapa</span>
-            <span style={{ fontSize: 18, fontWeight: 900, color: threshCol }}>{threshPct}%</span>
+        {/* So + dades de posició, en una línia */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: C.textDim }}>🔊 Lladruc</span>
+            <div onClick={toggleSound} style={{ width: 44, height: 24, borderRadius: 12, background: sound ? C.accent : C.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+              <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+            </div>
           </div>
-          <input
-            type="range" min={10} max={80} step={5}
-            value={threshPct}
-            onChange={e => setRiskThreshold && setRiskThreshold(Number(e.target.value) / 100)}
-            style={{ width: "100%", accentColor: threshCol }}
-          />
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: C.textMuted, marginTop: 2 }}>
-            <span>Molt sensible (10%)</span><span>Molt estricte (80%)</span>
-          </div>
-          <div style={{ fontSize: 12, color: C.textDim, marginTop: 8, lineHeight: 1.5, background: C.bg, borderRadius: 6, padding: "6px 10px" }}>
-            Les zones del mapa es marquen en <b style={{ color: C.danger }}>vermell</b> quan la probabilitat de patrulla supera el <b style={{ color: threshCol }}>{threshPct}%</b>. Baixa el percentatge per rebre alertes més aviat; puja'l per filtrar les zones amb poca activitat.
-          </div>
+          {active && pos && (
+            <div style={{ fontSize: 11, color: C.textMuted, textAlign: "right" }}>
+              GPS ±{Math.round(pos.acc)} m{heading != null ? ` · ${["N", "NE", "E", "SE", "S", "SO", "O", "NO"][Math.round(heading / 45) % 8]}` : " · aturat"}
+            </div>
+          )}
         </div>
 
-        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 10, lineHeight: 1.5 }}>
-          ↳ Mou la barra de <b style={{ color: C.textDim }}>distància</b> i el % s'actualitza: és la possibilitat de trobar un control dins de <b style={{ color: C.textDim }}>{alertRadiusKm} km</b>, segons les deteccions reals d'aquesta zona (i l'històric per hora). L'alerta sonora salta si n'apareix una de nova dins del radi.
-        </div>
+        {active && zoneName && (
+          <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12, color: C.textDim, display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <span>📊 Històric a {zoneName} a aquesta hora</span>
+            <b style={{ color: histCol }}>{riskPct}%</b>
+          </div>
+        )}
       </div>
 
+      {/* Llistes */}
       {active && (
-        <div>
-          <div style={{ fontSize: 13, color: C.textDim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em", display: "flex", justifyContent: "space-between" }}>
-            <span>Deteccions recents prop teu</span>
-            <span style={{ color: C.textMuted, letterSpacing: 0 }}>{nearby.length} a prop · 2h</span>
+        <>
+          {heading != null && (
+            <>
+              <div style={{ fontSize: 12, color: C.textDim, margin: "4px 0 8px", textTransform: "uppercase", letterSpacing: "0.1em" }}>⬆ Davant teu · darreres 2 h</div>
+              {ahead.length ? ahead.slice(0, 6).map((d, i) => <Row key={`a${i}`} d={d} />) : (
+                <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, marginBottom: 10, fontSize: 13, color: C.textDim, textAlign: "center" }}>Res en la direcció que vas ✓</div>
+              )}
+            </>
+          )}
+          <div style={{ fontSize: 12, color: C.textDim, margin: "10px 0 8px", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            {heading != null ? "↔ Al voltant" : "📍 A prop teu"} · darreres 2 h
           </div>
-          {nearby.length === 0 ? (
-            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16, textAlign: "center" }}>
-              <div style={{ fontSize: 14, color: C.textDim }}>Cap detecció recent a la zona ✓</div>
-            </div>
-          ) : nearby.slice(0, 8).map((d, i) => {
-            const ptype = PT[d.patrol_type] || PT.unknown;
-            const isDanger = d._dist <= alertRadiusKm;
-            const time = d.created_at ? new Date(d.created_at).toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" }) : "?";
-            return (
-              <div key={i} onClick={() => onDetTap && onDetTap(d)} style={{ background: isDanger ? `${C.danger}22` : C.surface, border: `1px solid ${isDanger ? C.danger : C.border}`, borderLeft: `3px solid ${ptype.color}`, borderRadius: 8, padding: "10px 12px", marginBottom: 6, boxShadow: isDanger ? `0 0 12px ${C.danger}44` : "none", cursor: "pointer" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, gap: 8 }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: ptype.color, background: `${ptype.color}22`, padding: "1px 7px", borderRadius: 3 }}>{ptype.short}</span>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: isDanger ? C.danger : C.text }}>{d._dist} km</span>
-                </div>
-                <div style={{ fontSize: 13, color: C.text, marginBottom: 3 }}>
-                  {d.zone_norm || d.zone || "?"}
-                  {!d._exact && <span style={{ fontSize: 11, color: C.textMuted }}> · pos. aprox.</span>}
-                </div>
-                {d.raw_message && (
-                  <div style={{ fontSize: 11, color: C.textDim, fontStyle: "italic", marginBottom: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    "{d.raw_message.substring(0, 60)}"
-                  </div>
-                )}
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: C.textMuted }}>
-                  <span>{isDanger ? "🚨 dins del radi" : "📍 fora del radi"}</span>
-                  <span>fa {d._ageMin} min · {time}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+          {around.length ? around.slice(0, 6).map((d, i) => <Row key={`r${i}`} d={d} />) : (
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, fontSize: 13, color: C.textDim, textAlign: "center" }}>Cap avís recent fins a {alertRadiusKm * 2} km ✓</div>
+          )}
+        </>
       )}
 
-      {!active && (
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 24, textAlign: "center" }}>
-          <img src={dogPhoto} alt="" style={{ width: 96, height: 96, borderRadius: "50%", objectFit: "cover", objectPosition: "center 20%", marginBottom: 12, border: `2px solid ${C.accent}55` }} />
-          <div style={{ fontSize: 15, color: C.text, fontWeight: 700, marginBottom: 6 }}>Radar de patrulles</div>
-          <div style={{ fontSize: 13, color: C.textDim, lineHeight: 1.7 }}>
-            Activa el radar per rebre alertes automàtiques quan una detecció REAL aparegui prop teu. Et lladrarà quan hi hagi perill!
-          </div>
-        </div>
-      )}
-
-      <style>{`@keyframes pulse{from{transform:scale(1)}to{transform:scale(1.02)}}`}</style>
+      <style>{`@keyframes rdPulse{from{transform:scale(1)}to{transform:scale(1.08)}}`}</style>
     </div>
   );
 }

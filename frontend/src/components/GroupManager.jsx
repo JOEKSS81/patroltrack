@@ -3,10 +3,11 @@ import { useC } from "../lib/themes";
 import { API } from "../lib/constants";
 
 // Gestió dels grups de WhatsApp i Telegram que alimenten l'app.
-// Cada persona (tu o un amic amb el token) pot afegir, activar o desactivar els seus grups.
-//  - WhatsApp: els grups nous que arriben de MacroDroid surten com a "Nous" fins que algú els activa.
-//  - Telegram: afegir el bot al grup ja l'activa; aquí es pot desactivar.
-const MACRODROID_BODY = '{"message":"[notification]","group_name":"[notification_title]","source":"whatsapp"}';
+// Els grups APAREIXEN SOLS: quan el mòbil d'algú (MacroDroid) en rep la primera
+// notificació, surten a "Nous" i només cal triar Seguir o Ignorar. Ja no s'escriuen
+// noms a mà ni s'afegeix cap bot (molts grups de Telegram no deixen entrar bots).
+// Cos de la petició de MacroDroid: el text màgic va entre {claus}.
+const macroBody = (source) => `{"message":"{notification}","group_name":"{not_title}","source":"${source}"}`;
 const NICK_KEY = "pt_nick";
 
 const SourceBadge = ({ source }) => {
@@ -32,10 +33,8 @@ export default function GroupManager({ apiToken }) {
   const [groups, setGroups] = useState(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
-  const [newName, setNewName] = useState("");
-  const [newSource, setNewSource] = useState("whatsapp");
-  const [nick, setNick] = useState(() => { try { return localStorage.getItem(NICK_KEY) || ""; } catch { return ""; } });
-  const [copied, setCopied] = useState(false);
+  const [nick] = useState(() => { try { return localStorage.getItem(NICK_KEY) || ""; } catch { return ""; } });
+  const [copied, setCopied] = useState(null);
   const [showHelp, setShowHelp] = useState(false);
 
   const call = useCallback(async (path, body) => {
@@ -82,24 +81,10 @@ export default function GroupManager({ apiToken }) {
     setBusy(null);
   };
 
-  const add = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    try { localStorage.setItem(NICK_KEY, nick); } catch { /* */ }
-    setBusy("add");
-    try {
-      await call("/api/group-settings", { source: newSource, name, status: "active", added_by: nick || undefined });
-      setNewName("");
-      await load();
-    } catch (e) { setError(e.message); }
-    setBusy(null);
+  const copyBody = (source) => {
+    navigator.clipboard?.writeText(macroBody(source)).then(() => { setCopied(source); setTimeout(() => setCopied(null), 1500); }).catch(() => {});
   };
 
-  const copyBody = () => {
-    navigator.clipboard?.writeText(MACRODROID_BODY).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
-  };
-
-  const input = { flex: 1, minWidth: 0, padding: "9px 10px", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, fontFamily: "inherit", outline: "none" };
   const btn = (bg, fg) => ({ background: bg, color: fg, border: "none", borderRadius: 7, padding: "7px 11px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 });
 
   if (!apiToken) {
@@ -110,30 +95,15 @@ export default function GroupManager({ apiToken }) {
     );
   }
 
-  const pending = (groups || []).filter((g) => g.status === "pending");
+  // Els nous, primer els que porten més missatges (els xats privats solen quedar a baix)
+  const pending = (groups || []).filter((g) => g.status === "pending").sort((a, b) => (b.hits || 0) - (a.hits || 0));
   const rest = (groups || []).filter((g) => g.status !== "pending");
 
   return (
     <div style={{ textAlign: "left" }}>
-      {/* Afegir grup */}
-      <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 10, marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>➕ Afegir un grup</div>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-          {[["whatsapp", "WhatsApp"], ["telegram", "Telegram"]].map(([k, l]) => (
-            <button key={k} onClick={() => setNewSource(k)} style={{ flex: 1, padding: "7px", borderRadius: 7, border: `1px solid ${newSource === k ? C.accent : C.border}`, background: newSource === k ? C.accentDim : "transparent", color: newSource === k ? C.accent : C.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{l}</button>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
-          <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()}
-            placeholder="Nom exacte del grup" style={input} />
-          <button onClick={add} disabled={!newName.trim() || busy === "add"} style={{ ...btn(C.accent, C.bg), opacity: newName.trim() ? 1 : 0.5 }}>{busy === "add" ? "…" : "Afegir"}</button>
-        </div>
-        <input value={nick} onChange={(e) => setNick(e.target.value)} placeholder="El teu nom (opcional, perquè se sàpiga qui l'ha afegit)" style={{ ...input, width: "100%", boxSizing: "border-box", fontSize: 12, padding: "7px 10px" }} />
-        <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, lineHeight: 1.4 }}>
-          {newSource === "whatsapp"
-            ? "Escriu-lo tal com surt a WhatsApp. També pots no escriure res: quan arribi el primer missatge, el grup sortirà a «Nous» i només caldrà activar-lo."
-            : "Amb el bot: afegeix-lo al grup amb el botó de Telegram de més amunt i el grup sortirà aquí sol. Escriu el nom només si el llegeixes amb MacroDroid."}
-        </div>
+      <div style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginBottom: 12 }}>
+        Els grups <b style={{ color: C.text }}>apareixen sols</b> quan el teu mòbil (MacroDroid) en rep la primera notificació.
+        Toca <b style={{ color: C.success }}>Seguir</b> als grups d'avisos i <b>Ignorar</b> als xats privats o grups que no en són: d'aquests no es desa res.
       </div>
 
       {error && <div style={{ fontSize: 12, color: C.danger, marginBottom: 8 }}>⚠ {error}</div>}
@@ -142,7 +112,7 @@ export default function GroupManager({ apiToken }) {
       {/* Grups nous pendents */}
       {pending.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.warning, marginBottom: 6 }}>🆕 Nous ({pending.length}): activa'ls perquè els seus avisos surtin a l'app</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.warning, marginBottom: 6 }}>🆕 Nous ({pending.length}): tria si els segueixes</div>
           {pending.map((g) => (
             <div key={`${g.source}|${g.name}`} style={{ background: C.bg, border: `1px solid ${C.warning}66`, borderLeft: `3px solid ${C.warning}`, borderRadius: 8, padding: "8px 10px", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -151,8 +121,8 @@ export default function GroupManager({ apiToken }) {
                   <SourceBadge source={g.source} /> {g.hits} missatge{g.hits === 1 ? "" : "s"} rebut{g.hits === 1 ? "" : "s"}
                 </div>
               </div>
-              <button onClick={() => setStatus(g, "active")} disabled={!!busy} style={btn(C.success, C.bg)}>Activar</button>
-              <button onClick={() => setStatus(g, "off")} disabled={!!busy} style={btn("transparent", C.textDim)}>Ignorar</button>
+              <button onClick={() => setStatus(g, "active")} disabled={!!busy} style={btn(C.success, C.bg)}>✅ Seguir</button>
+              <button onClick={() => setStatus(g, "off")} disabled={!!busy} style={btn("transparent", C.textDim)}>🚫 Ignorar</button>
             </div>
           ))}
         </div>
@@ -179,28 +149,30 @@ export default function GroupManager({ apiToken }) {
         );
       })}
       {groups && groups.length === 0 && (
-        <div style={{ padding: 12, background: C.bg, borderRadius: 8, border: `1px dashed ${C.border}`, fontSize: 13, color: C.textDim, textAlign: "center" }}>Encara no hi ha cap grup. Afegeix-ne un a dalt.</div>
+        <div style={{ padding: 12, background: C.bg, borderRadius: 8, border: `1px dashed ${C.border}`, fontSize: 13, color: C.textDim, textAlign: "center" }}>Encara no ha arribat cap notificació. Configura MacroDroid (guia a sota) i els grups sortiran aquí.</div>
       )}
 
-      {/* Ajuda per als amics */}
+      {/* Guia (per a tu i per als amics) */}
       <button onClick={() => setShowHelp(!showHelp)} style={{ ...btn("transparent", C.accent), padding: "8px 0", marginTop: 4 }}>
-        {showHelp ? "▾" : "▸"} Com connecta un amic els seus grups de WhatsApp?
+        {showHelp ? "▾" : "▸"} Guia: com connectar els grups d'un mòbil (MacroDroid)
       </button>
       {showHelp && (
-        <div style={{ fontSize: 12, color: C.textDim, lineHeight: 1.55, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
-          <div>1. Obre l'<b>enllaç personal</b> que t'ha enviat l'administrador (Config → 🤝 Amics): l'app queda configurada amb el teu accés.</div>
-          <div>2. Instal·la <b>MacroDroid</b> i dona-li accés a les notificacions.</div>
-          <div>3. Crea una macro: <b>Disparador</b> Notificació rebuda → WhatsApp. <b>Acció</b> Petició HTTP POST a<br />
-            <code style={{ fontSize: 11, color: C.text, wordBreak: "break-all" }}>{API || window.location.origin}/api/ingest</code><br />
-            amb la capçalera <code style={{ color: C.text }}>x-ingest-token</code> = el teu token (Config → Assistent) i aquest cos:</div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0" }}>
-            <code style={{ flex: 1, fontSize: 10.5, color: C.text, background: C.surface, padding: 6, borderRadius: 6, wordBreak: "break-all" }}>{MACRODROID_BODY}</code>
-            <button onClick={copyBody} style={btn(C.accent, C.bg)}>{copied ? "✓" : "Copiar"}</button>
-          </div>
-          <div>Per a <b>Telegram</b> no cal MacroDroid: el botó «Afegir el meu grup» de més amunt hi afegeix el bot i el grup queda vinculat al teu accés.</div>
-          <div>4. Quan arribi el primer missatge d'un grup, sortirà aquí a <b>🆕 Nous</b>: toca <b>Activar</b>. Els xats privats o els grups que no vulguis, toca <b>Ignorar</b> i no se'n desarà res.</div>
-          <div style={{ marginTop: 4 }}>El grup no pot estar silenciat: si WhatsApp no mostra la notificació, MacroDroid no la veu.</div>
-          <div style={{ marginTop: 8 }}><b>Sense MacroDroid:</b> a WhatsApp, mantén premut un avís → <b>Compartir</b> → <b>PatrolTrack</b> i toca Enviar. Cal tenir l'app afegida a la pantalla d'inici (Android). Si no surt a la llista, treu-la de la pantalla d'inici i torna-la a afegir.</div>
+        <div style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.6, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8, padding: 10 }}>
+          <div style={{ marginBottom: 6, color: C.text }}>Sense això l'app funciona igual (es veuen tots els avisos), però els missatges dels <b>teus</b> grups no hi entren.</div>
+          <div><b>1.</b> Obre l'<b>enllaç personal</b> que t'ha passat l'administrador (Config → 🤝 Amics). L'app queda amb el teu accés.</div>
+          <div><b>2.</b> Instal·la <b>MacroDroid</b> i dona-li <b>accés a les notificacions</b>. Al mòbil, permet-li l'activitat en segon pla (Ajustos → Aplicacions → MacroDroid → Bateria).</div>
+          <div><b>3.</b> Crea una macro per a <b>WhatsApp</b>: disparador <i>Notificació rebuda → WhatsApp</i>; acció <i>Petició HTTP</i>, mètode <b>POST</b>, URL</div>
+          <code style={{ display: "block", fontSize: 11, color: C.text, wordBreak: "break-all", margin: "3px 0" }}>{API || window.location.origin}/api/ingest</code>
+          <div>capçalera <code style={{ color: C.text }}>x-ingest-token</code> = el teu token (Config → Assistent → pas 1 → Copiar), tipus <code style={{ color: C.text }}>application/json</code> i aquest cos:</div>
+          {["whatsapp", "telegram"].map((src) => (
+            <div key={src} style={{ display: "flex", gap: 6, alignItems: "center", margin: "4px 0" }}>
+              <code style={{ flex: 1, fontSize: 10.5, color: C.text, background: C.surface, padding: 6, borderRadius: 6, wordBreak: "break-all" }}>{macroBody(src)}</code>
+              <button onClick={() => copyBody(src)} style={btn(C.accent, C.bg)}>{copied === src ? "✓" : (src === "whatsapp" ? "WhatsApp" : "Telegram")}</button>
+            </div>
+          ))}
+          <div><b>4.</b> Clona la macro per a <b>Telegram</b> (o Plus Messenger) i fes servir el segon cos (acaba en <code style={{ color: C.text }}>"telegram"</code>).</div>
+          <div><b>5.</b> Quan arribi el primer missatge d'un grup, sortirà aquí a <b>🆕 Nous</b>: toca <b>Seguir</b>. Els grups <b>no poden estar silenciats</b>.</div>
+          <div style={{ marginTop: 8 }}><b>Sense MacroDroid:</b> mantén premut un avís a WhatsApp o Telegram → <b>Compartir</b> → <b>PatrolTrack</b> → Enviar (cal tenir l'app a la pantalla d'inici).</div>
         </div>
       )}
     </div>
