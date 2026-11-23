@@ -1,6 +1,7 @@
 // PatrolTrack — Cloudflare Worker API
 // Ingestion compatible con Tasker/WhatsApp y Telegram Bot API.
-import { extractPatrolInfo } from "./extractor";
+import { extractPatrolInfo, classifyFollowUp, type FollowUp } from "./extractor";
+import { buildModel, zoneProbsResponse, probabilityResponse, type DetRow, type EventRow, type Model } from "./risk";
 
 export interface Env {
   DB: D1Database;
@@ -161,14 +162,99 @@ function messageKey(text: string): string {
 // la notificació agrupada hores després). Es considera repetit si ja s'ha desat un avís
 // amb el mateix text, de QUALSEVOL grup o font, en les darreres 12 hores.
 const DUPLICATE_WINDOW_MS = 12 * 3600 * 1000;
-async function isRecentDuplicate(env: Env, message: string): Promise<boolean> {
+async function findRecentDuplicate(env: Env, message: string): Promise<{ id: number; group_name: string | null; source: string } | null> {
   const key = messageKey(message);
-  if (!key) return false;
+  if (!key) return null;
   const since = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
   const rs = await env.DB.prepare(
-    "SELECT raw_message FROM detections WHERE created_at > ? ORDER BY created_at DESC LIMIT 300",
+    "SELECT id, group_name, source, raw_message FROM detections WHERE created_at > ? ORDER BY created_at DESC LIMIT 300",
+  ).bind(since).all<{ id: number; group_name: string | null; source: string; raw_message: string | null }>();
+  return (rs.results ?? []).find((r) => r.raw_message != null && messageKey(r.raw_message) === key) ?? null;
+}
+async function isRecentDuplicate(env: Env, message: string): Promise<boolean> {
+  return (await findRecentDuplicate(env, message)) !== null;
+}
+
+// ── Seguiment dels controls (patrol_events) ──────────────────────────────────
+// echo:    el mateix avís ha arribat per un altre grup (més gent l'ha vist)
+// still:   "segueixen", "encara hi són", "sí" a un "encara estan?"
+// cleared: "ja han marxat", "fins Escaló net", "no" a un "encara estan?"
+// ask:     "encara estan?" (per entendre el sí/no que ve després)
+// Amb això es mesura quanta estona dura cada control i es calcula la possibilitat.
+async function addPatrolEvent(
+  env: Env, kind: string, detectionId: number | null, zone: string | null,
+  source: string, groupName: string, message: string,
+): Promise<void> {
+  await env.DB.prepare(`
+    INSERT INTO patrol_events (created_at, kind, detection_id, zone_norm, source, group_name, raw_message)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).bind(new Date().toISOString(), kind, detectionId, zone, source.slice(0, 20),
+    groupName.slice(0, MAX_GROUP_LENGTH), message.slice(0, MAX_RAW_MESSAGE_LENGTH)).run();
+  riskCache = null;
+}
+
+async function recordEcho(env: Env, original: { id: number; group_name: string | null; source: string }, source: string, groupName: string): Promise<void> {
+  if (!groupName || original.group_name === groupName) return; // la mateixa notificació repetida
+  try {
+    const seen = await env.DB.prepare(
+      "SELECT 1 FROM patrol_events WHERE kind = 'echo' AND detection_id = ? AND group_name = ? LIMIT 1",
+    ).bind(original.id, groupName).first();
+    if (!seen) await addPatrolEvent(env, "echo", original.id, null, source, groupName, "");
+  } catch (error) {
+    console.error("recordEcho failed", error);
+  }
+}
+
+// Avís a què es refereix un seguiment: el darrer de la zona (6 h) o, si el missatge no
+// diu zona, el darrer de tots (3 h).
+async function followUpTarget(env: Env, zone: string | null): Promise<{ id: number; zone_norm: string } | null> {
+  const now = Date.now();
+  if (zone) {
+    return await env.DB.prepare(
+      "SELECT id, zone_norm FROM detections WHERE zone_norm = ? AND created_at > ? ORDER BY created_at DESC LIMIT 1",
+    ).bind(zone, new Date(now - 6 * 3600_000).toISOString()).first<{ id: number; zone_norm: string }>();
+  }
+  return await env.DB.prepare(
+    "SELECT id, zone_norm FROM detections WHERE created_at > ? ORDER BY created_at DESC LIMIT 1",
+  ).bind(new Date(now - 3 * 3600_000).toISOString()).first<{ id: number; zone_norm: string }>();
+}
+
+// Retorna el resultat per al registre d'ingest (followup_still, followup_cleared…) o null.
+async function handleFollowUp(env: Env, fu: FollowUp, message: string, source: string, groupName: string): Promise<string | null> {
+  const key = messageKey(message);
+  // Repetits: les respostes curtes ("no", "sí") només 30 min; la resta, 12 h.
+  const short = fu.kind === "yes" || fu.kind === "no";
+  const since = new Date(Date.now() - (short ? 30 * 60_000 : DUPLICATE_WINDOW_MS)).toISOString();
+  const prev = await env.DB.prepare(
+    "SELECT raw_message FROM patrol_events WHERE created_at > ? AND kind != 'echo' ORDER BY created_at DESC LIMIT 200",
   ).bind(since).all<{ raw_message: string | null }>();
-  return (rs.results ?? []).some((r) => r.raw_message != null && messageKey(r.raw_message) === key);
+  if ((prev.results ?? []).some((r) => r.raw_message != null && messageKey(r.raw_message) === key)) return "followup_duplicate";
+
+  if (short) {
+    // Resposta a un "encara estan?" fet fa menys de 45 min (millor si és del mateix grup)
+    const ask = await env.DB.prepare(`
+      SELECT detection_id, zone_norm FROM patrol_events
+      WHERE kind = 'ask' AND created_at > ?
+      ORDER BY (group_name = ?) DESC, created_at DESC LIMIT 1
+    `).bind(new Date(Date.now() - 45 * 60_000).toISOString(), groupName)
+      .first<{ detection_id: number | null; zone_norm: string | null }>();
+    if (!ask) return null;
+    const kind = fu.kind === "yes" ? "still" : "cleared";
+    await addPatrolEvent(env, kind, ask.detection_id, ask.zone_norm, source, groupName, message);
+    return `followup_${kind}`;
+  }
+
+  const target = await followUpTarget(env, fu.zone_norm);
+  if (!target) {
+    // "Fins Escaló net" sense cap avís previ: igualment diu que la zona està neta.
+    if (fu.kind === "cleared" && fu.zone_norm) {
+      await addPatrolEvent(env, "cleared", null, fu.zone_norm, source, groupName, message);
+      return "followup_cleared";
+    }
+    return null;
+  }
+  await addPatrolEvent(env, fu.kind, target.id, fu.zone_norm ?? target.zone_norm, source, groupName, message);
+  return `followup_${fu.kind}`;
 }
 
 async function storeDetection(
@@ -330,15 +416,30 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     });
   }
 
-  // Repetits: mateix text ja desat en 12 h, de qualsevol grup (vegeu isRecentDuplicate).
-  if (sourceRaw !== "manual" && await isRecentDuplicate(env, message)) {
+  // Repetits: mateix text ja desat en 12 h, de qualsevol grup (vegeu findRecentDuplicate).
+  // Si arriba per un altre grup, es compta (més grups = avís més creïble).
+  const original = sourceRaw !== "manual" ? await findRecentDuplicate(env, message) : null;
+  if (original) {
+    await recordEcho(env, original, sourceRaw, groupName);
     await logIngestHit(env, "duplicate", sourceRaw, groupName, message);
     return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
   }
 
   const result = await storeDetection(env, message, groupName, sourceRaw);
-  await logIngestHit(env, result.stored ? "stored" : "not_patrol", sourceRaw, groupName, message);
-  if (!result.stored) return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
+  if (!result.stored) {
+    // No és un avís nou: potser és el seguiment d'un ("segueixen", "ja han marxat"...)
+    const fu = sourceRaw !== "manual" ? classifyFollowUp(message) : null;
+    let outcome: string | null = null;
+    if (fu) {
+      try { outcome = await handleFollowUp(env, fu, message, sourceRaw, groupName); }
+      catch (error) { console.error("handleFollowUp failed", error); }
+    }
+    await logIngestHit(env, outcome ?? "not_patrol", sourceRaw, groupName, message);
+    if (outcome && outcome !== "followup_duplicate") return json({ ok: true, stored: false, follow_up: fu?.kind, outcome });
+    return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
+  }
+  riskCache = null;
+  await logIngestHit(env, "stored", sourceRaw, groupName, message);
   return json({
     ok: true, stored: true, id: result.id,
     patrol_type: result.info?.patrol_type,
@@ -441,6 +542,7 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
     await logTelegramHit(env, "duplicate", { chat_id: chatId, chat_title: chatTitle });
     return json({ ok: true, stored: false, duplicate: true });
   }
+  riskCache = null;
   await logTelegramHit(env, "stored", { chat_id: chatId, chat_title: chatTitle, text });
   return json({ ok: true, stored: true, id: result.id, patrol_type: result.info.patrol_type, zone_norm: result.info.zone_norm, chat_id: chatId ?? null });
 }
@@ -461,14 +563,6 @@ async function handleDetections(env: Env, url: URL): Promise<Response> {
   return json(rows.results ?? []);
 }
 
-const WEIGHTS: Record<string, number> = { alta: 1, mitja: 0.6, baixa: 0.3 };
-function timeDecay(createdAt: string): number {
-  const timestamp = Date.parse(createdAt);
-  if (!Number.isFinite(timestamp)) return 0.5;
-  const days = Math.max(0, (Date.now() - timestamp) / 86_400_000);
-  return days <= 7 ? 1 : days <= 30 ? 0.7 : days <= 90 ? 0.4 : 0.2;
-}
-
 // GET /api/groups — grups DESCOBERTS automàticament: els que han enviat missatges
 // reals de patrulla (bot de Telegram o WhatsApp/Tasker).
 async function handleGroups(env: Env): Promise<Response> {
@@ -486,33 +580,45 @@ async function handleGroups(env: Env): Promise<Response> {
   return json(rs.results ?? []);
 }
 
+// ── Possibilitat de trobar un control (vegeu risk.ts) ─────────────────────────
+// El model es calcula amb tot l'històric (180 dies) i es guarda 30 s a memòria: totes
+// les pantalles de tots els mòbils el demanen sovint. Un avís nou l'invalida.
+let riskCache: { at: number; model: Model } | null = null;
+const RISK_TTL_MS = 30_000;
+async function getRiskModel(env: Env): Promise<Model> {
+  const now = Date.now();
+  if (riskCache && now - riskCache.at < RISK_TTL_MS) return riskCache.model;
+  const since = new Date(now - 181 * 86_400_000).toISOString();
+  const [dets, events] = await Promise.all([
+    env.DB.prepare(`
+      SELECT id, created_at, zone_norm, patrol_type, confidence, group_name, source FROM detections
+      WHERE created_at > ? AND source != 'test' ORDER BY created_at LIMIT 5000
+    `).bind(since).all<DetRow>(),
+    env.DB.prepare(`
+      SELECT id, created_at, kind, detection_id, zone_norm, group_name FROM patrol_events
+      WHERE created_at > ? ORDER BY created_at LIMIT 5000
+    `).bind(since).all<EventRow>().catch(() => ({ results: [] as EventRow[] })),
+  ]);
+  const model = buildModel(dets.results ?? [], events.results ?? [], now);
+  riskCache = { at: now, model };
+  return model;
+}
+
+async function handleZoneProbs(env: Env): Promise<Response> {
+  return json(zoneProbsResponse(await getRiskModel(env)));
+}
+
 async function handleProbability(env: Env, url: URL): Promise<Response> {
   const zone = url.searchParams.get("zone")?.trim();
+  if (!zone) return json({ error: "zone és obligatori" }, 400);
+  // Sense hour/dow: ara mateix (així el mòbil no depèn de la seva zona horària).
   const hourRaw = url.searchParams.get("hour");
-  if (!zone || hourRaw === null) return json({ error: "zone i hour són obligatoris" }, 400);
-  const hour = Number(hourRaw);
-  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return json({ error: "hour ha de ser 0-23" }, 400);
-  const hours = [(hour + 23) % 24, hour, (hour + 1) % 24];
-  const rows = await env.DB.prepare(`
-    SELECT patrol_type, confidence, created_at FROM detections
-    WHERE zone_norm = ? AND hour IN (?, ?, ?) ORDER BY created_at DESC LIMIT 500
-  `).bind(zone, ...hours).all<{ patrol_type: string; confidence: string; created_at: string }>();
-  const scores = { mossos: 0, guardia: 0, local: 0 };
-  const counts = { mossos: 0, guardia: 0, local: 0 };
-  for (const row of rows.results ?? []) {
-    if (!(row.patrol_type in scores)) continue;
-    const type = row.patrol_type as keyof typeof scores;
-    scores[type] += (WEIGHTS[row.confidence] ?? 0.5) * timeDecay(row.created_at);
-    counts[type]++;
-  }
-  const result = {
-    mossos: Math.round(Math.min(scores.mossos / 28, 1) * 1000) / 1000,
-    guardia: Math.round(Math.min(scores.guardia / 28, 1) * 1000) / 1000,
-    local: Math.round(Math.min(scores.local / 28, 1) * 1000) / 1000,
-  };
-  const n = rows.results?.length ?? 0;
-  const overall = Math.max(result.mossos, result.guardia, result.local);
-  return json({ zone, hour, ...result, overall, sample_size: n, reliability: n >= 20 ? "alta" : n >= 5 ? "mitja" : n ? "baixa" : "cap dada" });
+  const hour = hourRaw === null || hourRaw === "" ? null : Number(hourRaw);
+  if (hour !== null && (!Number.isInteger(hour) || hour < 0 || hour > 23)) return json({ error: "hour ha de ser 0-23" }, 400);
+  const dowRaw = url.searchParams.get("dow");
+  const dow = dowRaw === null || dowRaw === "" ? null : Number(dowRaw);
+  if (dow !== null && (!Number.isInteger(dow) || dow < 0 || dow > 6)) return json({ error: "dow ha de ser 0-6" }, 400);
+  return json(probabilityResponse(await getRiskModel(env), zone, hour, dow));
 }
 
 async function handleIngestFingerprint(env: Env): Promise<Response> {
@@ -604,7 +710,11 @@ async function handleDeleteByGroup(env: Env, req: Request): Promise<Response> {
   if (!isRecord(parsed)) return json({ ok: false, reason: "cos invàlid" }, 400);
   const groupName = stringValue(parsed.group_name).trim();
   if (!groupName) return json({ ok: false, reason: "group_name buit" }, 400);
-  const result = await env.DB.prepare("DELETE FROM detections WHERE group_name = ?").bind(groupName).run();
+  const [, result] = await env.DB.batch([
+    env.DB.prepare("DELETE FROM patrol_events WHERE detection_id IN (SELECT id FROM detections WHERE group_name = ?)").bind(groupName),
+    env.DB.prepare("DELETE FROM detections WHERE group_name = ?").bind(groupName),
+  ]);
+  riskCache = null;
   return json({ ok: true, deleted: result.meta?.changes ?? 0, group_name: groupName });
 }
 
@@ -661,7 +771,11 @@ async function handleDetectionDelete(env: Env, req: Request, url: URL): Promise<
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   const id = isRecord(body) && typeof body.id === "number" ? body.id : null;
   if (id === null) return json({ ok: false, reason: "id invàlid" }, 400);
-  const r = await env.DB.prepare("DELETE FROM detections WHERE id = ?").bind(id).run();
+  const [r] = await env.DB.batch([
+    env.DB.prepare("DELETE FROM detections WHERE id = ?").bind(id),
+    env.DB.prepare("DELETE FROM patrol_events WHERE detection_id = ?").bind(id),
+  ]);
+  riskCache = null;
   return json({ ok: true, deleted: r.meta?.changes ?? 0 });
 }
 
@@ -946,6 +1060,7 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/health") return await handleHealth(env);
       if (req.method === "GET" && url.pathname === "/api/detections") return await handleDetections(env, url);
       if (req.method === "GET" && url.pathname === "/api/probability") return await handleProbability(env, url);
+      if (req.method === "GET" && url.pathname === "/api/zone-probs") return await handleZoneProbs(env);
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);

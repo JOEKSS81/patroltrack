@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import dogComic from "./assets/dog-comic.webp";
 import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
-import { computeZoneProbs, computeHourly, distKm } from "./lib/utils";
+import { computeHourly, distKm } from "./lib/utils";
+import { zoneStatus, durText, pct } from "./lib/risk";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
@@ -81,7 +82,10 @@ export default function App(){
   const [queryPK,setQueryPK]=useState("");
   const [showPkPicker,setShowPkPicker]=useState(false);
   const [queryResult,setQueryResult]=useState(null);
-  const [zoneProbs,setZoneProbs]=useState({});
+  // Model de possibilitat del servidor (/api/zone-probs): per zona, ara mateix.
+  // Té en compte els avisos en viu, quanta estona sol durar un control i l'històric.
+  const [risk,setRisk]=useState(()=>{try{const r=JSON.parse(localStorage.getItem("pt_risk")||"null");return r&&r.zones?r:null;}catch{return null;}});
+  const zoneProbs=useMemo(()=>{const p={};if(risk&&risk.zones)for(const[z,v]of Object.entries(risk.zones))p[z]=v.p||0;return p;},[risk]);
   const [filterType,setFilterType]=useState("all");
   const [newAlert,setNewAlert]=useState(null);
   const [online,setOnline]=useState(true);
@@ -98,7 +102,7 @@ export default function App(){
   // App és qui munta el Provider).
   const C = currentTheme;
 
-  const radar=useRadar(detections);
+  const radar=useRadar(detections,risk&&risk.detections);
   // Segueix la teva zona: amb el radar actiu, a cada posició nova…
   useEffect(()=>{ if(radar.pos) followMyZone(radar.pos.lat,radar.pos.lng); },[radar.pos]); // eslint-disable-line react-hooks/exhaustive-deps
   // …i, en obrir l'app, si el permís d'ubicació ja està donat (sense tornar a preguntar).
@@ -340,24 +344,6 @@ export default function App(){
     finally{setReporting(false);}
   };
 
-  // Probabilitat per zona basada en deteccions REALS (no sintètic).
-  // Norma per la zona més activa per tenir valors 0-1.
-  const computeZoneProbs=(dets)=>{
-    const counts={};
-    MAP_ZONES.forEach(z=>{counts[z.id]=0;});
-    const cutoff=Date.now()-7*24*3600*1000; // setmana
-    for(const d of dets){
-      const ts=d.created_at?new Date(d.created_at).getTime():0;
-      if(ts<cutoff)continue;
-      const z=d.zone_norm||d.zone;
-      if(z in counts)counts[z]++;
-    }
-    const max=Math.max(1,...Object.values(counts));
-    const p={};
-    for(const k in counts) p[k]=counts[k]/max;
-    return p;
-  };
-
   // Distribució per hora de les deteccions d'una zona (per al gràfic del dashboard)
   const computeHourly=(dets,zone)=>{
     const out=Array(24).fill(0);
@@ -377,7 +363,7 @@ export default function App(){
   useEffect(()=>{
     try{
       const cd=localStorage.getItem("pt_detections");
-      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;setZoneProbs(computeZoneProbs(arr));}}
+      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;}}
       const ch=localStorage.getItem("pt_health");if(ch)setHealth(JSON.parse(ch));
       const ls=localStorage.getItem("pt_lastSync");if(ls)setLastSync(Number(ls));
     }catch{}
@@ -392,10 +378,13 @@ export default function App(){
     const fetch2=async()=>{
       let ok=false;
       try{
-        const[hr,dr]=await Promise.all([
+        const[hr,dr,rr]=await Promise.all([
           fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
           fetch(`${API}/api/detections?limit=500`,{cache:"no-store"}).catch(()=>null),
+          fetch(`${API}/api/zone-probs`,{cache:"no-store"}).catch(()=>null),
         ]);
+        const rk=rr&&rr.ok?await rr.json().catch(()=>null):null;
+        if(rk&&rk.zones&&aliveRef.current){setRisk(rk);try{localStorage.setItem("pt_risk",JSON.stringify(rk));}catch{}}
         const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
         const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
         if(!aliveRef.current)return;
@@ -405,7 +394,6 @@ export default function App(){
           prevCount.current=d.length;
           setDetections(d);
           try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
-          setZoneProbs(computeZoneProbs(d));
           ok=true;
         }
       }catch{/* deixa l'estat anterior intacte */}
@@ -524,7 +512,7 @@ export default function App(){
     setQuerying(true);
     setQueryResult(null);
     try{
-      const r=await fetch(`${API}/api/probability?zone=${encodeURIComponent(queryZone)}&hour=${queryHour}`);
+      const r=await fetch(`${API}/api/probability?zone=${encodeURIComponent(queryZone)}&hour=${queryHour}&dow=${queryDay}`);
       if(!r.ok)throw new Error("Servidor: HTTP "+r.status);
       const data=await r.json();
       if(typeof data.overall!=="number")throw new Error("Resposta invàlida del servidor");
@@ -721,9 +709,21 @@ export default function App(){
                   </div>
                   <div style={{textAlign:"right",flexShrink:0,marginLeft:10}}>
                     <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
-                    <div style={{fontSize:10,color:C.textMuted}}>relativa setm.</div>
+                    <div style={{fontSize:10,color:C.textMuted}}>possibilitat ara</div>
                   </div>
                 </div>
+
+                {/* Estat ara: control actiu / ja han marxat / històric */}
+                {(()=>{
+                  const st=zoneStatus(risk&&risk.zones&&risk.zones[selectedZone],risk&&risk.model);
+                  const col=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  return(
+                    <div style={{background:st.tone==="neutral"?C.bg:`${col}14`,border:`1px solid ${st.tone==="neutral"?C.border:col+"66"}`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                      <div style={{fontSize:13,color:C.text,lineHeight:1.4}}><b style={{color:st.tone==="neutral"?C.text:col}}>{st.title}</b>{st.line?<span style={{color:C.textDim}}> · {st.line}</span>:null}</div>
+                      {st.hint&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ {st.hint}</div>}
+                    </div>
+                  );
+                })()}
 
                 {/* Per tipus REAL */}
                 <div style={{display:"flex",gap:6,marginBottom:zoneDets.length>0?10:0,flexWrap:"wrap"}}>
@@ -824,7 +824,7 @@ export default function App(){
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
-        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
         {tab==="query"&&(
@@ -878,7 +878,7 @@ export default function App(){
                   ))}
                 </div>
                 <div style={{fontSize:11,color:C.textMuted,marginTop:4}}>
-                  Es consulta la franja <b style={{color:C.textDim}}>{String((queryHour+23)%24).padStart(2,"0")}–{String((queryHour+1)%24).padStart(2,"0")} h</b> (l'hora triada ±1).
+                  Es mira la franja <b style={{color:C.textDim}}>{String(queryHour).padStart(2,"0")}:30 ± 45 min</b> i els dies {[0,6].includes(queryDay)?"de cap de setmana":"feiners"} (els recents pesen més).
                 </div>
               </div>
               <button onClick={handleQuery} disabled={querying} style={{width:"100%",padding:12,background:querying?C.border:C.accent,color:querying?C.textDim:"#000",border:"none",borderRadius:8,fontSize:16,fontWeight:800,cursor:querying?"wait":"pointer",fontFamily:"inherit",opacity:querying?0.7:1}}>{querying?"CONSULTANT…":"CONSULTAR"}</button>
@@ -889,12 +889,18 @@ export default function App(){
                   <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.danger}}>⚠ {queryResult.error}</div>
                 )}
                 {!queryResult.error&&queryResult.sample_size===0&&(
-                  <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.warning}}>📭 Encara no hi ha registres per a aquesta zona/hora. Cal que arribin més deteccions a la base de dades.</div>
+                  <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.warning}}>📭 Encara no s'ha avisat de cap control en aquesta zona. Com més avisos arribin, més precís serà.</div>
                 )}
                 <div style={{textAlign:"center",marginBottom:14}}>
                   <div style={{fontSize:13,color:C.textDim,marginBottom:4}}>{queryZone}{queryResult.pk?` · ${queryResult.pk}`:""} · {DAYS_FULL[queryResult.day]} · {queryHour}:00h</div>
                   <div style={{fontSize:64,fontWeight:900,lineHeight:1,color:(queryResult.overall||0)>0.6?C.danger:(queryResult.overall||0)>0.35?C.warning:C.success,textShadow:"0 0 30px currentColor"}}>{Math.round((queryResult.overall||0)*100)}%</div>
-                  <div style={{fontSize:14,color:C.textDim,marginTop:4}}>probabilitat de patrulla</div>
+                  <div style={{fontSize:14,color:C.textDim,marginTop:4}}>possibilitat de trobar un control</div>
+                  {queryResult.now&&(queryResult.live>0||queryResult.hist>0)&&(
+                    <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
+                      {queryResult.active?<><b style={{color:C.danger}}>🔴 Ara hi ha un control avisat</b> · </>:null}
+                      en viu {pct(queryResult.live)}% · històric {pct(queryResult.hist)}%
+                    </div>
+                  )}
                 </div>
                 <div style={{background:C.bg,borderRadius:8,padding:12}}>
                   <ProbBar value={queryResult.mossos} type="mossos"/>
@@ -903,7 +909,8 @@ export default function App(){
                 </div>
                 <div style={{marginTop:10,padding:10,background:C.accentDim,borderRadius:8,border:`1px solid ${C.accentGlow}`}}>
                   <div style={{fontSize:13,color:C.accent,fontWeight:700}}>{(queryResult.overall||0)>0.6?"⚠ Alta probabilitat":(queryResult.overall||0)>0.35?"◎ Probabilitat moderada":"✓ Baixa probabilitat"}</div>
-                  <div style={{fontSize:13,color:C.textDim,marginTop:4}}>Basat en {queryResult.sample_size||0} registres · Fiabilitat: {queryResult.reliability||"baixa"}</div>
+                  <div style={{fontSize:13,color:C.textDim,marginTop:4}}>Basat en {queryResult.sample_size||0} controls en {queryResult.observed_days||0} dies · Fiabilitat: {queryResult.reliability||"baixa"}</div>
+                  {queryResult.duration_min>0&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ Aquí un control sol durar ~{durText(queryResult.duration_min)}</div>}
                 </div>
               </div>
             )}

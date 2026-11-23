@@ -7,7 +7,8 @@ import { CUSTOM_BARK_KEY, resetBarkCache } from "../lib/utils";
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
 // Disseny: un SEMÀFOR (avisos reals recents prop teu), el radi en 3 botons i la llista
 // d'avisos "davant teu" (en la direcció que circules) i "a prop".
-// El % que es mostra és només l'històric de la zona a aquesta hora (informatiu).
+// El % és la possibilitat de trobar un control a la teva zona ara (model del servidor).
+// Cada avís diu si encara hi deuen ser, si ja han marxat o si ja fa massa estona.
 export default function RadarTab({ radar, dogPhoto, onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
@@ -18,7 +19,8 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
 
   const ahead = nearby.filter(d => d._ahead && d._dist <= alertRadiusKm * 2);
   const around = nearby.filter(d => !ahead.includes(d) && d._dist <= alertRadiusKm * 2);
-  const closest = (ahead[0] && ahead[0]._dist <= alertRadiusKm) ? ahead[0] : nearby.find(d => d._dist <= alertRadiusKm);
+  const liveNear = nearby.filter(d => d._status !== "cleared");
+  const closest = (ahead[0] && ahead[0]._status !== "cleared" && ahead[0]._dist <= alertRadiusKm) ? ahead[0] : liveNear.find(d => d._dist <= alertRadiusKm);
 
   const LIGHTS = {
     calm:    { col: C.success, icon: "🟢", title: "Tranquil",        sub: "Cap avís recent dins del radi" },
@@ -48,7 +50,8 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
 
   const Row = ({ d }) => {
     const t = pType(d);
-    const inside = d._dist <= alertRadiusKm;
+    const gone = d._status === "cleared";
+    const inside = d._dist <= alertRadiusKm && !gone;
     const time = d.created_at ? new Date(d.created_at).toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" }) : "?";
     return (
       <div onClick={() => onDetTap && onDetTap(d)} style={{ background: inside ? `${C.danger}18` : C.surface, border: `1px solid ${inside ? C.danger + "88" : C.border}`, borderLeft: `3px solid ${t.color}`, borderRadius: 8, padding: "9px 12px", marginBottom: 6, cursor: "pointer" }}>
@@ -63,6 +66,13 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
           <div style={{ fontSize: 11.5, color: C.textDim, fontStyle: "italic", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>"{d.raw_message}"</div>
         )}
         <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>fa {d._ageMin} min · {time}{!d._exact ? " · posició aproximada" : ""}</div>
+        {gone ? (
+          <div style={{ fontSize: 11.5, color: C.success, fontWeight: 700, marginTop: 3 }}>✅ Ja han marxat</div>
+        ) : d._status === "stale" ? (
+          <div style={{ fontSize: 11.5, color: C.textDim, marginTop: 3 }}>Probablement ja no hi són (un control sol durar menys)</div>
+        ) : d._pAlive != null ? (
+          <div style={{ fontSize: 11.5, color: C.warning, fontWeight: 700, marginTop: 3 }}>Encara hi deuen ser · {Math.round(d._pAlive * 100)}%</div>
+        ) : null}
       </div>
     );
   };
@@ -130,7 +140,7 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
 
         {active && zoneName && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12, color: C.textDim, display: "flex", justifyContent: "space-between", gap: 8 }}>
-            <span>📊 Històric a {zoneName} a aquesta hora</span>
+            <span>📊 Possibilitat de control a {zoneName} ara</span>
             <b style={{ color: histCol }}>{riskPct}%</b>
           </div>
         )}
