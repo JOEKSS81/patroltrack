@@ -1,6 +1,8 @@
 import { useC } from "../lib/themes";
 import { ptWith } from "../lib/constants";
+import { useRef, useState } from "react";
 import { RADIUS_CHOICES } from "../lib/useRadar";
+import { CUSTOM_BARK_KEY, resetBarkCache } from "../lib/utils";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
 // Disseny: un SEMÀFOR (avisos reals recents prop teu), el radi en 3 botons i la llista
@@ -24,6 +26,23 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
     danger:  { col: C.danger,  icon: "🔴", title: "Control a prop!", sub: "Avís recent dins del radi" },
   };
   const L = LIGHTS[active ? level : "calm"];
+
+  // So propi del lladruc: un fitxer d'àudio del mòbil, desat al navegador (màx. ~1,5 MB)
+  const fileRef = useRef(null);
+  const [customSound, setCustomSound] = useState(() => { try { return !!localStorage.getItem(CUSTOM_BARK_KEY); } catch { return false; } });
+  const pickSound = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    if (f.size > 1.5 * 1024 * 1024) { alert("El fitxer és massa gran (màxim 1,5 MB). Retalla'l a uns segons."); return; }
+    const rd = new FileReader();
+    rd.onload = () => {
+      try { localStorage.setItem(CUSTOM_BARK_KEY, String(rd.result)); setCustomSound(true); resetBarkCache(); testBark(); }
+      catch { alert("No s'ha pogut desar el so (potser és massa gran)."); }
+    };
+    rd.readAsDataURL(f);
+  };
+  const resetSound = () => { try { localStorage.removeItem(CUSTOM_BARK_KEY); } catch { /* */ } setCustomSound(false); resetBarkCache(); testBark(); };
   const pType = (d) => PT[d.patrol_type] || PT.unknown;
   const histCol = riskPct >= 40 ? C.warning : C.textDim;
 
@@ -91,13 +110,16 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
         </div>
 
         {/* So + dades de posició, en una línia */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 13, color: C.textDim }}>🔊 Lladruc</span>
             <div onClick={toggleSound} style={{ width: 44, height: 24, borderRadius: 12, background: sound ? C.accent : C.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
               <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
             </div>
             <button onClick={testBark} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "4px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>▶ Prova</button>
+            <button onClick={() => fileRef.current && fileRef.current.click()} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "4px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>🎵 {customSound ? "Canviar" : "El meu so"}</button>
+            {customSound && <button onClick={resetSound} title="Tornar al lladruc per defecte" style={{ background: "transparent", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", padding: 2 }}>↺</button>}
+            <input ref={fileRef} type="file" accept="audio/*" onChange={pickSound} style={{ display: "none" }} />
           </div>
           {active && pos && (
             <div style={{ fontSize: 11, color: C.textMuted, textAlign: "right" }}>

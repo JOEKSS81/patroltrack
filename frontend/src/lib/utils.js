@@ -11,71 +11,50 @@ export function distKm(a1, o1, a2, o2) {
 }
 
 // So d'alerta del radar (lladruc curt). `ctx` és un AudioContext.
-// Lladruc de gos sintetitzat ("guau guau guau"), sense fitxers d'àudio.
-// Cada lladruc: veu greu en dent de serra que puja i baixa de to (≈260→520→300 Hz),
-// un filtre que obre i tanca com la vocal "w-a-w", una mica de soroll per a la
-// ronquera i distorsió suau. Tres lladrucs amb petites variacions perquè soni viu.
+// Lladruc REAL (gravació) en lloc d'un so sintetitzat: el sintetitzat sonava a
+// "piu piu" o a ànec. Fitxer per defecte: /bark.mp3 (lladruc de gos gran, del
+// paquet npm dsh-client-ui-sound-effects, llicència MIT). L'usuari pot posar el
+// seu propi so des del Radar ("🎵 El meu so"); es desa al navegador.
+export const CUSTOM_BARK_KEY = "pt_bark_custom";
+const barkCache = { url: null, buf: null, loading: null };
+
+function barkUrl() {
+  try { return localStorage.getItem(CUSTOM_BARK_KEY) || "/bark.mp3"; } catch { return "/bark.mp3"; }
+}
+
+async function loadBark(ctx) {
+  const url = barkUrl();
+  if (barkCache.url === url && barkCache.buf) return barkCache.buf;
+  if (barkCache.url === url && barkCache.loading) return barkCache.loading;
+  barkCache.url = url; barkCache.buf = null;
+  barkCache.loading = fetch(url)
+    .then((r) => r.arrayBuffer())
+    .then((ab) => ctx.decodeAudioData(ab))
+    .then((buf) => { if (barkCache.url === url) barkCache.buf = buf; return buf; })
+    .finally(() => { barkCache.loading = null; });
+  return barkCache.loading;
+}
+
+// Pre-carrega el so (crida-ho en activar el radar perquè el primer lladruc no trigui)
+export function preloadBark(ctx) { if (ctx) loadBark(ctx).catch(() => {}); }
+export function resetBarkCache() { barkCache.url = null; barkCache.buf = null; }
+
 export function playBark(ctx) {
   if (!ctx) return;
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
-  const t0 = ctx.currentTime + 0.02;
-  const out = ctx.createGain();
-  out.gain.value = 0.9;
-  // Distorsió suau (to "gruixut" de gos gran)
-  const shaper = ctx.createWaveShaper();
-  const curve = new Float32Array(1024);
-  for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(2.4 * x); }
-  shaper.curve = curve;
-  shaper.connect(out); out.connect(ctx.destination);
-
-  // Soroll blanc curt per a l'aire/ronquera
-  const noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * 0.3), ctx.sampleRate);
-  const nd = noiseBuf.getChannelData(0);
-  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-
-  const barks = [
-    { at: 0.00, f: 1.00, len: 0.20 },
-    { at: 0.30, f: 1.06, len: 0.18 },
-    { at: 0.58, f: 0.95, len: 0.24 },
-  ];
-  for (const b of barks) {
-    const t = t0 + b.at, end = t + b.len;
-    // Veu: dent de serra + subharmònic (pes del pit)
-    const vox = ctx.createOscillator(); vox.type = "sawtooth";
-    vox.frequency.setValueAtTime(260 * b.f, t);
-    vox.frequency.exponentialRampToValueAtTime(520 * b.f, t + 0.045);
-    vox.frequency.exponentialRampToValueAtTime(300 * b.f, end);
-    const sub = ctx.createOscillator(); sub.type = "triangle";
-    sub.frequency.setValueAtTime(130 * b.f, t);
-    sub.frequency.exponentialRampToValueAtTime(260 * b.f, t + 0.045);
-    sub.frequency.exponentialRampToValueAtTime(150 * b.f, end);
-    // Vocal "w-a-w": el filtre s'obre i es tanca
-    const formant = ctx.createBiquadFilter(); formant.type = "bandpass"; formant.Q.value = 1.6;
-    formant.frequency.setValueAtTime(500, t);
-    formant.frequency.exponentialRampToValueAtTime(1500, t + 0.05);
-    formant.frequency.exponentialRampToValueAtTime(650, end);
-    const body = ctx.createBiquadFilter(); body.type = "lowpass"; body.frequency.value = 2600;
-    // Envolupant: atac sec, caiguda ràpida
-    const env = ctx.createGain();
-    env.gain.setValueAtTime(0.0001, t);
-    env.gain.exponentialRampToValueAtTime(0.85, t + 0.012);
-    env.gain.exponentialRampToValueAtTime(0.35, t + 0.09);
-    env.gain.exponentialRampToValueAtTime(0.0001, end);
-    const subG = ctx.createGain(); subG.gain.value = 0.5;
-    // Soroll filtrat
-    const noise = ctx.createBufferSource(); noise.buffer = noiseBuf;
-    const nf = ctx.createBiquadFilter(); nf.type = "bandpass"; nf.frequency.value = 1800; nf.Q.value = 0.8;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
-    ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-
-    vox.connect(formant); sub.connect(subG); subG.connect(formant);
-    formant.connect(body); body.connect(env); env.connect(shaper);
-    noise.connect(nf); nf.connect(ng); ng.connect(shaper);
-    vox.start(t); sub.start(t); noise.start(t);
-    vox.stop(end + 0.02); sub.stop(end + 0.02); noise.stop(t + 0.13);
-  }
+  loadBark(ctx).then((buf) => {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = 1;
+    src.connect(g); g.connect(ctx.destination);
+    src.start();
+  }).catch(() => {
+    // Si no es pot carregar l'àudio, almenys un avís curt perquè no passi desapercebut
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+    o.type = "square"; o.frequency.value = 440; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.start(t); o.stop(t + 0.4);
+  });
 }
 
 // Probabilitat per zona basada en deteccions REALS (no sintètic).
