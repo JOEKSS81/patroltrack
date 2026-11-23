@@ -11,6 +11,7 @@ import Collapsible from "./components/Collapsible";
 import GroupManager from "./components/GroupManager";
 import FriendsManager from "./components/FriendsManager";
 import ConnectGroups from "./components/ConnectGroups";
+import { detectPlatform } from "./lib/platform";
 import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
@@ -983,7 +984,7 @@ export default function App(){
             <Collapsible title="📤 Compartir l'app" subtitle="Enllaç per instal·lar PatrolTrack" defaultOpen={false}>
               <div style={{padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
                                 <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que configuri MacroDroid (guia a «Els meus grups») amb l'accés personal que li creïs a «🤝 Amics».
+                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que segueixi la guia de «Connecta els teus grups» (MacroDroid a Android, una drecera a l'iPhone) amb l'accés personal que li creïs a «🤝 Amics».
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <input
@@ -1776,10 +1777,18 @@ export default function App(){
             </div>
             {!sharedText&&(
               <div style={{fontSize:11,color:C.textMuted,marginBottom:8,lineHeight:1.4}}>
-                💡 Més ràpid: a WhatsApp, mantén premut l'avís → <b>Compartir</b> → <b>PatrolTrack</b> (Android, amb l'app afegida a la pantalla d'inici).
+                {detectPlatform()==="ios"
+                  ? <>💡 Més ràpid: a WhatsApp, mantén premut l'avís → <b>Reenviar</b> → compartir → <b>PatrolTrack</b> (cal la drecera: Config → «Connecta els teus grups»).</>
+                  : <>💡 Més ràpid: a WhatsApp, mantén premut l'avís → <b>Compartir</b> → <b>PatrolTrack</b> (Android, amb l'app afegida a la pantalla d'inici).</>}
               </div>
             )}
 
+            {navigator.clipboard?.readText&&(
+              <button
+                onClick={()=>navigator.clipboard.readText().then(t=>{if(t&&t.trim())setReportMsg(t.trim());}).catch(()=>{})}
+                style={{width:"100%",marginBottom:8,padding:10,background:"transparent",color:C.accent,border:`1px solid ${C.accent}`,borderRadius:8,fontSize:13,fontWeight:800,cursor:"pointer",fontFamily:"inherit"}}
+              >📋 Enganxar el missatge copiat</button>
+            )}
             <textarea
               value={reportMsg}
               onChange={e=>setReportMsg(e.target.value)}

@@ -97,7 +97,7 @@ export default function GroupManager({ apiToken }) {
   return (
     <div style={{ textAlign: "left" }}>
       <div style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginBottom: 12 }}>
-        Apareixen sols quan MacroDroid en rep el primer missatge. <b style={{ color: C.success }}>Seguir</b>: els seus avisos entren a l'app. <b>Ignorar</b>: no se'n desa res.
+        Apareixen sols quan MacroDroid (Android) o la drecera (iPhone) en rep el primer missatge. <b style={{ color: C.success }}>Seguir</b>: els seus avisos entren a l'app. <b>Ignorar</b>: no se'n desa res.
       </div>
 
       {error && <div style={{ fontSize: 12, color: C.danger, marginBottom: 8 }}>⚠ {error}</div>}

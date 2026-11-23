@@ -46,7 +46,7 @@ export default function FriendsManager({ apiToken }) {
 
   const share = async () => {
     if (!invite) return;
-    const text = `Hola ${invite.name}! Aquest és el teu accés a PatrolTrack (avisos de controls):\n${invite.link}\n\n1) Obre l'enllaç des del mòbil i afegeix l'app a la pantalla d'inici.\n2) Perquè els avisos dels teus grups de WhatsApp i Telegram també hi entrin, ves a Config → «Connecta els teus grups» i segueix els 4 passos (cal MacroDroid, només Android).\nAquest enllaç és només per a tu.`;
+    const text = `Hola ${invite.name}! Aquest és el teu accés a PatrolTrack (avisos de controls):\n${invite.link}\n\n1) Obre l'enllaç des del mòbil i afegeix l'app a la pantalla d'inici.\n2) Perquè els avisos dels teus grups de WhatsApp i Telegram també hi entrin, ves a Config → «Connecta els teus grups» i segueix els 4 passos (Android: MacroDroid · iPhone: una drecera de l'app Dreceres).\nAquest enllaç és només per a tu.`;
     try {
       if (navigator.share) await navigator.share({ title: "PatrolTrack", text });
       else { await navigator.clipboard.writeText(text); setCopied(true); }
