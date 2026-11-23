@@ -134,15 +134,14 @@ export default function App(){
   // (abans era fixa i, amb capçaleres altes, la part de baix quedava amagada).
   const mapBoxRef=useRef(null);
   const navRef=useRef(null);
-  // Pestanya Alcohol: en prova. Només surt amb ?alcohol=1 (queda recordat al mòbil)
-  // fins que es doni per bona; ?alcohol=0 l'amaga.
+  // Pestanya Alcohol: visible per a tothom (?alcohol=0 l'amaga en aquest mòbil).
   const [showAlcohol]=useState(()=>{
     try{
       const q=new URLSearchParams(window.location.search).get("alcohol");
-      if(q==="1") localStorage.setItem("pt_alcohol_tab","1");
-      if(q==="0") localStorage.removeItem("pt_alcohol_tab");
-      return localStorage.getItem("pt_alcohol_tab")==="1";
-    }catch{return false;}
+      if(q==="0") localStorage.setItem("pt_alcohol_tab","0");
+      if(q==="1") localStorage.removeItem("pt_alcohol_tab");
+      return localStorage.getItem("pt_alcohol_tab")!=="0";
+    }catch{return true;}
   });
   // Alçada real de la barra de pestanyes (depèn de la barra de gestos del mòbil): el botó
   // + i el marge inferior del contingut s'hi col·loquen a sobre, mai a sota.

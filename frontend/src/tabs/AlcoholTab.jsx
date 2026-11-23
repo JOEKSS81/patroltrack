@@ -151,9 +151,7 @@ function AlcoholView() {
       {grams > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
           <Kpi C={C} big title="Fins a 0,00" value={fmtDur(sim.zero)} sub={`a les ${clockPlus(start, sim.zero)}`} col={C.success} />
-          <Kpi C={C} big title="Pic" value={`${n2(sim.peak)} mg/L`} sub={`${n2(sim.peakBlood)} g/L en sang · a les ${clockPlus(start, sim.peakTime)}`} col={levelCol(sim.peak)} />
-          <Kpi C={C} title="Per sota de 0,25 (general)" value={sim.peak < LIMITS.general ? "Mai per sobre" : `a les ${clockPlus(start, sim.under.general)}`} sub={sim.peak < LIMITS.general ? "" : fmtDur(sim.under.general)} />
-          <Kpi C={C} title="Per sota de 0,15 (novells)" value={sim.peak < LIMITS.novel ? "Mai per sobre" : `a les ${clockPlus(start, sim.under.novel)}`} sub={sim.peak < LIMITS.novel ? "" : fmtDur(sim.under.novel)} />
+          <Kpi C={C} big title="Pic" value={`${n2(sim.peak)} mg/L`} sub={`a les ${clockPlus(start, sim.peakTime)} · ${n2(sim.peakBlood)} g/L en sang`} col={levelCol(sim.peak)} />
         </div>
       )}
 
@@ -165,33 +163,29 @@ function AlcoholView() {
           aria-label="Hora a inspeccionar" style={{ width: "100%", accentColor: C.accent, marginTop: 6 }} />
       </div>
 
-      {/* Límits */}
-      <div style={box}>
-        <div style={label}>Límits i sancions (DGT)</div>
-        {[
-          [C.warning, "0,15 mg/L", "Novells (2 primers anys) i professionals", "500 € i 4 punts"],
-          [C.warning, "0,25 mg/L", "Conductors en general", "500 € i 4 punts · 1.000 € i 6 punts per sobre de 0,50"],
-          [C.danger, "0,60 mg/L", "Delicte penal (art. 379 CP)", "Presó de 3 a 6 mesos o multa/treballs, i sense carnet d'1 a 4 anys"],
-        ].map(([col, v, who, what]) => (
-          <div key={v} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: `1px solid ${C.border}`, alignItems: "baseline" }}>
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0, alignSelf: "center" }} />
-            <b style={{ fontSize: 13, color: C.text, minWidth: 74 }}>{v}</b>
-            <span style={{ fontSize: 12, color: C.textDim, lineHeight: 1.4 }}>{who}<br /><span style={{ color: C.textMuted }}>{what}</span></span>
-          </div>
-        ))}
-      </div>
-
+      {/* Límits, sancions i mites: plegat per no allargar la pantalla */}
       <div style={{ marginBottom: 10 }}>
-        <Collapsible title="🧪 Mites: es pot baixar més de pressa?" subtitle="No. El fetge va al seu ritme" defaultOpen={false}>
+        <Collapsible title="ℹ️ Límits, multes i mites" subtitle="0,25 general · 0,15 novells · 0,60 delicte" defaultOpen={false}>
           {[
-            ["Beure molta aigua o cafè", "Fals. El fetge elimina l'alcohol a ritme fix. L'aigua hidrata i el cafè desperta, però la taxa no baixa més de pressa."],
-            ["Fer esport o suar", "Fals. Per la suor i l'orina en surt menys del 5 %. Suar et deshidrata i pot concentrar més l'alcohol."],
-            ["Mastegar xiclet o grans de cafè", "Fals. L'etilòmetre mesura l'aire del fons dels pulmons, no l'alè de la boca."],
-            ["Dormir 4 o 5 hores ja n'hi ha prou", "Perill. Dormint el metabolisme no s'accelera. Molts positius greus són a les 8–10 h de l'endemà."],
+            [C.warning, "0,15 mg/L", "Novells (2 primers anys) i professionals", "500 € i 4 punts"],
+            [C.warning, "0,25 mg/L", "Conductors en general", "500 € i 4 punts · 1.000 € i 6 punts per sobre de 0,50"],
+            [C.danger, "0,60 mg/L", "Delicte penal (art. 379 CP)", "Presó de 3 a 6 mesos o multa/treballs, i sense carnet d'1 a 4 anys"],
+          ].map(([col, v, who, what]) => (
+            <div key={v} style={{ display: "flex", gap: 10, padding: "7px 0", borderTop: `1px solid ${C.border}`, alignItems: "baseline" }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: col, flexShrink: 0, alignSelf: "center" }} />
+              <b style={{ fontSize: 13, color: C.text, minWidth: 74 }}>{v}</b>
+              <span style={{ fontSize: 12, color: C.textDim, lineHeight: 1.4 }}>{who}<br /><span style={{ color: C.textMuted }}>{what}</span></span>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", margin: "12px 0 4px" }}>Es pot baixar més de pressa? No</div>
+          {[
+            ["Aigua o cafè", "El fetge elimina l'alcohol a ritme fix: la taxa no baixa més de pressa."],
+            ["Fer esport o suar", "Per la suor en surt menys del 5 %. Et deshidrata i pot concentrar més l'alcohol."],
+            ["Xiclet o grans de cafè", "L'etilòmetre mesura l'aire del fons dels pulmons, no l'alè de la boca."],
+            ["Dormir 4 o 5 hores", "Dormint no s'accelera. Molts positius greus són a les 8–10 h de l'endemà."],
           ].map(([t, d]) => (
-            <div key={t} style={{ padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>«{t}»</div>
-              <div style={{ fontSize: 12.5, color: C.textDim, marginTop: 3, lineHeight: 1.5 }}>{d}</div>
+            <div key={t} style={{ padding: "6px 0", borderTop: `1px solid ${C.border}`, fontSize: 12.5, color: C.textDim, lineHeight: 1.45 }}>
+              <b style={{ color: C.text }}>«{t}»</b> — {d}
             </div>
           ))}
         </Collapsible>
