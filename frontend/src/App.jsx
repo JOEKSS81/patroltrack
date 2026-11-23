@@ -17,6 +17,7 @@ import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 import FuelTab from "./tabs/FuelTab";
+import AlcoholTab from "./tabs/AlcoholTab";
 
 // PT amb colors del tema fallback — només per a ProbBar (no està embolcallat pel Provider).
 // Els tabs que usen useC reconstrueixen PT amb el tema actiu via ptWith(C).
@@ -133,6 +134,16 @@ export default function App(){
   // (abans era fixa i, amb capçaleres altes, la part de baix quedava amagada).
   const mapBoxRef=useRef(null);
   const navRef=useRef(null);
+  // Pestanya Alcohol: en prova. Només surt amb ?alcohol=1 (queda recordat al mòbil)
+  // fins que es doni per bona; ?alcohol=0 l'amaga.
+  const [showAlcohol]=useState(()=>{
+    try{
+      const q=new URLSearchParams(window.location.search).get("alcohol");
+      if(q==="1") localStorage.setItem("pt_alcohol_tab","1");
+      if(q==="0") localStorage.removeItem("pt_alcohol_tab");
+      return localStorage.getItem("pt_alcohol_tab")==="1";
+    }catch{return false;}
+  });
   // Alçada real de la barra de pestanyes (depèn de la barra de gestos del mòbil): el botó
   // + i el marge inferior del contingut s'hi col·loquen a sobre, mai a sota.
   const [navH,setNavH]=useState(62);
@@ -424,6 +435,7 @@ export default function App(){
     {id:"query",    label:"Consulta"},
     {id:"stats",    label:"Stats"},
     {id:"fuel",     label:"Benzina"},
+    ...(showAlcohol?[{id:"alcohol",label:"Alcohol"}]:[]),
     {id:"history",  label:"Historial"},
     {id:"config",   label:"Config"},
   ];
@@ -438,6 +450,7 @@ export default function App(){
       case "query":     return(<svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>);
       case "stats":     return(<svg {...props}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
       case "history":   return(<svg {...props}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="12" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="18" r="1.5" fill={color} stroke="none"/></svg>);
+      case "alcohol":   return(<svg {...props}><path d="M8 2h8l-.6 6.5a3.4 3.4 0 0 1-6.8 0z"/><line x1="12" y1="12" x2="12" y2="20"/><line x1="8" y1="22" x2="16" y2="22"/></svg>);
       case "fuel":      return(<svg {...props}><path d="M3 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><line x1="2" y1="22" x2="16" y2="22"/><rect x="6" y="6" width="6" height="5"/><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>);
       case "config":    return(<svg {...props}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
       default:          return null;
@@ -708,6 +721,7 @@ export default function App(){
 
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} zone={selectedZone} zoneInfo={risk&&risk.zones&&risk.zones[selectedZone]} riskModel={risk&&risk.model}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
+        {tab==="alcohol"&&showAlcohol&&<AlcoholTab/>}
         {tab==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
