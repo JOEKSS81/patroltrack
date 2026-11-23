@@ -441,3 +441,74 @@ export function extractPatrolInfo(message: string, source: string = "unknown"): 
     source,
   };
 }
+
+// ── Seguiment d'un avís ja donat ─────────────────────────────────────────────
+// Missatges que no són un avís nou però diuen alguna cosa d'un control que ja s'ha
+// avisat: "segueixen de pujada" (encara hi són), "ja han marxat", "fins Escaló net"
+// (ja no hi són), "encara estan?" (pregunta) i les respostes curtes "sí" / "no".
+// Serveixen per mesurar QUANTA ESTONA dura un control (entre el primer avís i el
+// "ja han marxat") i afinar la possibilitat. Només s'usen si extractPatrolInfo diu
+// que el missatge NO és un avís nou.
+export type FollowUpKind = "still" | "cleared" | "ask" | "yes" | "no";
+export interface FollowUp {
+  kind: FollowUpKind;
+  zone_norm: string | null;
+  patrol_type: string;
+}
+
+const CLEARED_PHRASES = [
+  "ja han marxat", "ya se han ido", "ja no hi son", "ja no hi es", "ja no estan", "ya no estan",
+  "ya no hay nada", "ya no hay nadie", "ja no hi ha res", "ja no hi ha ningu",
+  "han marxat", "se han ido", "se fueron", "se han largado", "han plegat", "han recollit",
+  "han recogido", "estan recollint", "estan recogiendo", "ja han passat", "ya han pasado",
+  "no hi ha ningu", "no hay nadie", "no hi ha res", "no hay nada", "ni rastre", "ni rastro",
+  "res de res", "tot net", "todo limpio", "esta net", "esta limpio", "via lliure", "via libre",
+].map(normalizeText);
+// Paraula sola en un missatge curt: "Fins Escaló net", "Sort limpio"
+const CLEARED_WORDS = new Set(["net", "neta", "nets", "lliure", "limpio", "limpia", "despejado", "despejada"]);
+
+const STILL_PHRASES = [
+  "segueixen", "segueix ", "continuen", "encara hi son", "encara estan", "encara hi ha",
+  "encara hi es", "encara paren", "siguen", "todavia estan", "todavia siguen", "aun estan",
+  "aun siguen", "ahi siguen", "alli siguen", "alla estan", "alli estan",
+].map(normalizeText);
+// Inici de missatge curt que parla d'ells en present: "Estan de palique.."
+const STILL_STARTS = ["estan", "hi son", "siguen", "sigue", "segueix"];
+
+// Pregunta que espera un sí/no sobre un control avisat abans
+const ASK_WORDS = ["encara", "todavia", "aun", "segueixen", "siguen", "continuen", "hi son", "estan", "siguen ahi"];
+const YES_ANSWERS = new Set(["si", "sip", "sii", "siii", "si si", "encara", "encara si", "si encara",
+  "segueixen", "siguen", "aun", "aun si", "todavia", "si todavia", "afirmatiu", "yes", "ahi siguen"]);
+const NO_ANSWERS = new Set(["no", "nop", "noo", "nooo", "no no", "ja no", "ya no", "cap", "res", "nada",
+  "negatiu", "no hi son", "no estan"]);
+
+const PAST_HINTS = ["ahir", "ayer", "fa dies", "hace dias", "la setmana passada", "la semana pasada"];
+
+export function classifyFollowUp(message: string): FollowUp | null {
+  if (!message) return null;
+  const text = normalizeText(message).trim();
+  if (!text || text.length > 160) return null;
+  const words = text.replace(/[^a-z0-9ñç]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return null;
+  const bare = words.join(" ");
+  const zone = detectZone(text).zoneNorm;
+  const out = (kind: FollowUpKind): FollowUp => ({
+    kind,
+    zone_norm: zone !== "Desconeguda" ? zone : null,
+    patrol_type: detectPatrolType(text),
+  });
+
+  if (text.endsWith("?")) {
+    return words.length <= 8 && ASK_WORDS.some((w) => hasKeyword(bare, w)) ? out("ask") : null;
+  }
+  if (YES_ANSWERS.has(bare)) return out("yes");
+  if (NO_ANSWERS.has(bare)) return out("no");
+  if (PAST_HINTS.some((p) => text.includes(p))) return null;
+
+  if (CLEARED_PHRASES.some((p) => text.includes(p))) return out("cleared");
+  if (words.length <= 8 && words.some((w) => CLEARED_WORDS.has(w))) return out("cleared");
+
+  if (STILL_PHRASES.some((p) => hasKeyword(bare + " ", p))) return out("still");
+  if (words.length <= 6 && STILL_STARTS.some((s) => bare === s || bare.startsWith(s + " "))) return out("still");
+  return null;
+}

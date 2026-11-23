@@ -28,11 +28,13 @@ function nearestZone(lat, lng) {
 }
 
 // Hook RADAR — possibilitat de trobar un control + alerta de deteccions reals.
-// `riskPct` (0..100) és la POSSIBILITAT DE TROBAR UN CONTROL on ets ara: surt del
-// model predictiu històric (mateixa fórmula que la pestanya Consulta: zona + hora
-// amb decaïment temporal), i puja si a més hi ha una detecció REAL dins del radi.
-// L'alerta sonora (lladruc) i la llista segueixen basades en deteccions reals.
-export function useRadar(detections) {
+// `riskPct` (0..100) és la POSSIBILITAT DE TROBAR UN CONTROL a la teva zona ara: surt
+// del model del servidor (/api/probability: avisos en viu, quanta estona sol durar un
+// control i l'històric d'aquesta hora i tipus de dia).
+// `detStatus` (de /api/zone-probs) diu de cada avís recent si encara hi són, si ja han
+// marxat ("cleared") o si ja fa massa estona ("stale"): els que ja no hi són no fan
+// lladrar ni posen el semàfor en vermell.
+export function useRadar(detections, detStatus) {
   const [active, setActive] = useState(false);
   const [pos, setPos] = useState(null);
   const [err, setErr] = useState(null);
@@ -62,6 +64,7 @@ export function useRadar(detections) {
   const modelProbRef = useRef(0);   // probabilitat del model (0..1), última rebuda
   const probZoneRef = useRef(null); // zona del darrer fetch
   const probHourRef = useRef(-1);   // hora del darrer fetch
+  const probAtRef = useRef(0);      // quan es va demanar per última vegada
 
   useEffect(() => { try { localStorage.setItem("pt_radar_radius", String(alertRadiusKm)); } catch {} }, [alertRadiusKm]);
 
@@ -74,8 +77,8 @@ export function useRadar(detections) {
   }, []);
 
   // Demana al backend la probabilitat per zona+hora (model històric)
-  const fetchProb = useCallback((zoneId, hour) => {
-    fetch(`${API}/api/probability?zone=${encodeURIComponent(zoneId)}&hour=${hour}`)
+  const fetchProb = useCallback((zoneId) => {
+    fetch(`${API}/api/probability?zone=${encodeURIComponent(zoneId)}`) // sense hora = ara
       .then(r => (r.ok ? r.json() : null))
       .then(d => {
         modelProbRef.current = d && typeof d.overall === "number" ? d.overall : 0;
@@ -101,9 +104,13 @@ export function useRadar(detections) {
       const hd = headingRef.current;
       // "Davant teu": en un con de ±50° respecte la direcció de marxa (si te'n mous)
       const ahead = hd != null && dist > 0.3 && angleDiff(bearingDeg(lat, lng, c.lat, c.lng), hd) <= 50;
+      const st = detStatus && detStatus[d.id];
       enriched.push({
         ...d, _lat: c.lat, _lng: c.lng, _exact: c.exact, _dist: dist, _ahead: ahead,
         _ageMin: Math.round((Date.now() - ts) / 60000),
+        _status: st ? st.status : "active",          // active | stale | cleared
+        _pAlive: st ? st.p_alive : null,
+        _lastSeen: st ? st.last_seen_at : null,
       });
     }
     enriched.sort((a, b) => a._dist - b._dist);
@@ -113,10 +120,13 @@ export function useRadar(detections) {
     //  vermell: dins del radi i de fa ≤ 60 min, o davant teu dins del radi
     //  groc:    dins del radi però més antic, o davant teu fins al doble del radi,
     //           o l'històric d'aquesta zona i hora és alt (≥ 40%)
-    const inR = enriched.filter(d => d._dist <= alertRadiusKm);
+    //  Els avisos que ja han marxat no compten; els "stale" (fa massa estona segons la
+    //  durada típica) només posen groc.
+    const live = enriched.filter(d => d._status !== "cleared");
+    const inR = live.filter(d => d._dist <= alertRadiusKm);
     let lv = "calm";
-    if (inR.some(d => d._ageMin <= 60 || d._ahead)) lv = "danger";
-    else if (inR.length || enriched.some(d => d._ahead && d._dist <= alertRadiusKm * 2) || modelProbRef.current >= 0.4) lv = "caution";
+    if (inR.some(d => d._status === "active" && (d._ageMin <= 60 || d._ahead || (d._pAlive ?? 0) >= 0.4))) lv = "danger";
+    else if (inR.length || live.some(d => d._ahead && d._dist <= alertRadiusKm * 2) || modelProbRef.current >= 0.4) lv = "caution";
     setLevel(lv);
 
 
@@ -125,22 +135,23 @@ export function useRadar(detections) {
     const z = nearestZone(lat, lng);
     setZoneName(z ? (z.label || z.id) : null);
     const hour = new Date().getHours();
-    if (z && (z.id !== probZoneRef.current || hour !== probHourRef.current)) {
-      probZoneRef.current = z.id; probHourRef.current = hour;
-      fetchProb(z.id, hour);
+    // Es refà si canvia la zona o l'hora, o cada 2 min (ara inclou els avisos en viu).
+    if (z && (z.id !== probZoneRef.current || hour !== probHourRef.current || Date.now() - probAtRef.current > 120000)) {
+      probZoneRef.current = z.id; probHourRef.current = hour; probAtRef.current = Date.now();
+      fetchProb(z.id);
     } else if (!z) {
       modelProbRef.current = 0; probZoneRef.current = null;
     }
     recomputeRisk();
 
-    const danger = enriched.find(d => d._dist <= alertRadiusKm);
+    const danger = enriched.find(d => d._dist <= alertRadiusKm && d._status === "active");
     setAlert(danger ? { det: danger, dist: danger._dist, ageMin: danger._ageMin } : null);
     if (danger && sound && Date.now() - lastBark.current > 10000) {
       initAudio();
       playBark(audioRef.current);
       lastBark.current = Date.now();
     }
-  }, [detections, alertRadiusKm, sound, fetchProb, recomputeRisk]);
+  }, [detections, detStatus, alertRadiusKm, sound, fetchProb, recomputeRisk]);
 
   const start = useCallback(() => {
     initAudio();

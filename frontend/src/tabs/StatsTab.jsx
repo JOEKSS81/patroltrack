@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useC } from "../lib/themes";
 import { ptWith, DAYS_SHORT, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "../lib/constants";
+import DurationCard from "../components/DurationCard";
 
 // Lectura/escriptura segura a localStorage (la vista persisteix entre pestanyes
 // i recàrregues; les DADES sempre venen de la BD, això només recorda QUÈ mires).
@@ -9,7 +10,7 @@ const lsNum = (k, def) => { const v = Number(lsGet(k, NaN)); return Number.isFin
 const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch {} };
 
 // Pestanya ESTADÍSTIQUES — Distribució i Calendari fusionats amb sub-toggle.
-export default function StatsTab({ detections, onZoneTap, onDetTap }) {
+export default function StatsTab({ detections, risk, onZoneTap, onDetTap }) {
   const C = useC();
   const PT = ptWith(C);
   const [view, setView] = useState(() => lsGet("pt_stats_view", "dist"));   // "dist" | "cal"
@@ -83,6 +84,8 @@ export default function StatsTab({ detections, onZoneTap, onDetTap }) {
 
   return (
     <div>
+      <DurationCard risk={risk} />
+
       {/* Toggle Distribució / Calendari */}
       <div style={{ display: "flex", gap: 6, marginBottom: 8, background: C.surface, padding: 4, borderRadius: 10, border: `1px solid ${C.border}` }}>
         {[["dist", "📊 Distribució"], ["cal", "📅 Calendari"]].map(([k, l]) => (

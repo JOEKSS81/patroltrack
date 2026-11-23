@@ -425,7 +425,7 @@ export default function MapTab({
                 eventHandlers={{ click: () => onSelect && onSelect(z.id) }}>
                 <Popup>
                   <b>{z.label || z.id}</b><br />
-                  Activitat: {pct}%{d != null ? ` · 📍 ${d} km` : ""}
+                  Possibilitat ara: {pct}%{d != null ? ` · 📍 ${d} km` : ""}
                   {risk && <><br /><span style={{ color: t.danger, fontWeight: 700 }}>🚨 ZONA DE RISC</span></>}
                 </Popup>
               </Marker>

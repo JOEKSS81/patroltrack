@@ -1,20 +1,23 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import dogComic from "./assets/dog-comic.webp";
 import MapTab from "./MapTab";
 import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
-import { computeZoneProbs, computeHourly, distKm } from "./lib/utils";
+import { computeHourly, distKm } from "./lib/utils";
+import { zoneStatus, durText, pct } from "./lib/risk";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
 import GroupManager from "./components/GroupManager";
 import FriendsManager from "./components/FriendsManager";
 import ConnectGroups from "./components/ConnectGroups";
+import MyKey from "./components/MyKey";
 import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
 import FuelTab from "./tabs/FuelTab";
+import AlcoholTab from "./tabs/AlcoholTab";
 
 // PT amb colors del tema fallback — només per a ProbBar (no està embolcallat pel Provider).
 // Els tabs que usen useC reconstrueixen PT amb el tema actiu via ptWith(C).
@@ -81,7 +84,10 @@ export default function App(){
   const [queryPK,setQueryPK]=useState("");
   const [showPkPicker,setShowPkPicker]=useState(false);
   const [queryResult,setQueryResult]=useState(null);
-  const [zoneProbs,setZoneProbs]=useState({});
+  // Model de possibilitat del servidor (/api/zone-probs): per zona, ara mateix.
+  // Té en compte els avisos en viu, quanta estona sol durar un control i l'històric.
+  const [risk,setRisk]=useState(()=>{try{const r=JSON.parse(localStorage.getItem("pt_risk")||"null");return r&&r.zones?r:null;}catch{return null;}});
+  const zoneProbs=useMemo(()=>{const p={};if(risk&&risk.zones)for(const[z,v]of Object.entries(risk.zones))p[z]=v.p||0;return p;},[risk]);
   const [filterType,setFilterType]=useState("all");
   const [newAlert,setNewAlert]=useState(null);
   const [online,setOnline]=useState(true);
@@ -98,7 +104,7 @@ export default function App(){
   // App és qui munta el Provider).
   const C = currentTheme;
 
-  const radar=useRadar(detections);
+  const radar=useRadar(detections,risk&&risk.detections);
   // Segueix la teva zona: amb el radar actiu, a cada posició nova…
   useEffect(()=>{ if(radar.pos) followMyZone(radar.pos.lat,radar.pos.lng); },[radar.pos]); // eslint-disable-line react-hooks/exhaustive-deps
   // …i, en obrir l'app, si el permís d'ubicació ja està donat (sense tornar a preguntar).
@@ -128,6 +134,26 @@ export default function App(){
   // (abans era fixa i, amb capçaleres altes, la part de baix quedava amagada).
   const mapBoxRef=useRef(null);
   const navRef=useRef(null);
+  // Pestanya Alcohol: visible per a tothom (?alcohol=0 l'amaga en aquest mòbil).
+  const [showAlcohol]=useState(()=>{
+    try{
+      const q=new URLSearchParams(window.location.search).get("alcohol");
+      if(q==="0") localStorage.setItem("pt_alcohol_tab","0");
+      if(q==="1") localStorage.removeItem("pt_alcohol_tab");
+      return localStorage.getItem("pt_alcohol_tab")!=="0";
+    }catch{return true;}
+  });
+  // Alçada real de la barra de pestanyes (depèn de la barra de gestos del mòbil): el botó
+  // + i el marge inferior del contingut s'hi col·loquen a sobre, mai a sota.
+  const [navH,setNavH]=useState(62);
+  useEffect(()=>{
+    const el=navRef.current; if(!el) return;
+    const upd=()=>setNavH(el.offsetHeight||62);
+    upd();
+    if(typeof ResizeObserver==="undefined"){window.addEventListener("resize",upd);return()=>window.removeEventListener("resize",upd);}
+    const ro=new ResizeObserver(upd); ro.observe(el,{box:"border-box"});
+    return()=>ro.disconnect();
+  },[]);
   const [mapH,setMapH]=useState(null);
 
   // Token API + report manual ----------------------------------------------
@@ -158,102 +184,6 @@ export default function App(){
       .then(r=>r.ok?r.json():null).then(d=>{ if(alive) setMe(d&&d.ok?d:null); }).catch(()=>{});
     return ()=>{alive=false;};
   },[apiToken]);
-  const [showToken,setShowToken]=useState(false);
-  const [tokenCopied,setTokenCopied]=useState(false);
-  const [cmdCopied,setCmdCopied]=useState(false);
-  const [configCopied,setConfigCopied]=useState(false);
-  // Estat del test del token: null=no provat, "ok"=acceptat, "wrong"=rebutjat, "err"=xarxa, "testing"=loading
-  const [tokenTest,setTokenTest]=useState(null);
-  const [tokenTestMsg,setTokenTestMsg]=useState("");
-  // Fingerprint que el servidor té al INGEST_TOKEN. Es carrega automàticament
-  // quan el test falla, per veure si coincideix amb el del navegador.
-  const [serverFp,setServerFp]=useState(null);
-  // Fingerprint del token actual del navegador (mateix format: 4 primers + … + 4 últims)
-  const browserFp = apiToken && apiToken.length >= 8
-    ? `${apiToken.substring(0,4)}…${apiToken.substring(apiToken.length-4)}`
-    : null;
-
-  // Genera un token nou de 64 caràcters hex (256 bits) via Web Crypto API.
-  // Es desa al localStorage automàticament. L'usuari haurà de plantar-lo al
-  // worker amb `npx wrangler secret put INGEST_TOKEN`.
-  const generateNewToken=()=>{
-    const arr=new Uint8Array(32);
-    crypto.getRandomValues(arr);
-    const hex=Array.from(arr).map(b=>b.toString(16).padStart(2,"0")).join("");
-    setApiToken(hex);
-    setShowToken(true);
-    // Auto-copia per facilitar el setup
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(hex).then(()=>{
-        setTokenCopied(true);
-        setTimeout(()=>setTokenCopied(false),2500);
-      }).catch(()=>{});
-    }
-  };
-  const copyToken=()=>{
-    if(!apiToken)return;
-    if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(apiToken).then(()=>{
-        setTokenCopied(true);
-        setTimeout(()=>setTokenCopied(false),2500);
-      }).catch(()=>{});
-    }
-  };
-  // Helper genèric per copiar al porta-retalls i mostrar feedback
-  const copyToClipboard=(text,setFlag)=>{
-    if(!text||!navigator.clipboard||!navigator.clipboard.writeText)return;
-    navigator.clipboard.writeText(text).then(()=>{
-      setFlag(true);
-      setTimeout(()=>setFlag(false),2500);
-    }).catch(()=>{});
-  };
-  // Prova que el token actual estigui acceptat pel worker. Envia un missatge
-  // de prova que NO serà classificat com a patrulla; si el token val tornarà
-  // ok:true,stored:false. Si no val tornarà 401.
-  const testToken=async()=>{
-    if(!apiToken){setTokenTest("wrong");setTokenTestMsg("Primer configura un token al pas 1");return;}
-    setTokenTest("testing");setTokenTestMsg("");setServerFp(null);
-    try{
-      const r=await fetch(`${API}/api/ingest`,{
-        method:"POST",
-        headers:{"content-type":"application/json","x-ingest-token":apiToken},
-        body:JSON.stringify({message:"ping de prova patroltrack",group_name:"test-config",source:"test"}),
-      });
-      if(r.status===401){
-        setTokenTest("wrong");
-        setTokenTestMsg("El servidor té un token diferent del que tens al navegador.");
-        // Carrega el fingerprint del servidor per ajudar a diagnosticar
-        try{
-          const fr=await fetch(`${API}/api/ingest-fingerprint`);
-          if(fr.ok){const fd=await fr.json();if(fd&&fd.ok)setServerFp(fd);}
-        }catch{}
-        return;
-      }
-      const data=await r.json().catch(()=>null);
-      if(r.ok&&data&&data.ok){
-        setTokenTest("ok");
-        setTokenTestMsg("Tot correcte. Ja pots passar al pas 4.");
-      }else{
-        setTokenTest("err");
-        setTokenTestMsg(`Resposta inesperada: ${data?.reason||`HTTP ${r.status}`}`);
-      }
-    }catch(e){
-      setTokenTest("err");
-      setTokenTestMsg(`Error de xarxa: ${e.message||e}`);
-    }
-  };
-
-  // Telegram bot username ---------------------------------------------------
-  const [botUsername,setBotUsernameRaw]=useState(()=>{
-    try{return localStorage.getItem("pt_bot")||"Patrol_trackBot";}catch{return "Patrol_trackBot";}
-  });
-  const setBotUsername=(b)=>{
-    const clean=(b||"").replace(/^@/,"").trim();
-    setBotUsernameRaw(clean);
-    try{ if(clean) localStorage.setItem("pt_bot",clean); else localStorage.removeItem("pt_bot"); }catch{}
-  };
-  // El codi personal fa que el grup de Telegram quedi vinculat a qui ha afegit el bot.
-  const addGroupUrl = botUsername ? `https://t.me/${botUsername}?startgroup=${me?.code||"true"}` : "";
   const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
   // Foto del gos cyborg (empaquetada per Vite; /dog.png ja no existeix)
@@ -284,38 +214,6 @@ export default function App(){
   const [reporting,setReporting]=useState(false);
   const [reportResult,setReportResult]=useState(null);
 
-  // Diagnòstic Telegram
-  const [tgStatus,setTgStatus]=useState(null);
-  const [tgLoading,setTgLoading]=useState(false);
-  const [tgRepairing,setTgRepairing]=useState(false);
-  const [tgRepairMsg,setTgRepairMsg]=useState(null);
-  const checkTelegramStatus=async()=>{
-    setTgLoading(true);
-    try{
-      const r=await fetch(`${API}/api/telegram-status`,{cache:"no-store"});
-      const data=await r.json();
-      setTgStatus(data);
-    }catch(e){
-      setTgStatus({ok:false,reason:e.message||"Error de xarxa"});
-    }finally{setTgLoading(false);}
-  };
-  // Registra/repara el webhook de Telegram (el worker s'apunta a si mateix).
-  const repairTelegramWebhook=async()=>{
-    setTgRepairing(true);setTgRepairMsg(null);
-    try{
-      const r=await fetch(`${API}/api/telegram-setup`,{method:"POST",cache:"no-store"});
-      const data=await r.json();
-      if(data.ok){
-        setTgRepairMsg({ok:true,text:"✓ Webhook registrat. Envia un missatge de prova al grup i torna a comprovar."});
-      }else{
-        setTgRepairMsg({ok:false,text:`✗ ${data.error||data.reason||"No s'ha pogut registrar"}`});
-      }
-      await checkTelegramStatus();
-    }catch(e){
-      setTgRepairMsg({ok:false,text:`✗ Error de xarxa: ${e.message||e}`});
-    }finally{setTgRepairing(false);}
-  };
-
   const sendReport=async()=>{
     if(!apiToken){setReportResult({ok:false,reason:"Configura el token a la pestanya Configuració primer"});return;}
     if(!reportMsg.trim()){setReportResult({ok:false,reason:"Escriu o enganxa un missatge"});return;}
@@ -340,24 +238,6 @@ export default function App(){
     finally{setReporting(false);}
   };
 
-  // Probabilitat per zona basada en deteccions REALS (no sintètic).
-  // Norma per la zona més activa per tenir valors 0-1.
-  const computeZoneProbs=(dets)=>{
-    const counts={};
-    MAP_ZONES.forEach(z=>{counts[z.id]=0;});
-    const cutoff=Date.now()-7*24*3600*1000; // setmana
-    for(const d of dets){
-      const ts=d.created_at?new Date(d.created_at).getTime():0;
-      if(ts<cutoff)continue;
-      const z=d.zone_norm||d.zone;
-      if(z in counts)counts[z]++;
-    }
-    const max=Math.max(1,...Object.values(counts));
-    const p={};
-    for(const k in counts) p[k]=counts[k]/max;
-    return p;
-  };
-
   // Distribució per hora de les deteccions d'una zona (per al gràfic del dashboard)
   const computeHourly=(dets,zone)=>{
     const out=Array(24).fill(0);
@@ -377,7 +257,7 @@ export default function App(){
   useEffect(()=>{
     try{
       const cd=localStorage.getItem("pt_detections");
-      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;setZoneProbs(computeZoneProbs(arr));}}
+      if(cd){const arr=JSON.parse(cd);if(Array.isArray(arr)){setDetections(arr);prevCount.current=arr.length;}}
       const ch=localStorage.getItem("pt_health");if(ch)setHealth(JSON.parse(ch));
       const ls=localStorage.getItem("pt_lastSync");if(ls)setLastSync(Number(ls));
     }catch{}
@@ -392,10 +272,13 @@ export default function App(){
     const fetch2=async()=>{
       let ok=false;
       try{
-        const[hr,dr]=await Promise.all([
+        const[hr,dr,rr]=await Promise.all([
           fetch(`${API}/api/health`,{cache:"no-store"}).catch(()=>null),
           fetch(`${API}/api/detections?limit=500`,{cache:"no-store"}).catch(()=>null),
+          fetch(`${API}/api/zone-probs`,{cache:"no-store"}).catch(()=>null),
         ]);
+        const rk=rr&&rr.ok?await rr.json().catch(()=>null):null;
+        if(rk&&rk.zones&&aliveRef.current){setRisk(rk);try{localStorage.setItem("pt_risk",JSON.stringify(rk));}catch{}}
         const h=hr&&hr.ok?await hr.json().catch(()=>null):null;
         const d=dr&&dr.ok?await dr.json().catch(()=>null):null;
         if(!aliveRef.current)return;
@@ -405,7 +288,6 @@ export default function App(){
           prevCount.current=d.length;
           setDetections(d);
           try{localStorage.setItem("pt_detections",JSON.stringify(d));}catch{}
-          setZoneProbs(computeZoneProbs(d));
           ok=true;
         }
       }catch{/* deixa l'estat anterior intacte */}
@@ -524,7 +406,7 @@ export default function App(){
     setQuerying(true);
     setQueryResult(null);
     try{
-      const r=await fetch(`${API}/api/probability?zone=${encodeURIComponent(queryZone)}&hour=${queryHour}`);
+      const r=await fetch(`${API}/api/probability?zone=${encodeURIComponent(queryZone)}&hour=${queryHour}&dow=${queryDay}`);
       if(!r.ok)throw new Error("Servidor: HTTP "+r.status);
       const data=await r.json();
       if(typeof data.overall!=="number")throw new Error("Resposta invàlida del servidor");
@@ -552,6 +434,7 @@ export default function App(){
     {id:"query",    label:"Consulta"},
     {id:"stats",    label:"Stats"},
     {id:"fuel",     label:"Benzina"},
+    ...(showAlcohol?[{id:"alcohol",label:"Alcohol"}]:[]),
     {id:"history",  label:"Historial"},
     {id:"config",   label:"Config"},
   ];
@@ -566,6 +449,7 @@ export default function App(){
       case "query":     return(<svg {...props}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>);
       case "stats":     return(<svg {...props}><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>);
       case "history":   return(<svg {...props}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="12" r="1.5" fill={color} stroke="none"/><circle cx="4" cy="18" r="1.5" fill={color} stroke="none"/></svg>);
+      case "alcohol":   return(<svg {...props}><path d="M8 2h8l-.6 6.5a3.4 3.4 0 0 1-6.8 0z"/><line x1="12" y1="12" x2="12" y2="20"/><line x1="8" y1="22" x2="16" y2="22"/></svg>);
       case "fuel":      return(<svg {...props}><path d="M3 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><line x1="2" y1="22" x2="16" y2="22"/><rect x="6" y="6" width="6" height="5"/><path d="M15 9h2a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V8l-3-3"/></svg>);
       case "config":    return(<svg {...props}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>);
       default:          return null;
@@ -647,7 +531,7 @@ export default function App(){
         );
       })()}
 
-      <div style={{flex:1,padding:"12px 12px 140px",overflowY:"auto",position:"relative"}}>
+      <div style={{flex:1,padding:`12px 12px ${navH+90}px`,overflowY:"auto",position:"relative"}}>
 
         {/* Avisos sticky integrats sota el header (no fixed → no tapen el gos) */}
         {(radar.alert||newAlert)&&(
@@ -721,9 +605,21 @@ export default function App(){
                   </div>
                   <div style={{textAlign:"right",flexShrink:0,marginLeft:10}}>
                     <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
-                    <div style={{fontSize:10,color:C.textMuted}}>relativa setm.</div>
+                    <div style={{fontSize:10,color:C.textMuted}}>possibilitat ara</div>
                   </div>
                 </div>
+
+                {/* Estat ara: control actiu / ja han marxat / històric */}
+                {(()=>{
+                  const st=zoneStatus(risk&&risk.zones&&risk.zones[selectedZone],risk&&risk.model);
+                  const col=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  return(
+                    <div style={{background:st.tone==="neutral"?C.bg:`${col}14`,border:`1px solid ${st.tone==="neutral"?C.border:col+"66"}`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
+                      <div style={{fontSize:13,color:C.text,lineHeight:1.4}}><b style={{color:st.tone==="neutral"?C.text:col}}>{st.title}</b>{st.line?<span style={{color:C.textDim}}> · {st.line}</span>:null}</div>
+                      {st.hint&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ {st.hint}</div>}
+                    </div>
+                  );
+                })()}
 
                 {/* Per tipus REAL */}
                 <div style={{display:"flex",gap:6,marginBottom:zoneDets.length>0?10:0,flexWrap:"wrap"}}>
@@ -760,7 +656,7 @@ export default function App(){
               {detections.length===0?(
                 <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:20,textAlign:"center"}}>
                   <div style={{fontSize:14,color:C.textDim}}>Sense deteccions encara</div>
-                  <div style={{fontSize:12,color:C.textMuted,marginTop:6,lineHeight:1.5}}>Reenvia un missatge al bot @{botUsername} de Telegram o usa el botó <b style={{color:C.accent}}>+</b></div>
+                  <div style={{fontSize:12,color:C.textMuted,marginTop:6,lineHeight:1.5}}>Arribaran sols dels grups connectats amb MacroDroid (Config) o avisa a mà amb el botó <b style={{color:C.accent}}>+</b></div>
                 </div>
               ):detections.slice(0,4).map((d,i)=>{
                 const ptype=PT[d.patrol_type]||PT.unknown;
@@ -822,9 +718,10 @@ export default function App(){
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} zone={selectedZone} zoneInfo={risk&&risk.zones&&risk.zones[selectedZone]} riskModel={risk&&risk.model}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
-        {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="alcohol"&&showAlcohol&&<AlcoholTab/>}
+        {tab==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
         {/* QUERY */}
         {tab==="query"&&(
@@ -878,7 +775,7 @@ export default function App(){
                   ))}
                 </div>
                 <div style={{fontSize:11,color:C.textMuted,marginTop:4}}>
-                  Es consulta la franja <b style={{color:C.textDim}}>{String((queryHour+23)%24).padStart(2,"0")}–{String((queryHour+1)%24).padStart(2,"0")} h</b> (l'hora triada ±1).
+                  Es mira la franja <b style={{color:C.textDim}}>{String(queryHour).padStart(2,"0")}:30 ± 45 min</b> i els dies {[0,6].includes(queryDay)?"de cap de setmana":"feiners"} (els recents pesen més).
                 </div>
               </div>
               <button onClick={handleQuery} disabled={querying} style={{width:"100%",padding:12,background:querying?C.border:C.accent,color:querying?C.textDim:"#000",border:"none",borderRadius:8,fontSize:16,fontWeight:800,cursor:querying?"wait":"pointer",fontFamily:"inherit",opacity:querying?0.7:1}}>{querying?"CONSULTANT…":"CONSULTAR"}</button>
@@ -889,12 +786,18 @@ export default function App(){
                   <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.danger}}>⚠ {queryResult.error}</div>
                 )}
                 {!queryResult.error&&queryResult.sample_size===0&&(
-                  <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.warning}}>📭 Encara no hi ha registres per a aquesta zona/hora. Cal que arribin més deteccions a la base de dades.</div>
+                  <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,marginBottom:12,fontSize:13,color:C.warning}}>📭 Encara no s'ha avisat de cap control en aquesta zona. Com més avisos arribin, més precís serà.</div>
                 )}
                 <div style={{textAlign:"center",marginBottom:14}}>
                   <div style={{fontSize:13,color:C.textDim,marginBottom:4}}>{queryZone}{queryResult.pk?` · ${queryResult.pk}`:""} · {DAYS_FULL[queryResult.day]} · {queryHour}:00h</div>
                   <div style={{fontSize:64,fontWeight:900,lineHeight:1,color:(queryResult.overall||0)>0.6?C.danger:(queryResult.overall||0)>0.35?C.warning:C.success,textShadow:"0 0 30px currentColor"}}>{Math.round((queryResult.overall||0)*100)}%</div>
-                  <div style={{fontSize:14,color:C.textDim,marginTop:4}}>probabilitat de patrulla</div>
+                  <div style={{fontSize:14,color:C.textDim,marginTop:4}}>possibilitat de trobar un control</div>
+                  {queryResult.now&&(queryResult.live>0||queryResult.hist>0)&&(
+                    <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
+                      {queryResult.active?<><b style={{color:C.danger}}>🔴 Ara hi ha un control avisat</b> · </>:null}
+                      en viu {pct(queryResult.live)}% · històric {pct(queryResult.hist)}%
+                    </div>
+                  )}
                 </div>
                 <div style={{background:C.bg,borderRadius:8,padding:12}}>
                   <ProbBar value={queryResult.mossos} type="mossos"/>
@@ -903,7 +806,8 @@ export default function App(){
                 </div>
                 <div style={{marginTop:10,padding:10,background:C.accentDim,borderRadius:8,border:`1px solid ${C.accentGlow}`}}>
                   <div style={{fontSize:13,color:C.accent,fontWeight:700}}>{(queryResult.overall||0)>0.6?"⚠ Alta probabilitat":(queryResult.overall||0)>0.35?"◎ Probabilitat moderada":"✓ Baixa probabilitat"}</div>
-                  <div style={{fontSize:13,color:C.textDim,marginTop:4}}>Basat en {queryResult.sample_size||0} registres · Fiabilitat: {queryResult.reliability||"baixa"}</div>
+                  <div style={{fontSize:13,color:C.textDim,marginTop:4}}>Basat en {queryResult.sample_size||0} controls en {queryResult.observed_days||0} dies · Fiabilitat: {queryResult.reliability||"baixa"}</div>
+                  {queryResult.duration_min>0&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ Aquí un control sol durar ~{durText(queryResult.duration_min)}</div>}
                 </div>
               </div>
             )}
@@ -1065,224 +969,7 @@ export default function App(){
             {/* ⚙ Avançat: només per a qui administra l'app */}
             <div style={{fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.12em",margin:"22px 4px 8px"}}>Avançat</div>
 
-            {/* 🔧 ASSISTENT — Configurar reports i WhatsApp en 4 passos */}
-            {(()=>{
-              // Estats per al wizard (derivats)
-              const step1Done = !!apiToken;                                  // token al navegador
-              const step3Done = tokenTest === "ok";                          // backend l'accepta
-              const wrangerCmd = "cd cloudflare && npx wrangler secret put INGEST_TOKEN";
-              const apiBase = API || "https://patroltrack-api.patroltrack.workers.dev";
-              const httpShortcutsConfig = `${apiBase}/api/ingest`;
-              const httpBody = `{"message":"%s","source":"whatsapp","group_name":"WhatsApp"}`;
-              // Activitat WhatsApp — comptem deteccions amb source "whatsapp" i la més recent.
-              // Si n'hi ha ≥1, el pas 4 es marca com a fet (cercle verd).
-              const whatsappDets = detections.filter(d=>d.source==="whatsapp");
-              const whatsappCount = whatsappDets.length;
-              const whatsappLatestTs = whatsappDets.reduce((acc,d)=>{
-                const t = d.created_at ? new Date(d.created_at).getTime() : 0;
-                return t>acc ? t : acc;
-              },0);
-              const step4Done = whatsappCount > 0;
-              // Format relatiu "fa Xh" / "fa Xd" / etc.
-              const fmtRel = (ts)=>{
-                if(!ts)return"";
-                const s = Math.max(0, Math.floor((Date.now()-ts)/1000));
-                if(s<60)return"ara mateix";
-                if(s<3600)return`fa ${Math.floor(s/60)} min`;
-                if(s<86400)return`fa ${Math.floor(s/3600)} h`;
-                return`fa ${Math.floor(s/86400)} d`;
-              };
-              // Estil reusable per a les targetes de pas
-              const stepCard = (n,title,done,disabled,children)=>(
-                <div style={{
-                  background:disabled?`${C.surface}88`:C.surface,
-                  borderRadius:12,padding:14,
-                  border:`1px solid ${done?C.success:C.border}`,
-                  marginBottom:10,
-                  opacity:disabled?0.55:1,
-                  transition:"all .2s",
-                }}>
-                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:children?10:0}}>
-                    <div style={{
-                      width:28,height:28,borderRadius:"50%",flexShrink:0,
-                      background:done?C.success:disabled?C.border:C.accent,
-                      color:done||!disabled?C.bg:C.textDim,
-                      display:"flex",alignItems:"center",justifyContent:"center",
-                      fontSize:14,fontWeight:800,fontFamily:"inherit",
-                    }}>{done?"✓":n}</div>
-                    <div style={{fontSize:15,fontWeight:700,color:done?C.success:disabled?C.textDim:C.text,flex:1}}>{title}</div>
-                  </div>
-                  {children}
-                </div>
-              );
-              return(
-                <Collapsible title="🛠 Assistent · Reports i WhatsApp" subtitle="Avançat · token, servidor, prova i WhatsApp" defaultOpen={false}>
-                  {/* PAS 1 — Token al navegador */}
-                  {stepCard(1,"Crear el teu token secret",step1Done,false,(<>
-                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                      Aquest token és una contrasenya que protegeix el teu backend perquè ningú més no et pugui omplir l'app de deteccions falses. Es guarda només al teu navegador.
-                    </div>
-                    {!apiToken?(
-                      <button onClick={generateNewToken} style={{width:"100%",padding:"14px",background:C.accent,color:C.bg,border:"none",borderRadius:10,fontSize:15,fontWeight:800,cursor:"pointer",fontFamily:"inherit",boxShadow:`0 0 16px ${C.accent}55`}}>
-                        ✨ Generar el meu token
-                      </button>
-                    ):(<>
-                      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontFamily:"monospace",fontSize:12,color:C.text,wordBreak:"break-all",marginBottom:8}}>
-                        {showToken?apiToken:"•".repeat(Math.min(apiToken.length,48))}
-                      </div>
-                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                        <button onClick={()=>setShowToken(v=>!v)} style={{flex:"1 1 90px",padding:"8px 10px",background:"transparent",color:C.text,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                          {showToken?"🙈 Amagar":"👁 Veure"}
-                        </button>
-                        <button onClick={copyToken} style={{flex:"1 1 90px",padding:"8px 10px",background:tokenCopied?C.success:"transparent",color:tokenCopied?"#fff":C.text,border:`1px solid ${tokenCopied?C.success:C.border}`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
-                          {tokenCopied?"✓ Copiat":"📋 Copiar"}
-                        </button>
-                        <button onClick={generateNewToken} style={{flex:"1 1 110px",padding:"8px 10px",background:"transparent",color:C.warning,border:`1px solid ${C.warning}66`,borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                          🔄 Generar nou
-                        </button>
-                      </div>
-                      <div style={{fontSize:11,color:C.success,marginTop:8}}>✓ Token guardat al navegador ({apiToken.length} caràcters)</div>
-                    </>)}
-                  </>))}
-
-                  {/* PAS 2 — Plantar al servidor (només si pas 1 fet) */}
-                  {stepCard(2,"Dir-li el token al servidor",false,!step1Done,(<>
-                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                      El servidor (Cloudflare Worker) ha de saber el mateix token que tu. Cal fer-ho un sol cop des d'un terminal del Mac.
-                    </div>
-                    <div style={{fontSize:12,color:C.text,marginBottom:6}}><b>1.</b> Copia aquesta comanda:</div>
-                    <div style={{display:"flex",gap:6,marginBottom:10}}>
-                      <div style={{flex:1,background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:"10px 12px",fontFamily:"monospace",fontSize:11,color:C.text,wordBreak:"break-all"}}>
-                        {wrangerCmd}
-                      </div>
-                      <button onClick={()=>copyToClipboard(wrangerCmd,setCmdCopied)} style={{padding:"10px 12px",background:cmdCopied?C.success:C.accent,color:cmdCopied?"#fff":C.bg,border:"none",borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0,transition:"all .15s",minWidth:80}}>
-                        {cmdCopied?"✓ Fet":"📋 Copiar"}
-                      </button>
-                    </div>
-                    <div style={{fontSize:12,color:C.text,marginBottom:6,lineHeight:1.5}}>
-                      <b>2.</b> Obre el Terminal del Mac (Cmd+Espai → "Terminal"), enganxa la comanda dins la carpeta del projecte i prem Enter.
-                    </div>
-                    <div style={{fontSize:12,color:C.text,marginBottom:6,lineHeight:1.5}}>
-                      <b>3.</b> Et demanarà el token. Toca <b>📋 Copiar</b> del pas 1, ve al Terminal, enganxa'l (Cmd+V) i prem Enter.
-                    </div>
-                    <div style={{fontSize:11,color:C.textMuted,marginTop:8,fontStyle:"italic"}}>
-                      Quan vegis "Success! Uploaded secret for service patroltrack-api", passa al pas 3 per comprovar-ho.
-                    </div>
-                  </>))}
-
-                  {/* PAS 3 — Provar (només si pas 1 fet) */}
-                  {stepCard(3,"Comprovar que tot funciona",step3Done,!step1Done,(<>
-                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                      Envia una crida de prova al backend per confirmar que reconeix el teu token. Si fa mesos has fet el pas 2, no l'has de tornar a fer.
-                    </div>
-                    <button onClick={testToken} disabled={tokenTest==="testing"} style={{width:"100%",padding:"12px",background:tokenTest==="testing"?C.border:tokenTest==="ok"?C.success:tokenTest==="wrong"||tokenTest==="err"?C.danger:C.accent,color:tokenTest==="testing"?C.textDim:tokenTest==="ok"||tokenTest==="wrong"||tokenTest==="err"?"#fff":C.bg,border:"none",borderRadius:10,fontSize:14,fontWeight:700,cursor:tokenTest==="testing"?"wait":"pointer",fontFamily:"inherit",transition:"all .15s"}}>
-                      {tokenTest==="testing"?"⏳ Comprovant…":tokenTest==="ok"?"✓ Funciona — prova un altre cop":"▶ Provar ara"}
-                    </button>
-                    {tokenTestMsg&&(
-                      <div style={{marginTop:8,padding:"10px 12px",borderRadius:8,fontSize:12,lineHeight:1.5,
-                        background:tokenTest==="ok"?`${C.success}22`:`${C.danger}22`,
-                        border:`1px solid ${tokenTest==="ok"?C.success:C.danger}55`,
-                        color:tokenTest==="ok"?C.success:C.danger}}>
-                        {tokenTest==="ok"?"✓ ":"✗ "}{tokenTestMsg}
-                      </div>
-                    )}
-
-                    {/* Comparació visual quan el servidor rebutja */}
-                    {tokenTest==="wrong"&&serverFp&&(
-                      <div style={{marginTop:8,padding:"12px",background:C.bg,border:`1px solid ${C.border}`,borderRadius:8}}>
-                        <div style={{fontSize:11,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8}}>🔍 Diagnòstic</div>
-                        <div style={{display:"flex",flexDirection:"column",gap:6,fontSize:12}}>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                            <span style={{color:C.textDim}}>📱 Al teu navegador</span>
-                            <span style={{fontFamily:"monospace",color:C.text,background:C.surface,padding:"2px 8px",borderRadius:4,fontWeight:700}}>{browserFp||"(buit)"}</span>
-                          </div>
-                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
-                            <span style={{color:C.textDim}}>☁ Al servidor</span>
-                            <span style={{fontFamily:"monospace",color:C.text,background:C.surface,padding:"2px 8px",borderRadius:4,fontWeight:700}}>
-                              {serverFp.configured?serverFp.fingerprint:"(no configurat)"}
-                            </span>
-                          </div>
-                        </div>
-                        <div style={{marginTop:10,paddingTop:10,borderTop:`1px solid ${C.border}`,fontSize:12,color:C.text,lineHeight:1.5}}>
-                          {!serverFp.configured?(
-                            <>El servidor no té cap token configurat. Has d'executar la comanda del <b>pas 2</b>.</>
-                          ):browserFp===serverFp.fingerprint?(
-                            <>Els fingerprints semblen iguals però el token complet no coincideix. Pot ser per espais o salts de línia al pegar. <b>Torna a fer el pas 2</b> amb cura.</>
-                          ):(
-                            <><b style={{color:C.warning}}>Són diferents</b> → tens un token al navegador que mai no has plantat al servidor. <br/>
-                            <b>Solució A</b> (recomanada): copia el token del pas 1 i torna a fer el pas 2 al Terminal. <br/>
-                            <b>Solució B</b>: si vols mantenir el token del servidor (<code style={{fontSize:11,background:C.surface,padding:"1px 4px",borderRadius:3}}>{serverFp.fingerprint}</code>), enganxa el seu valor complet al camp del pas 1 (l'has de tenir guardat d'algun lloc).</>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>))}
-
-                  {/* PAS 4 — WhatsApp (només si pas 3 fet) */}
-                  {stepCard(4,"Reenviar des de WhatsApp (opcional)",step4Done,!step3Done&&!step4Done,(<>
-                    {/* Pill d'estat de connectivitat: viu si arriben deteccions WhatsApp */}
-                    <div style={{
-                      display:"flex",alignItems:"center",gap:8,
-                      padding:"8px 12px",borderRadius:8,marginBottom:10,
-                      background:step4Done?`${C.success}18`:`${C.border}55`,
-                      border:`1px solid ${step4Done?C.success+"66":C.border}`,
-                      fontSize:12,lineHeight:1.4,
-                    }}>
-                      <span style={{
-                        width:8,height:8,borderRadius:"50%",flexShrink:0,
-                        background:step4Done?C.success:C.textMuted,
-                        boxShadow:step4Done?`0 0 6px ${C.success}`:"none",
-                      }}/>
-                      <span style={{color:step4Done?C.success:C.textDim,flex:1}}>
-                        {step4Done?(<>
-                          <b>WhatsApp connectat</b> — {whatsappCount} missatge{whatsappCount===1?"":"s"} rebut{whatsappCount===1?"":"s"}
-                          {whatsappLatestTs?(<> · últim {fmtRel(whatsappLatestTs)}</>):null}
-                        </>):(
-                          <>Esperant el primer missatge des de WhatsApp…</>
-                        )}
-                      </span>
-                    </div>
-
-                    <div style={{fontSize:12,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                      WhatsApp no et pot enviar missatges directament a l'app (no té bots oberts com Telegram). La forma més senzilla al teu Huawei és <b>HTTP Shortcuts</b>:
-                    </div>
-                    <ol style={{margin:"0 0 12px 18px",padding:0,fontSize:12,color:C.text,lineHeight:1.7}}>
-                      <li>Instal·la <b>HTTP Shortcuts</b> des de F-Droid (és gratis i sense Google).</li>
-                      <li>Crea un Shortcut nou amb la configuració d'aquí sota.</li>
-                      <li>Quan vegis un missatge de patrulla a WhatsApp, copia'l (mantenir premut → Copiar) i toca el Shortcut.</li>
-                      <li>El Shortcut t'obrirà un quadre per enganxar el text i enviar-lo a l'app.</li>
-                    </ol>
-
-                    <div style={{fontSize:11,color:C.textDim,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"}}>Configuració del Shortcut</div>
-                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10,fontSize:11,fontFamily:"monospace",color:C.text,lineHeight:1.6,marginBottom:8}}>
-                      <div><span style={{color:C.textMuted}}>Mètode:</span> POST</div>
-                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>URL:</span> {httpShortcutsConfig}</div>
-                      <div><span style={{color:C.textMuted}}>Header 1:</span> content-type · application/json</div>
-                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>Header 2:</span> x-ingest-token · {showToken?apiToken:(apiToken?apiToken.substring(0,8)+"…"+apiToken.substring(apiToken.length-4):"<token>")}</div>
-                      <div><span style={{color:C.textMuted}}>Body type:</span> Custom text (JSON)</div>
-                      <div style={{wordBreak:"break-all"}}><span style={{color:C.textMuted}}>Body:</span> {httpBody}</div>
-                      <div style={{fontSize:10,color:C.textMuted,marginTop:6}}>↳ HTTP Shortcuts substitueix <b>%s</b> pel text que enganxis al moment.</div>
-                    </div>
-
-                    <button onClick={()=>copyToClipboard(JSON.stringify({
-                      method:"POST",url:httpShortcutsConfig,
-                      headers:{"content-type":"application/json","x-ingest-token":apiToken},
-                      body:httpBody,
-                    },null,2),setConfigCopied)} style={{width:"100%",padding:"10px",background:configCopied?C.success:"transparent",color:configCopied?"#fff":C.accent,border:`1px solid ${configCopied?C.success:C.accent}`,borderRadius:8,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>
-                      {configCopied?"✓ Configuració copiada":"📋 Copiar configuració JSON"}
-                    </button>
-
-                    <div style={{fontSize:11,color:C.warning,marginTop:8,padding:"8px 10px",background:`${C.warning}11`,border:`1px solid ${C.warning}44`,borderRadius:6,lineHeight:1.5}}>
-                      ⚠ El botó copia <b>sempre el token actual</b>. Si fas servir "Generar nou" al pas 1, has de tornar a copiar aquesta configuració i enganxar-la al HTTP Shortcuts per substituir el header `x-ingest-token`.
-                    </div>
-
-                    <div style={{fontSize:11,color:C.textMuted,marginTop:10,lineHeight:1.5,fontStyle:"italic"}}>
-                      Alternativa: <b>Tasker</b> (APK del web oficial) pot detectar automàticament cada notificació de WhatsApp i fer la crida sense que premis res — més potent però més complicat de configurar.
-                    </div>
-                  </>))}
-                </Collapsible>
-              );
-            })()}
+            <MyKey apiToken={apiToken} setApiToken={setApiToken}/>
 
             {/* 📡 Grups connectats */}
             <Collapsible
@@ -1334,127 +1021,6 @@ export default function App(){
               )}
             </Collapsible>
 
-            {/* 🔍 Estat Telegram — diagnòstic */}
-            <Collapsible
-              title="🔍 Estat Telegram"
-              subtitle="Diagnòstic del webhook i del bot"
-              defaultOpen={false}
-              right={
-                <div style={{display:"flex",gap:6}} onClick={e=>e.stopPropagation()}>
-                  <button onClick={repairTelegramWebhook} disabled={tgRepairing} style={{background:tgRepairing?C.border:"transparent",color:tgRepairing?C.textDim:C.warning,border:`1px solid ${C.warning}`,borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:tgRepairing?"wait":"pointer",fontFamily:"inherit"}}>
-                    {tgRepairing?"Reparant…":"🔧 Reparar"}
-                  </button>
-                  <button onClick={checkTelegramStatus} disabled={tgLoading} style={{background:tgLoading?C.border:C.accent,color:tgLoading?C.textDim:C.bg,border:"none",borderRadius:6,padding:"6px 10px",fontSize:11,fontWeight:700,cursor:tgLoading?"wait":"pointer",fontFamily:"inherit"}}>
-                    {tgLoading?"…":"Comprovar"}
-                  </button>
-                </div>
-              }
-            >
-              <div style={{fontSize:12,color:C.textDim,marginBottom:tgStatus?12:0,lineHeight:1.5}}>
-                Diagnostica per què el bot @{botUsername} pot no estar enviant deteccions. Si <b>"URL del webhook"</b> surt buida, prem <b>🔧 Reparar webhook</b>: el servidor el tornarà a registrar tot sol.
-              </div>
-              {tgRepairMsg&&(
-                <div style={{marginBottom:12,padding:"10px 12px",borderRadius:8,fontSize:12,lineHeight:1.5,background:tgRepairMsg.ok?`${C.success}22`:`${C.danger}22`,border:`1px solid ${tgRepairMsg.ok?C.success:C.danger}55`,color:tgRepairMsg.ok?C.success:C.danger}}>
-                  {tgRepairMsg.text}
-                </div>
-              )}
-              {tgStatus&&(
-                tgStatus.ok===false?(
-                  <div style={{background:`${C.danger}22`,border:`1px solid ${C.danger}`,borderRadius:8,padding:10,fontSize:13,color:C.danger}}>
-                    ✗ Error: {tgStatus.reason||"desconegut"}
-                  </div>
-                ):(
-                  <div style={{display:"flex",flexDirection:"column",gap:8}}>
-                    {/* Configuració */}
-                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
-                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Configuració del worker</div>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:3}}>
-                        <span style={{color:C.textDim}}>Webhook secret</span>
-                        <span style={{color:tgStatus.secret_configured?C.success:C.danger,fontWeight:700}}>{tgStatus.secret_configured?"✓ configurat":"✗ falta"}</span>
-                      </div>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
-                        <span style={{color:C.textDim}}>Bot token</span>
-                        <span style={{color:tgStatus.bot_token_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.bot_token_configured?"✓ configurat":"⚠ falta"}</span>
-                      </div>
-                      {!tgStatus.bot_token_configured&&(
-                        <div style={{fontSize:11,color:C.warning,marginTop:8,lineHeight:1.5}}>
-                          Per veure l'estat del webhook a Telegram, afegeix el token del bot com a secret:<br/>
-                          <code style={{background:C.surface,padding:"2px 5px",borderRadius:3,fontSize:11,color:C.text}}>wrangler secret put TELEGRAM_BOT_TOKEN</code>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Hits 24h */}
-                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
-                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Hits al webhook (últimes 24h)</div>
-                      {Object.keys(tgStatus.hits_24h||{}).length===0?(
-                        <div style={{fontSize:13,color:C.danger}}>⚠ Cap hit en 24h — Telegram no està arribant al worker</div>
-                      ):(
-                        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                          {Object.entries(tgStatus.hits_24h).map(([outcome,n])=>{
-                            const labels={stored:["✓ Guardats",C.success],rejected_no_patrol:["⊘ Rebutjats (no parlen de patrulles)",C.warning],ignored_short:["… Missatges molt curts",C.textDim],ignored_no_msg:["… Updates sense text",C.textDim],auth_fail:["✗ Secret invàlid",C.danger],auth_missing:["✗ Secret no configurat",C.danger],json_error:["✗ JSON invàlid",C.danger]};
-                            const[lbl,col]=labels[outcome]||[outcome,C.textDim];
-                            return(
-                              <div key={outcome} style={{display:"flex",justifyContent:"space-between",fontSize:13}}>
-                                <span style={{color:col}}>{lbl}</span>
-                                <span style={{color:col,fontWeight:700}}>{n}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {tgStatus.last_hit&&(
-                        <div style={{fontSize:11,color:C.textMuted,marginTop:8,paddingTop:8,borderTop:`1px solid ${C.border}`}}>
-                          Últim hit: {new Date(tgStatus.last_hit.received_at).toLocaleString("ca-ES")} · <b style={{color:C.textDim}}>{tgStatus.last_hit.outcome}</b>
-                          {tgStatus.last_hit.chat_title&&<><br/>Grup: {tgStatus.last_hit.chat_title}</>}
-                          {tgStatus.last_hit.text_preview&&<><br/><i>"{tgStatus.last_hit.text_preview}"</i></>}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Webhook info */}
-                    <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:8,padding:10}}>
-                      <div style={{fontSize:11,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6}}>Webhook registrat a Telegram</div>
-                      {tgStatus.webhook_info?(
-                        <div style={{fontSize:13,display:"flex",flexDirection:"column",gap:3}}>
-                          <div style={{display:"flex",justifyContent:"space-between"}}>
-                            <span style={{color:C.textDim}}>URL</span>
-                            <span style={{color:tgStatus.webhook_info.url?C.success:C.danger,fontWeight:700,fontSize:11,wordBreak:"break-all",textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.url||"(cap)"}</span>
-                          </div>
-                          <div style={{display:"flex",justifyContent:"space-between"}}>
-                            <span style={{color:C.textDim}}>Pending updates</span>
-                            <span style={{color:tgStatus.webhook_info.pending_update_count>0?C.warning:C.text,fontWeight:700}}>{tgStatus.webhook_info.pending_update_count||0}</span>
-                          </div>
-                          {tgStatus.webhook_info.last_error_date&&(
-                            <div style={{display:"flex",justifyContent:"space-between"}}>
-                              <span style={{color:C.danger}}>Últim error</span>
-                              <span style={{color:C.danger,fontWeight:700,fontSize:11,textAlign:"right",maxWidth:"60%"}}>{tgStatus.webhook_info.last_error_message||"?"}</span>
-                            </div>
-                          )}
-                          <div style={{display:"flex",justifyContent:"space-between"}}>
-                            <span style={{color:C.textDim}}>Allowed updates</span>
-                            <span style={{color:C.text,fontSize:11,textAlign:"right"}}>{(tgStatus.webhook_info.allowed_updates||[]).join(", ")||"(tots)"}</span>
-                          </div>
-                          <div style={{display:"flex",justifyContent:"space-between"}}>
-                            <span style={{color:C.textDim}}>Té secret</span>
-                            <span style={{color:tgStatus.webhook_info.has_custom_certificate||tgStatus.secret_configured?C.success:C.warning,fontWeight:700}}>{tgStatus.secret_configured?"✓":"⚠ comprova"}</span>
-                          </div>
-                        </div>
-                      ):(
-                        <div style={{fontSize:12,color:C.warning,lineHeight:1.5}}>{tgStatus.webhook_error||"no disponible"}</div>
-                      )}
-                    </div>
-
-                    {/* Pista útil */}
-                    {tgStatus.hits_24h&&!tgStatus.hits_24h.stored&&!tgStatus.hits_24h.rejected_no_patrol&&!tgStatus.hits_24h.ignored_short&&(
-                      <div style={{background:`${C.warning}22`,border:`1px solid ${C.warning}`,borderRadius:8,padding:10,fontSize:12,color:C.warning,lineHeight:1.5}}>
-                        💡 <b>El webhook no està rebent missatges normals.</b> Causa més probable: <b>privacy mode</b> del bot. Ves a <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer" style={{color:C.warning,textDecoration:"underline"}}>@BotFather</a> → /mybots → @{botUsername} → Bot Settings → Group Privacy → <b>Disable</b>. Després envia /promote o treu i torna a afegir el bot al grup perquè es refresqui.
-                      </div>
-                    )}
-                  </div>
-                )
-              )}
-            </Collapsible>
 
             <Collapsible title="📥 Fonts de dades" subtitle="Quins canals porten deteccions" defaultOpen={false}>
               {(()=>{
@@ -1746,8 +1312,8 @@ export default function App(){
         onClick={()=>{setShowReport(true);setReportResult(null);}}
         title="Reportar patrulla"
         style={{
-          position:"fixed",bottom:84,right:18,zIndex:9000,
-          width:60,height:60,borderRadius:"50%",
+          position:"fixed",bottom:navH+14,right:16,zIndex:9850,
+          width:56,height:56,borderRadius:"50%",
           background:C.accent,color:"#000",border:"none",
           fontSize:30,fontWeight:900,cursor:"pointer",fontFamily:"inherit",
           boxShadow:`0 4px 18px ${C.accent}77, 0 0 28px ${C.accent}33`,
@@ -1841,12 +1407,12 @@ export default function App(){
       {/* Bottom nav — 8 pestanyes que comparteixen ample equitatiu, icones SVG.
           Alçada FIXA per evitar que els botons es moguin: icona sempre size 22,
           només color i pes del text canvien per l'estat actiu. */}
-      <div ref={navRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"8px 0 max(10px, env(safe-area-inset-bottom))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
+      <div ref={navRef} style={{position:"fixed",bottom:0,left:0,right:0,zIndex:9800,background:C.surface,borderTop:`1px solid ${C.border}`,display:"flex",padding:"4px 0 max(4px, min(env(safe-area-inset-bottom), 12px))",boxShadow:"0 -2px 12px rgba(0,0,0,0.35)"}}>
         {tabs.map(t=>{
           const active=tab===t.id;
           const col=active?C.accent:C.textMuted;
           return(
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,height:48,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"2px 2px",position:"relative"}}>
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"1 1 0",minWidth:0,height:46,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:3,padding:"2px 2px",position:"relative"}}>
               {active&&<span style={{position:"absolute",top:0,left:"30%",right:"30%",height:2,background:C.accent,borderRadius:"0 0 2px 2px"}}/>}
               <TabIcon id={t.id} color={col} size={22}/>
               <span style={{fontSize:10,color:col,letterSpacing:"0.02em",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%",fontWeight:active?700:500}}>{t.label}</span>

@@ -21,6 +21,22 @@ CREATE INDEX IF NOT EXISTS idx_zone_hour ON detections (zone_norm, hour);
 CREATE INDEX IF NOT EXISTS idx_created_at ON detections (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_group_source ON detections (group_name, source);
 
+-- Seguiment dels controls avisats: serveix per mesurar quanta estona duren.
+-- kind: echo (el mateix avís en un altre grup), still ("segueixen", "sí"),
+--       cleared ("ja han marxat", "net", "no"), ask ("encara estan?").
+CREATE TABLE IF NOT EXISTS patrol_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    detection_id INTEGER,
+    zone_norm    TEXT,
+    source       TEXT,
+    group_name   TEXT,
+    raw_message  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_patrol_events_created ON patrol_events (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patrol_events_det ON patrol_events (detection_id);
+
 -- Diagnostic log for Telegram webhook requests.
 CREATE TABLE IF NOT EXISTS telegram_hits (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +67,16 @@ CREATE TABLE IF NOT EXISTS ingest_hits (
     text_preview TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ingest_hits_received ON ingest_hits (received_at DESC);
+
+-- Últim missatge rebut del mòbil de cada persona (botó "Comprovar que funciona").
+-- Només hora, resultat i grup: mai el text.
+CREATE TABLE IF NOT EXISTS ingest_seen (
+    owner        TEXT PRIMARY KEY,
+    last_at      TEXT NOT NULL,
+    last_outcome TEXT,
+    last_source  TEXT,
+    last_group   TEXT
+);
 
 -- Avisos de preu de carburant per SMS (pestanya Benzina).
 -- last_price: últim preu comparat; target_hit: 1 si ja s'ha avisat d'estar per sota de l'objectiu.

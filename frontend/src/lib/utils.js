@@ -57,24 +57,6 @@ export function playBark(ctx) {
   });
 }
 
-// Probabilitat per zona basada en deteccions REALS (no sintètic).
-// Norma per la zona més activa: 0..1 relatius a la setmana.
-export function computeZoneProbs(detections) {
-  const counts = {};
-  MAP_ZONES.forEach(z => { counts[z.id] = 0; });
-  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
-  for (const d of detections) {
-    const ts = d.created_at ? new Date(d.created_at).getTime() : 0;
-    if (ts < cutoff) continue;
-    const z = d.zone_norm || d.zone;
-    if (z in counts) counts[z]++;
-  }
-  const max = Math.max(1, ...Object.values(counts));
-  const p = {};
-  for (const k in counts) p[k] = counts[k] / max;
-  return p;
-}
-
 // Distribució per hora de les deteccions d'una zona (normalitzada 0..1)
 export function computeHourly(detections, zone) {
   const out = Array(24).fill(0);
