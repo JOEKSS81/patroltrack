@@ -13,6 +13,7 @@ export default function ZoneMap({
   zones = [], probs = {}, selected, onSelect,
   detections = [], theme, radarPos = null, riskThreshold = 0.5,
   mapHeight = "100%",        // alçada del mapa; la fitxa de zona va a sota (amb scroll)
+  onPosition,                // avisa l'app de la teva posició (per triar la zona més propera)
 }) {
   const C = theme;
   const PT = ptWith(C);
@@ -52,9 +53,14 @@ export default function ZoneMap({
     if (radarPos || !navigator.geolocation) return;
     const id = navigator.geolocation.watchPosition(
       (p) => {
-        setUserPos({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
+        const { latitude: lat, longitude: lng, accuracy: acc } = p.coords;
+        setUserPos({ lat, lng, acc });
         setLocErr(null);
         setLocating(false);
+        if (acc <= 300) {
+          try { localStorage.setItem("pt_last_pos", JSON.stringify({ lat, lng, acc })); } catch { /* */ }
+          onPosition && onPosition(lat, lng);
+        }
       },
       (e) => {
         // Només el permís denegat és un error definitiu; la resta (timeout, sense
@@ -107,8 +113,10 @@ export default function ZoneMap({
     return { s: s2, tx: cx - (cx - v.tx) * k, ty: cy - (cy - v.ty) * k };
   });
   const onWheel = (e) => { e.preventDefault(); const [cx, cy] = localXY(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, cx, cy); };
+  // La captura del punter es fa només quan comença un arrossegament: si es feia en
+  // posar el dit, el "click" anava a l'SVG i tocar una rodona no la seleccionava mai.
+  const capture = (id) => { try { svgRef.current?.setPointerCapture?.(id); } catch { /* */ } };
   const onPointerDown = (e) => {
-    svgRef.current?.setPointerCapture?.(e.pointerId);
     const [x, y] = localXY(e);
     pointersRef.current.set(e.pointerId, { x, y });
     movedRef.current = false;
@@ -133,10 +141,11 @@ export default function ZoneMap({
       const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const p = pinchRef.current, s2 = clampS(p.s * (dist / (p.dist || 1))), k = s2 / p.s;
       setView({ s: s2, tx: p.midx - (p.midx - p.tx) * k, ty: p.midy - (p.midy - p.ty) * k });
+      if (!movedRef.current) pointersRef.current.forEach((_, id) => capture(id));
       movedRef.current = true;
     } else if (dragRef.current) {
       const d = dragRef.current, dx = x - d.sx, dy = y - d.sy;
-      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) movedRef.current = true;
+      if (!movedRef.current && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) { movedRef.current = true; capture(e.pointerId); }
       setView(v => ({ ...v, tx: d.tx + dx, ty: d.ty + dy }));
     }
   };
