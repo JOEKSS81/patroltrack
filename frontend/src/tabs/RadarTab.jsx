@@ -3,13 +3,16 @@ import { ptWith } from "../lib/constants";
 import { useRef, useState } from "react";
 import { RADIUS_CHOICES } from "../lib/useRadar";
 import { CUSTOM_BARK_KEY, resetBarkCache } from "../lib/utils";
+import { zoneStatus } from "../lib/risk";
 
 // Pestanya RADAR — UI pura. Tot l'estat ve del hook useRadar via props.
 // Disseny: un SEMÀFOR (avisos reals recents prop teu), el radi en 3 botons i la llista
 // d'avisos "davant teu" (en la direcció que circules) i "a prop".
 // El % és la possibilitat de trobar un control a la teva zona ara (model del servidor).
 // Cada avís diu si encara hi deuen ser, si ja han marxat o si ja fa massa estona.
-export default function RadarTab({ radar, dogPhoto, onDetTap }) {
+// Amb el radar apagat també es veu la possibilitat a la zona on ets (o la triada a Inici):
+// la consulta no obliga a encendre el GPS continu ni el lladruc.
+export default function RadarTab({ radar, dogPhoto, onDetTap, zone, zoneInfo, riskModel }) {
   const C = useC();
   const PT = ptWith(C);
   const {
@@ -137,6 +140,23 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
             </div>
           )}
         </div>
+
+        {!active && zone && (() => {
+          const st = zoneStatus(zoneInfo, riskModel);
+          const p = Math.round((zoneInfo?.p || 0) * 100);
+          const col = st.tone === "danger" ? C.danger : st.tone === "success" ? C.success : p >= 40 ? C.warning : C.textDim;
+          return (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12, color: C.textDim }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span>📊 Possibilitat de control a {zone} ara</span>
+                <b style={{ color: col }}>{p}%</b>
+              </div>
+              <div style={{ marginTop: 4, color: C.textMuted }}>
+                <b style={{ color: st.tone === "neutral" ? C.textDim : col }}>{st.title}</b>{st.line ? ` · ${st.line}` : ""}
+              </div>
+            </div>
+          );
+        })()}
 
         {active && zoneName && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}`, fontSize: 12, color: C.textDim, display: "flex", justifyContent: "space-between", gap: 8 }}>

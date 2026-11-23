@@ -822,7 +822,7 @@ export default function App(){
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} zone={selectedZone} zoneInfo={risk&&risk.zones&&risk.zones[selectedZone]} riskModel={risk&&risk.model}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
         {tab==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
