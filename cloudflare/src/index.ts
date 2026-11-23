@@ -270,11 +270,13 @@ function normalizeGroupName(source: string, raw: string): string {
 }
 
 // Decideix si s'han de desar els avisos d'un grup i en porta el compte.
-// Grups nous: WhatsApp → pendent (cal activar-lo a Config); Telegram → actiu.
+// Grups nous: sempre pendents (cal triar "Seguir" a Config → Els meus grups).
 async function groupGate(env: Env, owner: string, source: string, name: string): Promise<GroupStatus | "skip"> {
   if ((source !== "whatsapp" && source !== "telegram") || GENERIC_GROUP_NAMES.has(name.toLowerCase())) return "skip";
   const now = new Date().toISOString();
-  const initial: GroupStatus = source === "telegram" ? "active" : "pending";
+  // Tots els xats nous (WhatsApp i Telegram) queden pendents fins que algú tria "Seguir":
+  // via MacroDroid també hi arriben xats privats, i no se n'ha de desar res sense permís.
+  const initial: GroupStatus = "pending";
   try {
     const row = await env.DB.prepare(`
       INSERT INTO user_groups (owner, source, name, status, first_seen, last_seen, hits)

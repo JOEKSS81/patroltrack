@@ -6,6 +6,16 @@ import { API, MAP_ZONES } from "./constants";
 // va treure de la UI: la possibilitat es mesura ara per percentatge, no per temps.
 const WINDOW_MIN = 120; // 2h
 
+// Rumb (graus 0..360, 0 = nord) d'un punt a un altre.
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const toR = Math.PI / 180;
+  const y = Math.sin((lng2 - lng1) * toR) * Math.cos(lat2 * toR);
+  const x = Math.cos(lat1 * toR) * Math.sin(lat2 * toR) - Math.sin(lat1 * toR) * Math.cos(lat2 * toR) * Math.cos((lng2 - lng1) * toR);
+  return (Math.atan2(y, x) / toR + 360) % 360;
+}
+const angleDiff = (a, b) => { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; };
+export const RADIUS_CHOICES = [5, 10, 20];
+
 // Zona del mapa més propera a una posició (o null si estàs a >40km de tot punt
 // conegut → no hi ha model fiable per a tu).
 function nearestZone(lat, lng) {
@@ -32,24 +42,35 @@ export function useRadar(detections) {
   const [zoneName, setZoneName] = useState(null); // zona del model usada per al %
   const [sound, setSound] = useState(true);
   const [alertRadiusKm, setAlertRadiusKm] = useState(() => {
-    try { const v = Number(localStorage.getItem("pt_radar_radius")); return v >= 1 && v <= 20 ? v : 5; } catch { return 5; }
+    try {
+      const raw = localStorage.getItem("pt_radar_radius");
+      if (raw == null) return 10;
+      const v = Number(raw);
+      // Radi en 3 opcions (5/10/20 km): arrodoneix el valor antic de la barra
+      return RADIUS_CHOICES.reduce((b, c) => (Math.abs(c - v) < Math.abs(b - v) ? c : b), 10);
+    } catch { return 10; }
   });
+  const [heading, setHeading] = useState(null);   // direcció de marxa (graus) o null si estàs aturat
+  const [level, setLevel] = useState("calm");     // semàfor: calm | caution | danger
+  const prevPosRef = useRef(null);
+  const headingRef = useRef(null);
   const windowMin = WINDOW_MIN; // exposat per a textos; ja no és editable
   const lastBark = useRef(0);
   const audioRef = useRef(null);
   const watchRef = useRef(null);
   // Estat per al càlcul de la possibilitat
   const modelProbRef = useRef(0);   // probabilitat del model (0..1), última rebuda
-  const liveScoreRef = useRef(0);   // contribució de deteccions reals (0..1)
   const probZoneRef = useRef(null); // zona del darrer fetch
   const probHourRef = useRef(-1);   // hora del darrer fetch
 
   useEffect(() => { try { localStorage.setItem("pt_radar_radius", String(alertRadiusKm)); } catch {} }, [alertRadiusKm]);
 
   // Combina model + senyal en viu i actualitza el %
+  // El % que es mostra és només l'HISTÒRIC d'aquesta zona a aquesta hora (model).
+  // Abans es barrejava amb la densitat dins del radi i la barra de distància el movia,
+  // cosa que el feia confús. El perill "ara" el dona el semàfor (avisos reals).
   const recomputeRisk = useCallback(() => {
-    const p = Math.max(modelProbRef.current, liveScoreRef.current);
-    setRiskPct(Math.round(Math.min(1, p) * 100));
+    setRiskPct(Math.round(Math.min(1, modelProbRef.current) * 100));
   }, []);
 
   // Demana al backend la probabilitat per zona+hora (model històric)
@@ -76,34 +97,27 @@ export function useRadar(detections) {
       const c = resolveDetCoords(d);
       if (!c) continue;
       const dist = Math.round(distKm(lat, lng, c.lat, c.lng) * 10) / 10;
+      const hd = headingRef.current;
+      // "Davant teu": en un con de ±50° respecte la direcció de marxa (si te'n mous)
+      const ahead = hd != null && dist > 0.3 && angleDiff(bearingDeg(lat, lng, c.lat, c.lng), hd) <= 50;
       enriched.push({
-        ...d, _lat: c.lat, _lng: c.lng, _exact: c.exact, _dist: dist,
+        ...d, _lat: c.lat, _lng: c.lng, _exact: c.exact, _dist: dist, _ahead: ahead,
         _ageMin: Math.round((Date.now() - ts) / 60000),
       });
     }
     enriched.sort((a, b) => a._dist - b._dist);
     setNearby(enriched.slice(0, 20));
 
-    // POSSIBILITAT PER DISTÀNCIA (0..1): densitat de deteccions reals DINS del
-    // radi triat, ponderada per proximitat i recència (~2 setmanes). Com més gran
-    // el radi, més deteccions hi entren → més %. Així la barra de distància mou el %.
-    const now = Date.now();
-    const HORIZON_MS = 14 * 24 * 3600 * 1000;
-    let score = 0;
-    for (const d of detections) {
-      const ts = d.created_at ? new Date(d.created_at).getTime() : 0;
-      const ageMs = now - ts;
-      if (!ts || ageMs > HORIZON_MS) continue;
-      const c = resolveDetCoords(d);
-      if (!c) continue;
-      const dist = distKm(lat, lng, c.lat, c.lng);
-      if (dist > alertRadiusKm) continue;
-      const prox = 1 - dist / alertRadiusKm;                    // 0..1 (més a prop, més)
-      const recency = Math.exp(-(ageMs / 3600000) / 72);        // decau ~3 dies
-      score += recency * (0.4 + 0.6 * prox);
-    }
-    const distProb = 1 - Math.exp(-score / 2.5);                // satura cap a 1
-    liveScoreRef.current = Math.min(1, distProb);
+    // SEMÀFOR — basat en avisos REALS recents (2 h), no en un % abstracte:
+    //  vermell: dins del radi i de fa ≤ 60 min, o davant teu dins del radi
+    //  groc:    dins del radi però més antic, o davant teu fins al doble del radi,
+    //           o l'històric d'aquesta zona i hora és alt (≥ 40%)
+    const inR = enriched.filter(d => d._dist <= alertRadiusKm);
+    let lv = "calm";
+    if (inR.some(d => d._ageMin <= 60 || d._ahead)) lv = "danger";
+    else if (inR.length || enriched.some(d => d._ahead && d._dist <= alertRadiusKm * 2) || modelProbRef.current >= 0.4) lv = "caution";
+    setLevel(lv);
+
 
     // MODEL predictiu: possibilitat de trobar un control a la teva zona, a aquesta
     // hora, segons l'històric. Només refem la consulta si canvia la zona o l'hora.
@@ -134,18 +148,36 @@ export function useRadar(detections) {
     try { localStorage.setItem("pt_auto", "1"); } catch {}
     watchRef.current = navigator.geolocation.watchPosition(
       p => {
-        setPos({ lat: p.coords.latitude, lng: p.coords.longitude, acc: p.coords.accuracy });
-        check(p.coords.latitude, p.coords.longitude);
+        const { latitude: lat, longitude: lng, accuracy: acc, heading: h, speed } = p.coords;
+        // Direcció de marxa: la del GPS si et mous (> ~7 km/h); si no, la calcula
+        // a partir de l'última posició quan t'has desplaçat més de 40 m.
+        let hd = headingRef.current;
+        if (h != null && !Number.isNaN(h) && speed != null && speed > 2) hd = h;
+        else if (prevPosRef.current && distKm(prevPosRef.current.lat, prevPosRef.current.lng, lat, lng) > 0.04) {
+          hd = bearingDeg(prevPosRef.current.lat, prevPosRef.current.lng, lat, lng);
+        }
+        if (!prevPosRef.current || distKm(prevPosRef.current.lat, prevPosRef.current.lng, lat, lng) > 0.04) prevPosRef.current = { lat, lng };
+        if (speed != null && speed < 0.5) hd = null;              // aturat: sense direcció
+        headingRef.current = hd; setHeading(hd);
+        setErr(null);
+        setPos({ lat, lng, acc });
+        check(lat, lng);
       },
-      () => { setErr("Permet l'accés a la ubicació al navegador"); setActive(false); },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
+      (e) => {
+        // Només s'atura si s'ha DENEGAT el permís. Un timeout o pèrdua de senyal
+        // (túnels, valls) és temporal: s'avisa però el radar continua escoltant.
+        if (e && e.code === 1) { setErr("Permet l'accés a la ubicació al navegador"); setActive(false); }
+        else setErr("Senyal GPS feble… continuo buscant");
+      },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 30000 },
     );
   }, [check]);
 
   const stop = useCallback(() => {
     if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
     setActive(false); setPos(null); setNearby([]); setAlert(null); setRiskPct(0); setZoneName(null);
-    modelProbRef.current = 0; liveScoreRef.current = 0; probZoneRef.current = null; probHourRef.current = -1;
+    setLevel("calm"); setHeading(null); headingRef.current = null; prevPosRef.current = null;
+    modelProbRef.current = 0; probZoneRef.current = null; probHourRef.current = -1;
     try { localStorage.removeItem("pt_auto"); } catch {}
   }, []);
 
@@ -163,7 +195,7 @@ export function useRadar(detections) {
 
   return {
     active, pos, err, nearby, alert, riskPct, zoneName, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, windowMin,
+    alertRadiusKm, setAlertRadiusKm, windowMin, heading, level,
     start, stop,
   };
 }

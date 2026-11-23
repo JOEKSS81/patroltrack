@@ -777,7 +777,7 @@ export default function App(){
           </div>
         )}
 
-        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} riskThreshold={riskThreshold} setRiskThreshold={setRiskThreshold}/>}
+        {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
         {tab==="stats"&&<StatsTab detections={detections} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
@@ -1179,50 +1179,20 @@ export default function App(){
               );
             })()}
 
-            {/* ✈️ Telegram */}
-            <Collapsible title="✈️ Connectar grup de Telegram" subtitle="Afegeix el bot a un grup en 2 tocs" defaultOpen={true}>
-              <div style={{fontSize:14,color:C.textDim,marginBottom:14,lineHeight:1.5}}>
-                Toca el botó i Telegram t'obrirà amb la llista dels teus grups. Tria un grup → el bot s'hi afegirà automàticament i els missatges començaran a arribar aquí. <b>No has de crear cap bot.</b>
-              </div>
+            {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
+            <Collapsible
+              title="👥 Els meus grups"
+              subtitle={me?`Connectat com a ${me.admin?"administrador":me.name}`:"Apareixen sols: tria quins segueixes"}
+              defaultOpen={true}
+            >
+              <GroupManager apiToken={apiToken}/>
+            </Collapsible>
 
-              <button
-                onClick={()=>{if(addGroupUrl)window.open(addGroupUrl,"_blank","noopener");}}
-                disabled={!botUsername}
-                style={{
-                  width:"100%",padding:"18px 18px",
-                  background:botUsername?"#229ED9":C.border,
-                  color:botUsername?"#fff":C.textDim,
-                  border:"none",borderRadius:10,
-                  fontSize:17,fontWeight:800,cursor:botUsername?"pointer":"not-allowed",fontFamily:"inherit",
-                  boxShadow:botUsername?"0 0 20px #229ED977":"none",
-                  marginBottom:16,
-                  letterSpacing:"0.03em",
-                }}
-              >+ AFEGIR EL MEU GRUP</button>
-
-              {/* Camp nom del bot — ocult per defecte, amb toggle */}
-              <details style={{marginTop:4}}>
-                <summary style={{fontSize:12,color:C.textMuted,cursor:"pointer",userSelect:"none",listStyle:"none",display:"flex",alignItems:"center",gap:6}}>
-                  <span style={{fontSize:10}}>▶</span> Opcions avançades (nom del bot)
-                </summary>
-                <div style={{marginTop:10}}>
-                  <div style={{fontSize:13,color:C.textDim,marginBottom:6}}>Nom del bot de Telegram (sense @):</div>
-                  <input
-                    value={botUsername}
-                    onChange={e=>setBotUsername(e.target.value)}
-                    placeholder="Patrol_trackBot"
-                    style={{...ss,boxSizing:"border-box",fontSize:14,fontFamily:"monospace",padding:"12px 14px"}}
-                  />
-                  <div style={{fontSize:12,color:C.textMuted,marginTop:6}}>
-                    Canvia-ho només si qui ha configurat el sistema t'ha dit un nom diferent.
-                  </div>
-                </div>
-              </details>
-
-              <div style={{marginTop:16,padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
-                <div style={{fontSize:14,fontWeight:700,color:C.text,marginBottom:8}}>📤 Compartir l'app amb amics</div>
-                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                  Comparteix aquest enllaç i el teu amic podrà afegir els seus propis grups sense res més que tocar el botó de dalt:
+            {/* 📤 Compartir l'app (el bot de Telegram s'ha tret: molts grups no el deixen entrar) */}
+            <Collapsible title="📤 Compartir l'app amb amics" subtitle="Enllaç per instal·lar PatrolTrack" defaultOpen={false}>
+              <div style={{padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que configuri MacroDroid (guia a «Els meus grups») amb l'accés personal que li creïs a «🤝 Amics».
                 </div>
                 <div style={{display:"flex",gap:8}}>
                   <input
@@ -1242,14 +1212,17 @@ export default function App(){
               </div>
             </Collapsible>
 
-            {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
-            <Collapsible
-              title="👥 Els meus grups"
-              subtitle={me?`Connectat com a ${me.admin?"administrador":me.name}`:"Activa, desactiva o afegeix grups de WhatsApp i Telegram"}
-              defaultOpen={true}
-            >
-              <GroupManager apiToken={apiToken}/>
+            {/* 🗺 Mapa: llindar de risc (abans era a la pestanya Radar) */}
+            <Collapsible title="🗺 Mapa" subtitle={`Zones en vermell a partir del ${Math.round(riskThreshold*100)}%`} defaultOpen={false}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                <span style={{fontSize:14,color:C.textDim}}>Llindar de risc al mapa</span>
+                <span style={{fontSize:18,fontWeight:900,color:riskThreshold>0.6?C.danger:riskThreshold>0.35?C.warning:C.success}}>{Math.round(riskThreshold*100)}%</span>
+              </div>
+              <input type="range" min={10} max={80} step={5} value={Math.round(riskThreshold*100)} onChange={e=>setRiskThreshold(Number(e.target.value)/100)} style={{width:"100%",accentColor:C.accent}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Més sensible</span><span>Més estricte</span></div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:8,lineHeight:1.5}}>Les zones dels mapes es pinten en <b style={{color:C.danger}}>vermell</b> quan la probabilitat de control supera aquest percentatge.</div>
             </Collapsible>
+
 
             {/* 🤝 Accessos per amic (només admin) */}
             {me?.admin&&(
