@@ -11,7 +11,7 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
   const PT = ptWith(C);
   const {
     active, pos, err, nearby, riskPct, zoneName, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, start, stop, heading, level,
+    alertRadiusKm, setAlertRadiusKm, start, stop, heading, level, testBark,
   } = radar;
 
   const ahead = nearby.filter(d => d._ahead && d._dist <= alertRadiusKm * 2);
@@ -97,6 +97,7 @@ export default function RadarTab({ radar, dogPhoto, onDetTap }) {
             <div onClick={toggleSound} style={{ width: 44, height: 24, borderRadius: 12, background: sound ? C.accent : C.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
               <div style={{ position: "absolute", top: 2, left: sound ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
             </div>
+            <button onClick={testBark} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "4px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>▶ Prova</button>
           </div>
           {active && pos && (
             <div style={{ fontSize: 11, color: C.textMuted, textAlign: "right" }}>

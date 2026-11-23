@@ -181,6 +181,9 @@ export function useRadar(detections) {
     try { localStorage.removeItem("pt_auto"); } catch {}
   }, []);
 
+  // Botó "Prova" del lladruc (també desbloqueja l'àudio del navegador)
+  const testBark = useCallback(() => { initAudio(); playBark(audioRef.current); }, []);
+
   const toggleSound = useCallback(() => {
     setSound(prev => {
       const next = !prev;
@@ -195,7 +198,7 @@ export function useRadar(detections) {
 
   return {
     active, pos, err, nearby, alert, riskPct, zoneName, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, windowMin, heading, level,
+    alertRadiusKm, setAlertRadiusKm, windowMin, heading, level, testBark,
     start, stop,
   };
 }
