@@ -184,7 +184,6 @@ export default function App(){
       .then(r=>r.ok?r.json():null).then(d=>{ if(alive) setMe(d&&d.ok?d:null); }).catch(()=>{});
     return ()=>{alive=false;};
   },[apiToken]);
-  const shareAppUrl = typeof window!=="undefined" ? window.location.origin : "https://patroltrack.pages.dev";
 
   // Foto del gos cyborg (empaquetada per Vite; /dog.png ja no existeix)
   const dogPhoto = dogComic;
@@ -882,31 +881,8 @@ export default function App(){
               </Collapsible>
             )}
 
-            {/* 📤 Compartir l'app (el bot de Telegram s'ha tret: molts grups no el deixen entrar) */}
-            {!me?.admin&&(
-            <Collapsible title="📤 Compartir l'app" subtitle="Enllaç per instal·lar PatrolTrack" defaultOpen={false}>
-              <div style={{padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
-                                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que configuri MacroDroid (guia a «Els meus grups») amb l'accés personal que li creïs a «🤝 Amics».
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <input
-                    readOnly
-                    value={shareAppUrl}
-                    onClick={e=>{e.target.select();}}
-                    style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace",flex:1,padding:"10px 12px"}}
-                  />
-                  <button
-                    onClick={()=>{
-                      if(navigator.share){navigator.share({title:"PatrolTrack",url:shareAppUrl}).catch(()=>{});}
-                      else if(navigator.clipboard){navigator.clipboard.writeText(shareAppUrl);alert("Enllaç copiat!");}
-                    }}
-                    style={{padding:"10px 16px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
-                  >Compartir</button>
-                </div>
-              </div>
-            </Collapsible>
-            )}
+            {/* Compartir l'app: només l'administrador (amb «Amics», enllaç personal per a cadascú).
+                Els amics no veuen cap opció per passar l'app a altres. */}
 
             {/* 🎨 Skin / Tema */}
             <Collapsible title="🎨 Aspecte" subtitle="Colors de l'app" defaultOpen={false}>

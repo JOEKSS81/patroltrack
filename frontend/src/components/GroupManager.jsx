@@ -106,17 +106,21 @@ export default function GroupManager({ apiToken }) {
       {/* Grups nous pendents */}
       {pending.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: C.warning, marginBottom: 6 }}>🆕 Nous ({pending.length}): tria si els segueixes</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: C.warning, marginBottom: 2 }}>🆕 Nous ({pending.length}): tria si els segueixes</div>
+          <div style={{ fontSize: 11.5, color: C.textMuted, marginBottom: 8 }}>Si és una persona (xat privat), toca Ignorar.</div>
           {pending.map((g) => (
-            <div key={`${g.source}|${g.name}`} style={{ background: C.bg, border: `1px solid ${C.warning}66`, borderLeft: `3px solid ${C.warning}`, borderRadius: 8, padding: "8px 10px", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
-                <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, fontSize: 11, color: C.textDim }}>
-                  <SourceBadge source={g.source} /> {g.hits} missatge{g.hits === 1 ? "" : "s"} rebut{g.hits === 1 ? "" : "s"}
+            <div key={`${g.source}|${g.name}`} style={{ background: C.bg, border: `1px solid ${C.warning}66`, borderLeft: `3px solid ${C.warning}`, borderRadius: 8, padding: "10px 12px", marginBottom: 8, display: "grid", gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 4, fontSize: 11.5, color: C.textDim }}>
+                  <SourceBadge source={g.source} />
+                  <span>{g.hits} missatge{g.hits === 1 ? "" : "s"} rebut{g.hits === 1 ? "" : "s"}</span>
                 </div>
               </div>
-              <button onClick={() => setStatus(g, "active")} disabled={!!busy} style={btn(C.success, C.bg)}>✅ Seguir</button>
-              <button onClick={() => setStatus(g, "off")} disabled={!!busy} style={btn("transparent", C.textDim)}>🚫 Ignorar</button>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <button onClick={() => setStatus(g, "active")} disabled={!!busy} style={{ ...btn(C.success, C.bg), padding: "9px 8px", fontSize: 13 }}>✅ Seguir</button>
+                <button onClick={() => setStatus(g, "off")} disabled={!!busy} style={{ ...btn("transparent", C.textDim), padding: "9px 8px", fontSize: 13, border: `1px solid ${C.border}` }}>🚫 Ignorar</button>
+              </div>
             </div>
           ))}
         </div>

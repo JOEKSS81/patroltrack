@@ -118,6 +118,9 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
   };
 
   const hasTemplates = SOURCES.every(({ key }) => templates[key]);
+  // A l'iPhone Apple no deixa llegir les notificacions d'altres apps: en lloc de
+  // MacroDroid es fa servir una drecera (app Dreceres/Atajos) des del full de compartir.
+  const isIOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
   const connected = !!lastSeen;
 
   const box = { background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 12 };
@@ -126,6 +129,7 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
   );
   const btn = (bg, fg, extra) => ({ background: bg, color: fg, border: "none", borderRadius: 9, padding: "11px 12px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", textAlign: "center", textDecoration: "none", display: "block", ...extra });
   const small = { fontSize: 12.5, color: C.textDim, lineHeight: 1.5 };
+  const mono = { fontFamily: "ui-monospace, Menlo, monospace", color: C.text, fontWeight: 700 };
   const code = { display: "block", fontSize: 11, color: C.text, background: C.surface, padding: 7, borderRadius: 6, wordBreak: "break-all", flex: 1, minWidth: 0 };
 
   if (!apiToken) {
@@ -147,13 +151,64 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
           </div>
         ) : (
           <div style={{ fontSize: 14, color: C.text, lineHeight: 1.5 }}>
-            <b style={{ color: C.warning }}>Sense MacroDroid, els avisos dels teus grups no arriben a l'app.</b>{" "}
-            MacroDroid llegeix les notificacions de WhatsApp i Telegram del teu mòbil i les envia aquí.
-            <div style={{ ...small, marginTop: 6 }}>Només funciona amb <b>Android</b>. Amb iPhone pots veure els avisos de tothom i avisar a mà amb el botó <b>+</b>.</div>
+            {isIOS ? (
+              <>
+                <b style={{ color: C.warning }}>A l'iPhone els avisos no entren sols.</b>{" "}
+                Apple no deixa que cap app llegeixi les notificacions de WhatsApp. Amb una <b>drecera</b> els envies a l'app en 3 tocs des del mateix WhatsApp.
+              </>
+            ) : (
+              <>
+                <b style={{ color: C.warning }}>Sense MacroDroid, els avisos dels teus grups no arriben a l'app.</b>{" "}
+                MacroDroid llegeix les notificacions de WhatsApp i Telegram del teu mòbil i les envia aquí.
+                <div style={{ ...small, marginTop: 6 }}>Amb <b>iPhone</b> es fa amb una drecera: obre aquesta pantalla des de l'iPhone i t'explicarà com.</div>
+              </>
+            )}
           </div>
         )}
       </div>
 
+{isIOS ? (
+<>
+      {/* iPhone: drecera */}
+      <div style={{ display: "flex", gap: 10 }}>
+        {stepNum(1, connected)}
+        <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 800, color: C.text }}>Crea la drecera (un sol cop)</div>
+          <div style={{ ...small, display: "grid", gap: 6 }}>
+            <div>1. Obre l'app <b>Dreceres</b> (Atajos), toca <b>+</b> i posa-li de nom <b>PatrolTrack</b>.</div>
+            <div>2. A ⓘ, activa <b>Mostrar al full de compartir</b>. Entrada: només <b>Text</b>. Si no hi ha entrada: <b>Demanar</b>.</div>
+            <div>3. Afegeix l'acció <b>Obtenir el contingut de l'URL</b> (Obtener contenido de URL):</div>
+          </div>
+          <div style={{ ...box, display: "grid", gap: 7, fontSize: 12.5, color: C.textDim, lineHeight: 1.5 }}>
+            <div>URL:</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}><code style={code}>{ingestUrl}</code><button onClick={() => copy("url", ingestUrl)} style={btn(C.accent, C.bg, { padding: "7px 10px", fontSize: 12 })}>{copied === "url" ? "✓" : "Copiar"}</button></div>
+            <div>Mètode: <b>POST</b> · Capçalera <b>x-ingest-token</b> = la teva clau:</div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}><code style={code}>{"•".repeat(10)}{apiToken.slice(-4)}</code><button onClick={() => copy("token", apiToken)} style={btn(C.accent, C.bg, { padding: "7px 10px", fontSize: 12 })}>{copied === "token" ? "✓" : "Copiar"}</button></div>
+            <div>Cos: <b>JSON</b> amb 3 camps de text:</div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "3px 10px" }}>
+              <span style={mono}>message</span><span>= <b>Entrada de la drecera</b> (variable)</span>
+              <span style={mono}>group_name</span><span>= WhatsApp</span>
+              <span style={mono}>source</span><span>= whatsapp</span>
+            </div>
+          </div>
+          <div style={small}>4. (Opcional) Afegeix <b>Mostrar notificació</b>: «Avís enviat ✓».</div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 10 }}>
+        {stepNum(2, connected)}
+        <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 800, color: C.text }}>Fes-la servir quan arribi un avís</div>
+          <div style={small}>
+            A WhatsApp, <b>mantén premut el missatge</b> → <b>Reenviar</b> → icona de <b>compartir</b> (quadrat amb fletxa) → <b>PatrolTrack</b>.
+            També pots copiar el missatge, obrir la drecera i enganxar-lo.
+          </div>
+        </div>
+      </div>
+
+</>
+) : (
+<>
       {/* Pas 1 */}
       <div style={{ display: "flex", gap: 10 }}>
         {stepNum(1, connected)}
@@ -202,6 +257,9 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
         </div>
       </div>
 
+</>
+)}
+
       {/* Pas 3 */}
       <div style={{ display: "flex", gap: 10 }}>
         {stepNum(3, connected || probe?.state === "ok")}
@@ -221,8 +279,12 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
             <div style={{ ...box, borderColor: C.accent, display: "grid", gap: 6 }}>
               <div style={{ fontSize: 13.5, color: C.text, fontWeight: 800 }}>⏳ Esperant un missatge… {probe.left} s</div>
               <div style={small}>
-                Ara, a <b>MacroDroid</b>: obre la macro <b>PatrolTrack</b>, toca <b>⋮</b> → <b>Provar accions</b> («Probar acciones»).
-                O demana a algú que t'escrigui per WhatsApp. Torna aquí: es marcarà sol.
+                {isIOS ? (
+                  <>Ara obre <b>Dreceres</b>, toca la drecera <b>PatrolTrack</b> i escriu <b>prova</b>. Torna aquí: es marcarà sol.</>
+                ) : (
+                  <>Ara, a <b>MacroDroid</b>: obre la macro <b>PatrolTrack</b>, toca <b>⋮</b> → <b>Provar accions</b> («Probar acciones»).
+                O demana a algú que t'escrigui per WhatsApp. Torna aquí: es marcarà sol.</>
+                )}
               </div>
               <button onClick={cancelProbe} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }}>Cancel·lar</button>
             </div>
@@ -241,14 +303,24 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
             <div style={{ ...box, borderColor: C.danger, background: `${C.danger}10`, display: "grid", gap: 6 }}>
               <div style={{ fontSize: 14, color: C.danger, fontWeight: 800 }}>✗ No ha arribat res</div>
               {probe.authFail ? (
-                <div style={small}>Ha arribat un missatge però amb una <b>clau que no és la teva</b>. Torna a fer el pas 2 des d'aquest mòbil (esborra la macro vella de MacroDroid).</div>
+                <div style={small}>Ha arribat un missatge però amb una <b>clau que no és la teva</b>. {isIOS ? "Torna a copiar la clau a la capçalera de la drecera." : "Torna a fer el pas 2 des d'aquest mòbil (esborra la macro vella de MacroDroid)."}</div>
               ) : (
                 <div style={{ ...small, display: "grid", gap: 3 }}>
                   <div>Revisa, per ordre:</div>
-                  <div>1. MacroDroid té permís per <b>llegir les notificacions</b>.</div>
-                  <div>2. La macro PatrolTrack està <b>activada</b> (interruptor verd).</div>
-                  <div>3. Bateria de MacroDroid: <b>Sense restriccions</b>.</div>
-                  <div>4. Els grups de WhatsApp <b>no estan silenciats</b>.</div>
+                  {isIOS ? (
+                    <>
+                      <div>1. L'URL de la drecera és exactament la d'aquí (botó Copiar).</div>
+                      <div>2. El mètode és <b>POST</b> i el cos és <b>JSON</b> amb els 3 camps.</div>
+                      <div>3. La capçalera es diu <b>x-ingest-token</b> i porta la teva clau sencera.</div>
+                    </>
+                  ) : (
+                    <>
+                      <div>1. MacroDroid té permís per <b>llegir les notificacions</b>.</div>
+                      <div>2. La macro PatrolTrack està <b>activada</b> (interruptor verd).</div>
+                      <div>3. Bateria de MacroDroid: <b>Sense restriccions</b>.</div>
+                      <div>4. Els grups de WhatsApp <b>no estan silenciats</b>.</div>
+                    </>
+                  )}
                 </div>
               )}
               <button onClick={runProbe} style={btn(C.accent, C.bg)}>Tornar a provar</button>
@@ -257,8 +329,8 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
         </div>
       </div>
 
-      {/* Pas 4 */}
-      <div style={{ display: "flex", gap: 10 }}>
+      {/* Pas 4 (Android: els grups arriben sols i s'han de triar) */}
+      {!isIOS && <div style={{ display: "flex", gap: 10 }}>
         {stepNum(4, false)}
         <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
           <div style={{ fontWeight: 800, color: C.text }}>Tria quins grups segueixes</div>
@@ -269,7 +341,7 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
             </button>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
