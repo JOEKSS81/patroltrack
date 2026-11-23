@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useC } from "../lib/themes";
 import { API } from "../lib/constants";
 
@@ -34,6 +34,10 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [showManual, setShowManual] = useState(false);
   const [copied, setCopied] = useState(null);
+  // Botó "Comprovar": null | {state:"waiting", left} | {state:"ok", ...} | {state:"fail", authFail}
+  const [probe, setProbe] = useState(null);
+  const probeRef = useRef(null);
+  useEffect(() => () => clearInterval(probeRef.current), []);
   const ingestUrl = `${API || window.location.origin}/api/ingest`;
 
   // Plantilles de macro publicades amb l'app (Cloudflare retorna index.html si no hi són:
@@ -63,8 +67,42 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
         setPendingCount(gs.filter((g) => g.status === "pending").length);
       })
       .catch(() => { if (alive) setLastSeen(null); });
+    // L'últim missatge de qualsevol mena (també dels grups per triar o les proves de MacroDroid)
+    fetch(`${API}/api/ingest-check`, { headers: { "x-ingest-token": apiToken } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && d.last_at) setLastSeen((prev) => (prev && prev > d.last_at ? prev : d.last_at)); })
+      .catch(() => {});
     return () => { alive = false; };
   }, [apiToken]);
+
+  // Comprovació en directe: si fa poc que ha arribat res, ja està; si no, espera fins a 90 s
+  // que arribi alguna cosa nova (la prova de MacroDroid o un missatge de WhatsApp).
+  const PROBE_SECONDS = 90;
+  const runProbe = async () => {
+    clearInterval(probeRef.current);
+    const started = Date.now();
+    const ask = () => fetch(`${API}/api/ingest-check`, { headers: { "x-ingest-token": apiToken }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const success = (d, fresh) => {
+      clearInterval(probeRef.current);
+      setLastSeen(d.last_at);
+      setPendingCount(d.groups_pending || 0);
+      setProbe({ state: "ok", fresh, at: d.last_at, group: d.last_group, outcome: d.last_outcome, pending: d.groups_pending || 0 });
+    };
+    setProbe({ state: "waiting", left: PROBE_SECONDS });
+    const first = await ask();
+    if (first && first.last_at && Date.now() - Date.parse(first.last_at) < 10 * 60_000) { success(first, false); return; }
+    probeRef.current = setInterval(async () => {
+      const left = Math.max(0, PROBE_SECONDS - Math.round((Date.now() - started) / 1000));
+      const d = await ask();
+      if (d && d.last_at && Date.parse(d.last_at) >= started - 2000) { success(d, true); return; }
+      if (left <= 0) {
+        clearInterval(probeRef.current);
+        setProbe({ state: "fail", authFail: !!(d && d.auth_fail_at && Date.parse(d.auth_fail_at) >= started - 60_000) });
+      } else setProbe({ state: "waiting", left });
+    }, 3000);
+  };
+  const cancelProbe = () => { clearInterval(probeRef.current); setProbe(null); };
 
   const download = (key, label) => {
     const text = templates[key].split("__PT_TOKEN__").join(apiToken).split("__PT_URL__").join(ingestUrl);
@@ -166,14 +204,56 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
 
       {/* Pas 3 */}
       <div style={{ display: "flex", gap: 10 }}>
-        {stepNum(3, connected)}
-        <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 4 }}>
+        {stepNum(3, connected || probe?.state === "ok")}
+        <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 6 }}>
           <div style={{ fontWeight: 800, color: C.text }}>Comprova que funciona</div>
-          <div style={small}>
-            {lastSeen === undefined ? "Comprovant…"
-              : connected ? <>✓ Funciona. Últim missatge {ago(lastSeen)}.</>
-              : <>Encara no ha arribat res. Demana a algú que t'escrigui per WhatsApp i torna a obrir aquesta pantalla. Els grups <b>no poden estar silenciats</b>.</>}
-          </div>
+          {!probe && (
+            <>
+              <button onClick={runProbe} style={btn(C.accent, C.bg)}>🔍 Comprovar ara</button>
+              <div style={small}>
+                {lastSeen === undefined ? "Mirant l'últim missatge…"
+                  : connected ? <>Últim missatge del teu mòbil {ago(lastSeen)}.</>
+                  : <>Encara no ha arribat res del teu mòbil.</>}
+              </div>
+            </>
+          )}
+          {probe?.state === "waiting" && (
+            <div style={{ ...box, borderColor: C.accent, display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 13.5, color: C.text, fontWeight: 800 }}>⏳ Esperant un missatge… {probe.left} s</div>
+              <div style={small}>
+                Ara, a <b>MacroDroid</b>: obre la macro <b>PatrolTrack</b>, toca <b>⋮</b> → <b>Provar accions</b> («Probar acciones»).
+                O demana a algú que t'escrigui per WhatsApp. Torna aquí: es marcarà sol.
+              </div>
+              <button onClick={cancelProbe} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }}>Cancel·lar</button>
+            </div>
+          )}
+          {probe?.state === "ok" && (
+            <div style={{ ...box, borderColor: C.success, background: `${C.success}14`, display: "grid", gap: 4 }}>
+              <div style={{ fontSize: 14, color: C.success, fontWeight: 800 }}>✓ Funciona!</div>
+              <div style={small}>
+                {probe.fresh ? "Acaba d'arribar" : `Va arribar ${ago(probe.at)}`} un missatge del teu mòbil{probe.group ? <> (<b>{probe.group}</b>)</> : ""}.
+                {probe.outcome === "group_pending" ? <> Aquest grup encara està <b>per triar</b>: ves al pas 4.</> : null}
+              </div>
+              <button onClick={() => setProbe(null)} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit", textAlign: "left", padding: 0 }}>D'acord</button>
+            </div>
+          )}
+          {probe?.state === "fail" && (
+            <div style={{ ...box, borderColor: C.danger, background: `${C.danger}10`, display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 14, color: C.danger, fontWeight: 800 }}>✗ No ha arribat res</div>
+              {probe.authFail ? (
+                <div style={small}>Ha arribat un missatge però amb una <b>clau que no és la teva</b>. Torna a fer el pas 2 des d'aquest mòbil (esborra la macro vella de MacroDroid).</div>
+              ) : (
+                <div style={{ ...small, display: "grid", gap: 3 }}>
+                  <div>Revisa, per ordre:</div>
+                  <div>1. MacroDroid té permís per <b>llegir les notificacions</b>.</div>
+                  <div>2. La macro PatrolTrack està <b>activada</b> (interruptor verd).</div>
+                  <div>3. Bateria de MacroDroid: <b>Sense restriccions</b>.</div>
+                  <div>4. Els grups de WhatsApp <b>no estan silenciats</b>.</div>
+                </div>
+              )}
+              <button onClick={runProbe} style={btn(C.accent, C.bg)}>Tornar a provar</button>
+            </div>
+          )}
         </div>
       </div>
 

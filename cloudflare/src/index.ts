@@ -139,16 +139,56 @@ async function logTelegramHit(
 }
 
 // Registre de diagnòstic de /api/ingest (best effort). Es queden els 500 més recents.
-async function logIngestHit(env: Env, outcome: string, source: string, groupName: string, text: string): Promise<void> {
+// Si se sap de qui és el mòbil (`owner`), també es guarda a ingest_seen: és el que mira
+// el botó "Comprovar que funciona" de Config (només hora, resultat i grup, mai el text).
+async function logIngestHit(env: Env, outcome: string, source: string, groupName: string, text: string, owner?: string): Promise<void> {
   try {
-    await env.DB.batch([
+    const now = new Date().toISOString();
+    const stmts = [
       env.DB.prepare("INSERT INTO ingest_hits (received_at, outcome, source, group_name, text_preview) VALUES (?, ?, ?, ?, ?)")
-        .bind(new Date().toISOString(), outcome, source.slice(0, 20), groupName.slice(0, MAX_GROUP_LENGTH), text.slice(0, 100)),
+        .bind(now, outcome, source.slice(0, 20), groupName.slice(0, MAX_GROUP_LENGTH), text.slice(0, 100)),
       env.DB.prepare("DELETE FROM ingest_hits WHERE id <= (SELECT MAX(id) FROM ingest_hits) - 500"),
-    ]);
+    ];
+    if (owner && source !== "manual" && source !== "test") {
+      stmts.push(env.DB.prepare(`
+        INSERT INTO ingest_seen (owner, last_at, last_outcome, last_source, last_group) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT (owner) DO UPDATE SET last_at = excluded.last_at, last_outcome = excluded.last_outcome,
+          last_source = excluded.last_source, last_group = excluded.last_group
+      `).bind(owner, now, outcome, source.slice(0, 20), groupName.slice(0, MAX_GROUP_LENGTH)));
+    }
+    await env.DB.batch(stmts);
   } catch {
     // Mai fallar per culpa del registre.
   }
+}
+
+// GET /api/ingest-check — per al botó "Comprovar que funciona": quan va arribar l'últim
+// missatge del mòbil d'aquesta persona (MacroDroid) i si fa poc ha arribat algun intent
+// amb una clau incorrecta (macro antiga o mal copiada).
+async function handleIngestCheck(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
+  const since = new Date(Date.now() - 15 * 60_000).toISOString();
+  const [seen, authFail, groups] = await Promise.all([
+    env.DB.prepare("SELECT last_at, last_outcome, last_source, last_group FROM ingest_seen WHERE owner = ?")
+      .bind(who.id).first<{ last_at: string; last_outcome: string; last_source: string; last_group: string }>()
+      .catch(() => null),
+    env.DB.prepare("SELECT MAX(received_at) AS at FROM ingest_hits WHERE outcome = 'auth_fail' AND received_at > ?")
+      .bind(since).first<{ at: string | null }>(),
+    env.DB.prepare("SELECT status, COUNT(*) AS n FROM user_groups WHERE owner = ? GROUP BY status")
+      .bind(who.id).all<{ status: string; n: number }>(),
+  ]);
+  const count = (st: string) => (groups.results ?? []).find((g) => g.status === st)?.n ?? 0;
+  return json({
+    ok: true,
+    last_at: seen?.last_at ?? null,
+    last_outcome: seen?.last_outcome ?? null,
+    last_source: seen?.last_source ?? null,
+    last_group: seen?.last_group ?? null,
+    auth_fail_at: authFail?.at ?? null,
+    groups_active: count("active"),
+    groups_pending: count("pending"),
+  });
 }
 
 // Clau de comparació d'un missatge: minúscules, sense accents, emojis ni puntuació, i
@@ -387,12 +427,12 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   }
   const body = await readIngestBody(req);
   if (!body) {
-    await logIngestHit(env, "bad_body", "", "", "");
+    await logIngestHit(env, "bad_body", "", "", "", who.id);
     return json({ ok: false, reason: "cos invàlid o massa gran" }, 400);
   }
   const message = stringValue(body.message).trim();
   if (!message) {
-    await logIngestHit(env, "empty", stringValue(body.source), stringValue(body.group_name), "");
+    await logIngestHit(env, "empty", stringValue(body.source), stringValue(body.group_name), "", who.id);
     return json({ ok: false, reason: "missatge buit" }, 400);
   }
   if (message.length > MAX_MESSAGE_LENGTH) return json({ ok: false, reason: "missatge massa llarg" }, 413);
@@ -402,14 +442,14 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
   const groupName = normalizeGroupName(sourceRaw, stringValue(body.group_name));
   if (sourceRaw !== "manual" && isSystemNotification(groupName, message)) {
-    await logIngestHit(env, "system", sourceRaw, groupName, "");
+    await logIngestHit(env, "system", sourceRaw, groupName, "", who.id);
     return json({ ok: true, stored: false, reason: "notificació del sistema" });
   }
 
   const gate = await groupGate(env, who.id, sourceRaw, groupName);
   if (gate === "pending" || gate === "off") {
     // No es guarda el text: el grup no està autoritzat (pot ser un xat privat).
-    await logIngestHit(env, `group_${gate}`, sourceRaw, groupName, "");
+    await logIngestHit(env, `group_${gate}`, sourceRaw, groupName, "", who.id);
     return json({
       ok: true, stored: false, group_status: gate,
       reason: gate === "pending" ? "grup nou: activa'l a Config → Grups" : "grup desactivat a Config",
@@ -421,7 +461,7 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const original = sourceRaw !== "manual" ? await findRecentDuplicate(env, message) : null;
   if (original) {
     await recordEcho(env, original, sourceRaw, groupName);
-    await logIngestHit(env, "duplicate", sourceRaw, groupName, message);
+    await logIngestHit(env, "duplicate", sourceRaw, groupName, message, who.id);
     return json({ ok: true, stored: false, duplicate: true, reason: "missatge repetit" });
   }
 
@@ -434,12 +474,12 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
       try { outcome = await handleFollowUp(env, fu, message, sourceRaw, groupName); }
       catch (error) { console.error("handleFollowUp failed", error); }
     }
-    await logIngestHit(env, outcome ?? "not_patrol", sourceRaw, groupName, message);
+    await logIngestHit(env, outcome ?? "not_patrol", sourceRaw, groupName, message, who.id);
     if (outcome && outcome !== "followup_duplicate") return json({ ok: true, stored: false, follow_up: fu?.kind, outcome });
     return json({ ok: true, stored: false, reason: "no és una alerta de patrulla" });
   }
   riskCache = null;
-  await logIngestHit(env, "stored", sourceRaw, groupName, message);
+  await logIngestHit(env, "stored", sourceRaw, groupName, message, who.id);
   return json({
     ok: true, stored: true, id: result.id,
     patrol_type: result.info?.patrol_type,
@@ -1061,6 +1101,7 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/detections") return await handleDetections(env, url);
       if (req.method === "GET" && url.pathname === "/api/probability") return await handleProbability(env, url);
       if (req.method === "GET" && url.pathname === "/api/zone-probs") return await handleZoneProbs(env);
+      if (req.method === "GET" && url.pathname === "/api/ingest-check") return await handleIngestCheck(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);

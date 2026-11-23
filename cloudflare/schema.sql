@@ -68,6 +68,16 @@ CREATE TABLE IF NOT EXISTS ingest_hits (
 );
 CREATE INDEX IF NOT EXISTS idx_ingest_hits_received ON ingest_hits (received_at DESC);
 
+-- Últim missatge rebut del mòbil de cada persona (botó "Comprovar que funciona").
+-- Només hora, resultat i grup: mai el text.
+CREATE TABLE IF NOT EXISTS ingest_seen (
+    owner        TEXT PRIMARY KEY,
+    last_at      TEXT NOT NULL,
+    last_outcome TEXT,
+    last_source  TEXT,
+    last_group   TEXT
+);
+
 -- Avisos de preu de carburant per SMS (pestanya Benzina).
 -- last_price: últim preu comparat; target_hit: 1 si ja s'ha avisat d'estar per sota de l'objectiu.
 CREATE TABLE IF NOT EXISTS fuel_alerts (

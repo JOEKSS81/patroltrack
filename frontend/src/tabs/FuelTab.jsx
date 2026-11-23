@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaf
 import "leaflet/dist/leaflet.css";
 import { useC } from "../lib/themes";
 import { API } from "../lib/constants";
+import { durableGet, durableSet } from "../lib/durable";
 
 // Preus de carburants a la província de Lleida (dades obertes del Ministeri).
 // Font principal: el Worker (/api/fuel, amb memòria cau de 30 min).
@@ -31,6 +32,7 @@ const AREAS = [
 const PIRINEU_LAT = 42.0;
 const REFRESH_MS = 30 * 60 * 1000;
 const FAV_KEY = "pt_fuel_fav";
+const FAV_AT_KEY = "pt_fuel_fav_at"; // quan l'usuari la va canviar per última vegada
 const PREF_KEY = "pt_fuel_prefs";
 
 const num = (v) => {
@@ -158,21 +160,36 @@ export default function FuelTab({ apiToken = "" }) {
       .then((d) => { if (alive) { setError(null); applyData(d); } })
       .catch((e) => { if (alive) setError(e.message || "error"); })
       .finally(() => { if (alive) setLoading(false); });
-    run();
+    // Primer es mira la còpia segura: si diu que la preferida es va treure (o canviar)
+    // després del que recorda el localStorage, mana ella.
+    durableGet(FAV_KEY).then((saved) => {
+      const lsAt = readLS(FAV_AT_KEY, 0);
+      if (saved && saved.at > lsAt) {
+        writeLS(FAV_KEY, saved.v ?? null); writeLS(FAV_AT_KEY, saved.at);
+      } else if (!saved && readLS(FAV_KEY, null)) {
+        durableSet(FAV_KEY, { v: readLS(FAV_KEY, null), at: lsAt || Date.now() });
+      }
+      if (alive) setFav(readLS(FAV_KEY, null));
+    }).finally(() => { if (alive) run(); });
     const t = setInterval(run, REFRESH_MS);
     return () => { alive = false; clearInterval(t); };
   }, [applyData]);
 
+  // Canvis fets per l'usuari: localStorage + còpia segura amb l'hora del canvi.
+  const saveFav = (next) => {
+    const at = Date.now(); // eslint-disable-line react-hooks/purity -- només en tocar un botó
+    setFav(next); writeLS(FAV_KEY, next); writeLS(FAV_AT_KEY, at);
+    durableSet(FAV_KEY, { v: next, at });
+  };
   const makeFav = (st) => {
     const next = { id: st.id, fuel, lastPrice: st.prices[fuel] ?? null, target: fav?.id === st.id ? fav.target ?? null : null };
-    setFav(next); writeLS(FAV_KEY, next); setDrop(null);
+    saveFav(next); setDrop(null);
     try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch { /* */ }
   };
-  const clearFav = () => { setFav(null); writeLS(FAV_KEY, null); setDrop(null); };
+  const clearFav = () => { saveFav(null); setDrop(null); };
   const setTarget = (v) => {
     if (!fav) return;
-    const next = { ...fav, target: num(v) };
-    setFav(next); writeLS(FAV_KEY, next);
+    saveFav({ ...fav, target: num(v) });
   };
 
   // Avís per SMS: el Worker revisa el preu cada 30 min encara que l'app estigui tancada.
@@ -305,7 +322,7 @@ export default function FuelTab({ apiToken = "" }) {
                 <b>{s.name}</b><br />{s.address}, {s.town}<br />
                 {FUELS.filter((f) => s.prices[f.id] != null).map((f) => <div key={f.id}>{f.label}: <b>{fmt(s.prices[f.id])}</b></div>)}
                 <div style={{ fontSize: 11, marginTop: 4 }}>{s.hours}</div>
-                <button onClick={() => makeFav(s)} style={{ marginTop: 6, cursor: "pointer" }}>{fav?.id === s.id ? "★ La meva" : "☆ Fer-la meva"}</button>
+                <button onClick={() => (fav?.id === s.id ? clearFav() : makeFav(s))} style={{ marginTop: 6, cursor: "pointer" }}>{fav?.id === s.id ? "★ La meva · treure" : "☆ Fer-la meva"}</button>
               </Popup>
             </CircleMarker>
           ))}
