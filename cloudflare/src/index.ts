@@ -245,6 +245,13 @@ async function readIngestBody(req: Request): Promise<IngestBody | null> {
 type GroupStatus = "active" | "pending" | "off";
 const GENERIC_GROUP_NAMES = new Set(["", "whatsapp", "telegram", "report manual", "(sense grup)"]);
 
+// Notificacions del sistema de WhatsApp/Telegram (còpies de seguretat, enviaments, etc.).
+// No són missatges de cap grup: s'ignoren del tot i no apareixen a Config → Grups.
+const SYSTEM_NOTIFICATION = /^(copia de seguridad|copia finalizada|c[oò]pia de seguretat|backup|eliminando|esborrant|comprobando si hay mensajes|checking for new messages|sending|enviando|enviant|descargando|subiendo|restaurando|whatsapp web)\b/i;
+function isSystemNotification(title: string, text: string): boolean {
+  return SYSTEM_NOTIFICATION.test(title.trim()) || SYSTEM_NOTIFICATION.test(text.trim());
+}
+
 // WhatsApp a vegades posa el comptador al títol ("Grup (3 missatges)") o el format
 // "Persona @ Grup". Es neteja perquè el mateix grup no surti repetit a Config.
 function normalizeGroupName(source: string, raw: string): string {
@@ -306,6 +313,10 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   const allowedSources = new Set(["whatsapp", "telegram", "manual", "test"]);
   if (!allowedSources.has(sourceRaw)) return json({ ok: false, reason: "source no vàlid" }, 400);
   const groupName = normalizeGroupName(sourceRaw, stringValue(body.group_name));
+  if (sourceRaw !== "manual" && isSystemNotification(groupName, message)) {
+    await logIngestHit(env, "system", sourceRaw, groupName, "");
+    return json({ ok: true, stored: false, reason: "notificació del sistema" });
+  }
 
   const gate = await groupGate(env, who.id, sourceRaw, groupName);
   if (gate === "pending" || gate === "off") {
