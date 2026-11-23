@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { distKm, playBark, resolveDetCoords } from "./utils";
+import { distKm, playBark, preloadBark, resolveDetCoords } from "./utils";
 import { API, MAP_ZONES } from "./constants";
 
 // Finestra fixa de "recent" (minuts). Abans era un slider configurable, però es
@@ -86,6 +86,7 @@ export function useRadar(detections) {
 
   const initAudio = () => {
     if (!audioRef.current) audioRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    preloadBark(audioRef.current);
   };
 
   const check = useCallback((lat, lng) => {
@@ -181,6 +182,9 @@ export function useRadar(detections) {
     try { localStorage.removeItem("pt_auto"); } catch {}
   }, []);
 
+  // Botó "Prova" del lladruc (també desbloqueja l'àudio del navegador)
+  const testBark = useCallback(() => { initAudio(); playBark(audioRef.current); }, []);
+
   const toggleSound = useCallback(() => {
     setSound(prev => {
       const next = !prev;
@@ -195,7 +199,7 @@ export function useRadar(detections) {
 
   return {
     active, pos, err, nearby, alert, riskPct, zoneName, sound, toggleSound,
-    alertRadiusKm, setAlertRadiusKm, windowMin, heading, level,
+    alertRadiusKm, setAlertRadiusKm, windowMin, heading, level, testBark,
     start, stop,
   };
 }

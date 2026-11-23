@@ -11,20 +11,50 @@ export function distKm(a1, o1, a2, o2) {
 }
 
 // So d'alerta del radar (lladruc curt). `ctx` és un AudioContext.
+// Lladruc REAL (gravació) en lloc d'un so sintetitzat: el sintetitzat sonava a
+// "piu piu" o a ànec. Fitxer per defecte: /bark.mp3 — "Excited barking of a hungry
+// dog", triat per l'usuari (Pixabay), retallat a 2,2 s (6 lladrucs) i normalitzat.
+// Cada usuari pot posar el seu propi so des del Radar ("🎵 El meu so").
+export const CUSTOM_BARK_KEY = "pt_bark_custom";
+const barkCache = { url: null, buf: null, loading: null };
+
+function barkUrl() {
+  try { return localStorage.getItem(CUSTOM_BARK_KEY) || "/bark.mp3"; } catch { return "/bark.mp3"; }
+}
+
+async function loadBark(ctx) {
+  const url = barkUrl();
+  if (barkCache.url === url && barkCache.buf) return barkCache.buf;
+  if (barkCache.url === url && barkCache.loading) return barkCache.loading;
+  barkCache.url = url; barkCache.buf = null;
+  barkCache.loading = fetch(url)
+    .then((r) => r.arrayBuffer())
+    .then((ab) => ctx.decodeAudioData(ab))
+    .then((buf) => { if (barkCache.url === url) barkCache.buf = buf; return buf; })
+    .finally(() => { barkCache.loading = null; });
+  return barkCache.loading;
+}
+
+// Pre-carrega el so (crida-ho en activar el radar perquè el primer lladruc no trigui)
+export function preloadBark(ctx) { if (ctx) loadBark(ctx).catch(() => {}); }
+export function resetBarkCache() { barkCache.url = null; barkCache.buf = null; }
+
 export function playBark(ctx) {
   if (!ctx) return;
-  const now = ctx.currentTime;
-  for (let i = 0; i < 2; i++) {
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.setValueAtTime(800, now + i * 0.3);
-    o.frequency.exponentialRampToValueAtTime(200, now + i * 0.3 + 0.15);
-    g.gain.setValueAtTime(0.4, now + i * 0.3);
-    g.gain.exponentialRampToValueAtTime(0.001, now + i * 0.3 + 0.15);
-    o.start(now + i * 0.3);
-    o.stop(now + i * 0.3 + 0.15);
-  }
+  if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  loadBark(ctx).then((buf) => {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain(); g.gain.value = 1;
+    src.connect(g); g.connect(ctx.destination);
+    src.start();
+  }).catch(() => {
+    // Si no es pot carregar l'àudio, almenys un avís curt perquè no passi desapercebut
+    const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+    o.type = "square"; o.frequency.value = 440; o.connect(g); g.connect(ctx.destination);
+    g.gain.setValueAtTime(0.3, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+    o.start(t); o.stop(t + 0.4);
+  });
 }
 
 // Probabilitat per zona basada en deteccions REALS (no sintètic).

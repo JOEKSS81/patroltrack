@@ -46,7 +46,7 @@ export default function FriendsManager({ apiToken }) {
 
   const share = async () => {
     if (!invite) return;
-    const text = `Hola ${invite.name}! Aquest és el teu accés a PatrolTrack. Obre l'enllaç des del mòbil i ja podràs afegir els teus grups: ${invite.link}`;
+    const text = `Hola ${invite.name}! Aquest és el teu accés a PatrolTrack (avisos de controls):\n${invite.link}\n\n1) Obre l'enllaç des del mòbil i afegeix l'app a la pantalla d'inici.\n2) Perquè els avisos dels teus grups de WhatsApp i Telegram també hi entrin, ves a Config → «Connecta els teus grups» i segueix els 4 passos (cal MacroDroid, només Android).\nAquest enllaç és només per a tu.`;
     try {
       if (navigator.share) await navigator.share({ title: "PatrolTrack", text });
       else { await navigator.clipboard.writeText(text); setCopied(true); }
@@ -68,7 +68,7 @@ export default function FriendsManager({ apiToken }) {
   return (
     <div style={{ textAlign: "left" }}>
       <div style={{ fontSize: 13, color: C.textDim, lineHeight: 1.5, marginBottom: 10 }}>
-        Crea un accés per a cada amic. Rebrà un enllaç personal: en obrir-lo, l'app queda configurada i podrà connectar i triar els seus grups sense veure ni tocar els teus.
+        Crea un accés per a cada amic i envia-li. Amb l'enllaç, la seva app queda configurada; després només li cal fer els passos de «Connecta els teus grups».
       </div>
 
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>

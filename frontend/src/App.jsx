@@ -10,6 +10,7 @@ import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
 import GroupManager from "./components/GroupManager";
 import FriendsManager from "./components/FriendsManager";
+import ConnectGroups from "./components/ConnectGroups";
 import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
@@ -955,12 +956,56 @@ export default function App(){
         {/* CONFIG */}
         {tab==="config"&&(
           <div>
-            {/* 🎨 Skin / Tema */}
-            <div style={{background:C.surface,borderRadius:12,padding:16,border:`1px solid ${C.border}`,marginBottom:12}}>
-              <div style={{fontSize:17,fontWeight:700,marginBottom:8,color:C.accent}}>🎨 Skin de l'app</div>
-              <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
-                Tria l'aspecte. El canvi és instantani i es desa al navegador.
+            {/* 📲 Connectar els teus grups (MacroDroid) — el primer i el més important */}
+            <Collapsible title="📲 Connecta els teus grups" subtitle="Perquè els avisos dels teus grups entrin a l'app" defaultOpen={true}>
+              <ConnectGroups apiToken={apiToken} onGoToGroups={()=>document.getElementById("cfg-groups")?.scrollIntoView({behavior:"smooth",block:"start"})}/>
+            </Collapsible>
+
+            {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
+            <div id="cfg-groups"/>
+            <Collapsible
+              title="👥 Els meus grups"
+              subtitle={me?`Connectat com a ${me.admin?"administrador":me.name}`:"Apareixen sols: tria quins segueixes"}
+              defaultOpen={true}
+            >
+              <GroupManager apiToken={apiToken}/>
+            </Collapsible>
+
+            {/* 🤝 Accessos per amic (només admin) */}
+            {me?.admin&&(
+              <Collapsible title="🤝 Amics" subtitle="Crea un accés personal per a cada amic" defaultOpen={false}>
+                <FriendsManager apiToken={apiToken}/>
+              </Collapsible>
+            )}
+
+            {/* 📤 Compartir l'app (el bot de Telegram s'ha tret: molts grups no el deixen entrar) */}
+            {!me?.admin&&(
+            <Collapsible title="📤 Compartir l'app" subtitle="Enllaç per instal·lar PatrolTrack" defaultOpen={false}>
+              <div style={{padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
+                                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
+                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que configuri MacroDroid (guia a «Els meus grups») amb l'accés personal que li creïs a «🤝 Amics».
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <input
+                    readOnly
+                    value={shareAppUrl}
+                    onClick={e=>{e.target.select();}}
+                    style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace",flex:1,padding:"10px 12px"}}
+                  />
+                  <button
+                    onClick={()=>{
+                      if(navigator.share){navigator.share({title:"PatrolTrack",url:shareAppUrl}).catch(()=>{});}
+                      else if(navigator.clipboard){navigator.clipboard.writeText(shareAppUrl);alert("Enllaç copiat!");}
+                    }}
+                    style={{padding:"10px 16px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
+                  >Compartir</button>
+                </div>
               </div>
+            </Collapsible>
+            )}
+
+            {/* 🎨 Skin / Tema */}
+            <Collapsible title="🎨 Aspecte" subtitle="Colors de l'app" defaultOpen={false}>
               <div style={{display:"grid",gridTemplateColumns:"repeat(2, 1fr)",gap:8}}>
                 {Object.entries(THEMES).map(([key,t])=>{
                   const isActive = themeName===key;
@@ -1002,7 +1047,23 @@ export default function App(){
                   );
                 })}
               </div>
-            </div>
+            </Collapsible>
+
+
+            {/* 🗺 Mapa: llindar de risc (abans era a la pestanya Radar) */}
+            <Collapsible title="🗺 Mapa" subtitle={`Zones en vermell a partir del ${Math.round(riskThreshold*100)}%`} defaultOpen={false}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
+                <span style={{fontSize:14,color:C.textDim}}>Llindar de risc al mapa</span>
+                <span style={{fontSize:18,fontWeight:900,color:riskThreshold>0.6?C.danger:riskThreshold>0.35?C.warning:C.success}}>{Math.round(riskThreshold*100)}%</span>
+              </div>
+              <input type="range" min={10} max={80} step={5} value={Math.round(riskThreshold*100)} onChange={e=>setRiskThreshold(Number(e.target.value)/100)} style={{width:"100%",accentColor:C.accent}}/>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Més sensible</span><span>Més estricte</span></div>
+              <div style={{fontSize:12,color:C.textDim,marginTop:8,lineHeight:1.5}}>Les zones dels mapes es pinten en <b style={{color:C.danger}}>vermell</b> quan la probabilitat de control supera aquest percentatge.</div>
+            </Collapsible>
+
+
+            {/* ⚙ Avançat: només per a qui administra l'app */}
+            <div style={{fontSize:12,color:C.textMuted,textTransform:"uppercase",letterSpacing:"0.12em",margin:"22px 4px 8px"}}>Avançat</div>
 
             {/* 🔧 ASSISTENT — Configurar reports i WhatsApp en 4 passos */}
             {(()=>{
@@ -1223,63 +1284,11 @@ export default function App(){
               );
             })()}
 
-            {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
-            <Collapsible
-              title="👥 Els meus grups"
-              subtitle={me?`Connectat com a ${me.admin?"administrador":me.name}`:"Apareixen sols: tria quins segueixes"}
-              defaultOpen={true}
-            >
-              <GroupManager apiToken={apiToken}/>
-            </Collapsible>
-
-            {/* 📤 Compartir l'app (el bot de Telegram s'ha tret: molts grups no el deixen entrar) */}
-            <Collapsible title="📤 Compartir l'app amb amics" subtitle="Enllaç per instal·lar PatrolTrack" defaultOpen={false}>
-              <div style={{padding:12,background:C.bg,borderRadius:8,border:`1px solid ${C.border}`}}>
-                                <div style={{fontSize:13,color:C.textDim,marginBottom:10,lineHeight:1.5}}>
-                  Comparteix aquest enllaç: el teu amic veurà tots els avisos. Perquè també entrin els dels <b>seus</b> grups, cal que configuri MacroDroid (guia a «Els meus grups») amb l'accés personal que li creïs a «🤝 Amics».
-                </div>
-                <div style={{display:"flex",gap:8}}>
-                  <input
-                    readOnly
-                    value={shareAppUrl}
-                    onClick={e=>{e.target.select();}}
-                    style={{...ss,boxSizing:"border-box",fontSize:13,fontFamily:"monospace",flex:1,padding:"10px 12px"}}
-                  />
-                  <button
-                    onClick={()=>{
-                      if(navigator.share){navigator.share({title:"PatrolTrack",url:shareAppUrl}).catch(()=>{});}
-                      else if(navigator.clipboard){navigator.clipboard.writeText(shareAppUrl);alert("Enllaç copiat!");}
-                    }}
-                    style={{padding:"10px 16px",background:C.accent,color:"#000",border:"none",borderRadius:6,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}
-                  >Compartir</button>
-                </div>
-              </div>
-            </Collapsible>
-
-            {/* 🗺 Mapa: llindar de risc (abans era a la pestanya Radar) */}
-            <Collapsible title="🗺 Mapa" subtitle={`Zones en vermell a partir del ${Math.round(riskThreshold*100)}%`} defaultOpen={false}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:6}}>
-                <span style={{fontSize:14,color:C.textDim}}>Llindar de risc al mapa</span>
-                <span style={{fontSize:18,fontWeight:900,color:riskThreshold>0.6?C.danger:riskThreshold>0.35?C.warning:C.success}}>{Math.round(riskThreshold*100)}%</span>
-              </div>
-              <input type="range" min={10} max={80} step={5} value={Math.round(riskThreshold*100)} onChange={e=>setRiskThreshold(Number(e.target.value)/100)} style={{width:"100%",accentColor:C.accent}}/>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:12,color:C.textMuted,marginTop:2}}><span>Més sensible</span><span>Més estricte</span></div>
-              <div style={{fontSize:12,color:C.textDim,marginTop:8,lineHeight:1.5}}>Les zones dels mapes es pinten en <b style={{color:C.danger}}>vermell</b> quan la probabilitat de control supera aquest percentatge.</div>
-            </Collapsible>
-
-
-            {/* 🤝 Accessos per amic (només admin) */}
-            {me?.admin&&(
-              <Collapsible title="🤝 Amics" subtitle="Crea un accés personal per a cada amic" defaultOpen={false}>
-                <FriendsManager apiToken={apiToken}/>
-              </Collapsible>
-            )}
-
             {/* 📡 Grups connectats */}
             <Collapsible
-              title="📡 Grups connectats"
+              title="🗂 Avisos desats per grup"
               subtitle={`${groupsAggregate.length} grup${groupsAggregate.length===1?"":"s"} amb deteccions`}
-              defaultOpen={true}
+              defaultOpen={false}
               right={<span style={{fontSize:12,color:C.textDim,fontWeight:700}}>{groupsAggregate.length}</span>}
             >
               <div style={{fontSize:13,color:C.textDim,marginBottom:12,lineHeight:1.5}}>
@@ -1287,7 +1296,7 @@ export default function App(){
               </div>
               {groupsAggregate.length===0?(
                 <div style={{padding:14,background:C.bg,borderRadius:8,border:`1px dashed ${C.border}`,textAlign:"center",fontSize:13,color:C.textDim}}>
-                  Encara no hi ha cap detecció amb grup. Afegeix el bot a un grup de Telegram amb el botó de dalt.
+                  Encara no hi ha cap avís desat amb grup.
                 </div>
               ):(
                 groupsAggregate.map((g,i)=>{
