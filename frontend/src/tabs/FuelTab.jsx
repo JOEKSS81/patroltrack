@@ -241,10 +241,29 @@ export default function FuelTab({ apiToken = "" }) {
     setSmsBusy(false);
   };
 
-  const locate = () => {
+  // Tendència: mitjana de la zona dels últims dies i el preu de cada gasolinera fa ~7 dies
+  const [trend, setTrend] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/fuel/trend?fuel=${fuel}`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && d.ok) setTrend(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [fuel]);
+
+  // Ubicació sense preguntar si ja hi ha permís (per a «la més barata a prop»)
+  useEffect(() => {
+    let alive = true;
+    navigator.permissions?.query({ name: "geolocation" }).then((st) => {
+      if (!alive || st.state !== "granted") return;
+      navigator.geolocation.getCurrentPosition((p) => { if (alive) setMe({ lat: p.coords.latitude, lng: p.coords.longitude }); }, () => {}, { maximumAge: 600000, timeout: 10000 });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const locate = (sortToo = true) => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (p) => { const pos = { lat: p.coords.latitude, lng: p.coords.longitude }; setMe(pos); setSortBy("distance"); },
+      (p) => { const pos = { lat: p.coords.latitude, lng: p.coords.longitude }; setMe(pos); if (sortToo) setSortBy("distance"); },
       () => setError("No s'ha pogut obtenir la ubicació"),
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
@@ -286,6 +305,54 @@ export default function FuelTab({ apiToken = "" }) {
           📍 {me ? (sortBy === "distance" ? "A prop" : "Preu") : "A prop"}
         </button>
       </div>
+
+      {/* La més barata a prop teu (10 km) */}
+      {data && (() => {
+        if (!me) return (
+          <button onClick={() => locate(false)} style={{ ...card, width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", color: C.text, fontSize: 13.5, fontWeight: 700 }}>
+            📍 Mira la més barata a prop teu
+          </button>
+        );
+        const near = data.stations.filter((st) => st.prices[fuel] != null).map((st) => ({ ...st, km: kmBetween(me, st) })).filter((st) => st.km <= 10)
+          .sort((a, b) => a.prices[fuel] - b.prices[fuel]);
+        const best = near[0];
+        return (
+          <div style={{ ...card, borderColor: C.success }}>
+            <div style={{ fontSize: 11, color: C.textMuted }}>📍 LA MÉS BARATA A MENYS DE 10 KM · {FUELS.find((f) => f.id === fuel)?.label}</div>
+            {best ? (
+              <div onClick={() => setFocus({ lat: best.lat, lng: best.lng, k: Date.now() })} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 3, cursor: "pointer" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{best.name} · {best.town}</div>
+                  <div style={{ fontSize: 11.5, color: C.textDim }}>a {best.km.toFixed(1)} km{near.length > 1 ? ` · ${near.length} gasolineres a prop` : ""}</div>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.success }}>{fmt(best.prices[fuel])}</div>
+              </div>
+            ) : <div style={{ fontSize: 13, color: C.textDim, marginTop: 3 }}>No n'hi ha cap a menys de 10 km.</div>}
+          </div>
+        );
+      })()}
+
+      {/* Tendència de la mitjana de la zona */}
+      {trend && trend.area && trend.area.length >= 2 && (() => {
+        const a = trend.area, first = a[0], last = a[a.length - 1];
+        const diff = (last.avg - first.avg) * 100; // cèntims
+        const days = Math.max(1, Math.round((Date.parse(last.day) - Date.parse(first.day)) / 86400000));
+        const col = diff < -0.05 ? C.success : diff > 0.05 ? C.danger : C.textDim;
+        const max = Math.max(...a.map((x) => x.avg)), min = Math.min(...a.map((x) => x.avg));
+        const W = 120, H = 28, px = (i) => (i / (a.length - 1)) * W, py = (v) => (max === min ? H / 2 : H - ((v - min) / (max - min)) * H);
+        return (
+          <div style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: C.textMuted }}>MITJANA DE LA ZONA · {days} DIES</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: col }}>{diff < -0.05 ? "↓" : diff > 0.05 ? "↑" : "="} {Math.abs(diff).toFixed(1).replace(".", ",")} cèntims <span style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>· ara {fmt(last.avg)}</span></div>
+            </div>
+            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Mitjana de ${fmt(first.avg)} a ${fmt(last.avg)}`} style={{ flexShrink: 0, overflow: "visible" }}>
+              <polyline points={a.map((x, i) => `${px(i)},${py(x.avg)}`).join(" ")} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round" />
+              <circle cx={px(a.length - 1)} cy={py(last.avg)} r="3" fill={col} />
+            </svg>
+          </div>
+        );
+      })()}
 
       {drop && (
         <div style={{ ...card, borderColor: C.success, color: C.success, fontSize: 13, display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -383,7 +450,13 @@ export default function FuelTab({ apiToken = "" }) {
               {s.town}{s.km != null ? ` · ${s.km.toFixed(1)} km` : ""}
             </div>
           </div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: priceColor(s.prices[fuel], stats.min, stats.max) }}>{s.prices[fuel].toFixed(3)}</div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: priceColor(s.prices[fuel], stats.min, stats.max) }}>{s.prices[fuel].toFixed(3)}</div>
+            {trend && trend.ref && trend.ref[s.id] != null && Math.abs(s.prices[fuel] - trend.ref[s.id]) >= 0.0005 && (() => {
+              const d = (s.prices[fuel] - trend.ref[s.id]) * 100;
+              return <div style={{ fontSize: 10.5, fontWeight: 700, color: d < 0 ? C.success : C.danger }} title="Respecte a fa uns dies">{d < 0 ? "↓" : "↑"}{Math.abs(d).toFixed(1).replace(".", ",")} c</div>;
+            })()}
+          </div>
           <button onClick={(e) => { e.stopPropagation(); fav?.id === s.id ? clearFav() : makeFav(s); }}
             style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: fav?.id === s.id ? C.accent : C.textMuted }}
             aria-label="Gasolinera preferida">{fav?.id === s.id ? "★" : "☆"}</button>

@@ -10,7 +10,7 @@ import { distKm, resolveDetCoords } from "./lib/utils";
 const USER_COLOR = "#00e5ff";
 
 export default function ZoneMap({
-  zones = [], probs = {}, selected, onSelect,
+  zones = [], probs = {}, selected, onSelect, activeZones = [],
   detections = [], theme, radarPos = null, riskThreshold = 0.5,
   mapHeight = "100%",        // alçada del mapa; la fitxa de zona va a sota (amb scroll)
   onPosition,                // avisa l'app de la teva posició (per triar la zona més propera)
@@ -349,6 +349,13 @@ export default function ZoneMap({
                     <animateTransform attributeName="transform" type="rotate" from={`0 ${x} ${y}`} to={`360 ${x} ${y}`} dur="9s" repeatCount="indefinite" />
                   </circle>
                 </>
+              )}
+              {/* control actiu ara: anell vermell que fa pampallugues */}
+              {activeZones.includes(z.id) && (
+                <circle cx={x} cy={y} r={u * 0.9} fill="none" stroke={C.danger} strokeWidth="3" opacity="0.9">
+                  <animate attributeName="r" values={`${u * 0.7};${u * 2.2}`} dur="1.1s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="1;0" dur="1.1s" repeatCount="indefinite" />
+                </circle>
               )}
               {/* nucli brillant tipus "store" (neó amb centre blanc) */}
               <circle cx={x} cy={y} r={9} fill={col} fillOpacity={0.3} filter="url(#zmGlow)" />

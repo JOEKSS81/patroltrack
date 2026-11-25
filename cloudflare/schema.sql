@@ -104,6 +104,32 @@ CREATE TABLE IF NOT EXISTS fuel_sms_log (
 );
 CREATE INDEX IF NOT EXISTS idx_fuel_sms_alert ON fuel_sms_log (alert_id, sent_at);
 
+-- Zones que cadascú segueix per rebre per Telegram els controls nous.
+CREATE TABLE IF NOT EXISTS zone_subscriptions (
+    owner      TEXT NOT NULL,
+    zone       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner, zone)
+);
+CREATE INDEX IF NOT EXISTS idx_zone_subs_zone ON zone_subscriptions (zone);
+
+-- Preus de carburant, una foto al dia (tendència a la pestanya Benzina).
+CREATE TABLE IF NOT EXISTS fuel_daily (
+    day  TEXT NOT NULL,
+    fuel TEXT NOT NULL,
+    avg  REAL,
+    min  REAL,
+    n    INTEGER,
+    PRIMARY KEY (day, fuel)
+);
+CREATE TABLE IF NOT EXISTS fuel_station_daily (
+    day        TEXT NOT NULL,
+    station_id TEXT NOT NULL,
+    fuel       TEXT NOT NULL,
+    price      REAL,
+    PRIMARY KEY (day, station_id, fuel)
+);
+
 -- Avisos de benzina per Telegram: a quin xat privat del bot s'envien els de cada persona.
 CREATE TABLE IF NOT EXISTS telegram_users (
     owner     TEXT PRIMARY KEY,

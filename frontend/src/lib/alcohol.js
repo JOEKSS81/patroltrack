@@ -27,42 +27,57 @@ const params = ({ sex, stomach }) => ({
   tPeak: stomach === "full" ? 1.25 : 0.55, // hores fins al pic
 });
 
-// Taxa a l'hora t (hores des que vas començar). profile: {sex, weight, stomach}
-export function bacAt(t, grams, profile) {
-  if (grams <= 0 || t < 0) return { blood: 0, breath: 0 };
+// Model per dosis: cada beguda s'absorbeix seguint una corba suau fins al pic (tPeak) i el
+// fetge n'elimina una quantitat fixa per hora (beta). Es calcula pas a pas (cada 1,2 min),
+// així funciona igual amb tot de cop (mode comptador) o amb cada beguda a la seva hora.
+//   doses: [{ t: hores des de la primera, g: grams d'alcohol }]   profile: {sex, weight, stomach}
+const DT = 0.02;
+export function model(doses, profile) {
   const { r, beta, abs, tPeak } = params(profile);
-  const maxBlood = (grams * abs) / (profile.weight * r);
-  let blood;
-  if (t <= tPeak) {
-    blood = Math.max(0, maxBlood * Math.sin(((t / tPeak) * Math.PI) / 2) - beta * t * 0.4);
-  } else {
-    const peakReal = Math.max(0, maxBlood - beta * tPeak * 0.4);
-    blood = Math.max(0, peakReal - beta * (t - tPeak));
-  }
-  return { blood, breath: blood * 0.5 };
-}
-
-const STEP = 0.05; // 3 minuts
-
-// Pic, i quan baixa de cada límit i quan arriba a 0,00 (hores des de l'inici)
-export function simulate(grams, profile) {
-  const out = { grams, peak: 0, peakBlood: 0, peakTime: 0, under: { novel: 0, general: 0, crime: 0 }, zero: 0 };
-  if (grams <= 0) return out;
-  for (let t = 0; t <= 24; t += STEP) {
-    const { blood, breath } = bacAt(t, grams, profile);
-    if (breath > out.peak) { out.peak = breath; out.peakBlood = blood; out.peakTime = t; }
-  }
-  for (const [k, lim] of Object.entries(LIMITS)) {
-    if (out.peak < lim) continue;
-    for (let t = out.peakTime; t <= 30; t += STEP) {
-      if (bacAt(t, grams, profile).breath < lim) { out.under[k] = t; break; }
+  const vd = profile.weight * r;
+  // Mentre alguna beguda encara s'està absorbint, el model del simulador original només
+  // hi resta un 40 % de l'eliminació (més prudent): amb una sola dosi dona exactament
+  // la mateixa corba que el simulador BioClear.
+  const absorbing = (t) => doses.some((d) => t > d.t && t - d.t < tPeak);
+  const absorbed = (t) => {
+    let a = 0;
+    for (const d of doses) {
+      const x = t - d.t;
+      if (x <= 0) continue;
+      a += d.g * abs * (x >= tPeak ? 1 : Math.sin((x / tPeak) * Math.PI / 2));
     }
+    return a;
+  };
+  const lastDose = doses.reduce((m, d) => Math.max(m, d.t), 0);
+  const n = Math.ceil((lastDose + 30) / DT);
+  const blood = new Float64Array(n + 1);
+  let prevA = 0;
+  for (let k = 1; k <= n; k++) {
+    const A = absorbed(k * DT);
+    blood[k] = Math.max(0, blood[k - 1] + (A - prevA) / vd - beta * DT * (absorbing(k * DT) ? 0.4 : 1));
+    prevA = A;
   }
-  for (let t = out.peakTime; t <= 30; t += STEP) {
-    if (bacAt(t, grams, profile).breath <= 0.004) { out.zero = t; break; }
+  const at = (t) => {
+    if (t <= 0 || !doses.length) return { blood: 0, breath: 0 };
+    const i = Math.min(n - 1, Math.floor(t / DT)), f = t / DT - i;
+    const b = blood[i] + (blood[i + 1] - blood[i]) * Math.min(1, Math.max(0, f));
+    return { blood: b, breath: b * 0.5 };
+  };
+  const out = { at, peak: 0, peakBlood: 0, peakTime: 0, under: { novel: 0, general: 0, crime: 0 }, zero: 0 };
+  if (!doses.some((d) => d.g > 0)) return out;
+  for (let k = 0; k <= n; k++) if (blood[k] * 0.5 > out.peak) { out.peak = blood[k] * 0.5; out.peakBlood = blood[k]; out.peakTime = k * DT; }
+  // Moment en què baixa per sota de cada límit DESPRÉS de l'última vegada que hi era per sobre
+  for (const [key, lim] of Object.entries(LIMITS)) {
+    if (out.peak < lim) continue;
+    for (let k = n; k >= 0; k--) if (blood[k] * 0.5 >= lim) { out.under[key] = Math.min(n, k + 1) * DT; break; }
   }
+  for (let k = n; k >= 0; k--) if (blood[k] * 0.5 > 0.004) { out.zero = Math.min(n, k + 1) * DT; break; }
   return out;
 }
+
+// Compatibilitat: tot de cop a l'hora d'inici
+export function bacAt(t, grams, profile) { return model([{ t: 0, g: grams }], profile).at(t); }
+export function simulate(grams, profile) { return model(grams > 0 ? [{ t: 0, g: grams }] : [], profile); }
 
 export function fmtDur(h) {
   if (h <= 0.05) return "0 h 00 min";
