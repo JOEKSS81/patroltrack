@@ -18,15 +18,6 @@ const SourceBadge = ({ source }) => {
   );
 };
 
-function Toggle({ on, onChange, C, disabled }) {
-  return (
-    <button onClick={onChange} disabled={disabled} aria-pressed={on}
-      style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: disabled ? "wait" : "pointer", position: "relative", flexShrink: 0, background: on ? C.success : C.border, transition: "background .15s" }}>
-      <span style={{ position: "absolute", top: 3, left: on ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-    </button>
-  );
-}
-
 export default function GroupManager({ apiToken }) {
   const C = useC();
   const [groups, setGroups] = useState(null);
@@ -71,12 +62,7 @@ export default function GroupManager({ apiToken }) {
     setBusy(null);
   };
 
-  const remove = async (g) => {
-    if (!confirm(`Treure "${g.name}" de la llista?\n\nLes deteccions ja desades es queden. Si torna a arribar algun missatge, sortirà com a grup nou.`)) return;
-    setBusy(`${g.source}|${g.name}`);
-    try { await call("/api/group-settings/delete", { source: g.source, name: g.name }); await load(); } catch (e) { setError(e.message); }
-    setBusy(null);
-  };
+
 
 
 
@@ -92,12 +78,15 @@ export default function GroupManager({ apiToken }) {
 
   // Els nous, primer els que porten més missatges (els xats privats solen quedar a baix)
   const pending = (groups || []).filter((g) => g.status === "pending").sort((a, b) => (b.hits || 0) - (a.hits || 0));
-  const rest = (groups || []).filter((g) => g.status !== "pending");
+  // Ignorar = a la paperera d'un toc: surt de la llista i no torna (el servidor el recorda
+  // com a "off", així que si en torna a arribar un missatge no reapareix com a nou).
+  const active = (groups || []).filter((g) => g.status === "active");
+  const ignored = (groups || []).filter((g) => g.status === "off");
 
   return (
     <div style={{ textAlign: "left" }}>
       <div style={{ fontSize: 12.5, color: C.textDim, lineHeight: 1.5, marginBottom: 12 }}>
-        Apareixen sols quan MacroDroid en rep el primer missatge. <b style={{ color: C.success }}>Seguir</b>: els seus avisos entren a l'app. <b>Ignorar</b>: no se'n desa res.
+        Apareixen sols quan MacroDroid en rep el primer missatge. <b style={{ color: C.success }}>Seguir</b>: els seus avisos entren a l'app. <b>Ignorar</b>: desapareix de la llista, no se'n desa res i no torna a sortir.
       </div>
 
       {error && <div style={{ fontSize: 12, color: C.danger, marginBottom: 8 }}>⚠ {error}</div>}
@@ -126,26 +115,43 @@ export default function GroupManager({ apiToken }) {
         </div>
       )}
 
-      {/* Grups actius / desactivats */}
-      {rest.map((g) => {
-        const on = g.status === "active";
+      {/* Grups que segueixes */}
+      {active.map((g) => {
         const key = `${g.source}|${g.name}`;
         const when = g.last_seen ? new Date(g.last_seen).toLocaleDateString("ca-ES", { day: "2-digit", month: "2-digit" }) : "—";
         return (
-          <div key={key} style={{ background: C.bg, border: `1px solid ${C.border}`, borderLeft: `3px solid ${on ? C.success : C.border}`, borderRadius: 8, padding: "8px 10px", marginBottom: 6, display: "flex", alignItems: "center", gap: 8, opacity: on ? 1 : 0.65 }}>
+          <div key={key} style={{ background: C.bg, border: `1px solid ${C.border}`, borderLeft: `3px solid ${C.success}`, borderRadius: 8, padding: "8px 10px", marginBottom: 6, display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 3, fontSize: 11, color: C.textDim, flexWrap: "wrap" }}>
                 <SourceBadge source={g.source} />
-                <span><b style={{ color: C.accent }}>{g.detections}</b> avisos · últim {when}</span>
+                <span><b style={{ color: C.accent }}>{g.detections || 0}</b> avisos · últim {when}</span>
                 {g.added_by && <span>· per {g.added_by}</span>}
               </div>
             </div>
-            <Toggle on={on} C={C} disabled={busy === key} onChange={() => setStatus(g, on ? "off" : "active")} />
-            <button onClick={() => remove(g)} disabled={!!busy} aria-label="Treure" style={{ background: "none", border: "none", color: C.textMuted, fontSize: 15, cursor: "pointer", padding: 2 }}>🗑</button>
+            <button onClick={() => setStatus(g, "off")} disabled={busy === key} aria-label={`Deixar de seguir ${g.name}`}
+              style={{ ...btn("transparent", C.textDim), border: `1px solid ${C.border}` }}>🗑 Ignorar</button>
           </div>
         );
       })}
+
+      {/* Ignorats: plegats a baix; es poden tornar a seguir */}
+      {ignored.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary style={{ fontSize: 12, color: C.textMuted, cursor: "pointer" }}>🗑 Ignorats ({ignored.length}) · no se'n desa res</summary>
+          <div style={{ marginTop: 6 }}>
+            {ignored.map((g) => {
+              const key = `${g.source}|${g.name}`;
+              return (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", borderTop: `1px solid ${C.border}` }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: C.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                  <button onClick={() => setStatus(g, "active")} disabled={busy === key} style={{ ...btn("transparent", C.accent), border: `1px solid ${C.accent}66`, fontSize: 11.5, padding: "5px 9px" }}>Tornar a seguir</button>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+      )}
       {groups && groups.length === 0 && (
         <div style={{ padding: 12, background: C.bg, borderRadius: 8, border: `1px dashed ${C.border}`, fontSize: 13, color: C.textDim, textAlign: "center" }}>Encara no ha arribat cap missatge. Fes els passos de «Connecta els teus grups» i els grups sortiran aquí.</div>
       )}

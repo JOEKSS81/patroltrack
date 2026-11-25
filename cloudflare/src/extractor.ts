@@ -68,6 +68,19 @@ const STRONG_KEYWORDS = [
 ];
 const STRONG_NORM = STRONG_KEYWORDS.map(normalizeText);
 
+// Argot dels grups: "rotonda bruta" = hi ha control; "neta" = ja han marxat (vegeu
+// classifyFollowUp). "Brut/bruta" només compta si diu on (zona coneguda o un lloc de
+// carretera) i no parla de neu, fang... ("carretera bruta de neu" no és cap avís).
+const DIRTY_WORDS = new Set(["brut", "bruta", "bruts", "brutes", "brutissima", "brutissim", "sucio", "sucia", "sucios", "sucias"]);
+const DIRTY_PLACES = ["rotonda", "entrada", "sortida", "salida", "carretera", "cruilla", "cruce", "km", "pk",
+  "pont", "puente", "tunel", "recta", "revolt", "curva", "benzinera", "gasolinera", "poligon", "pujada", "baixada",
+  "subida", "bajada", "variant", "variante", "autovia"];
+const DIRTY_NOT = ["neu", "nieve", "fang", "barro", "gel", "hielo", "terra", "tierra", "pedres", "piedras", "oli", "aceite",
+  "gravilla", "grava", "fulles", "hojas", "roba", "ropa", "cotxe brut", "coche sucio"];
+function dirtyWord(text: string): boolean {
+  return text.replace(/[^a-z0-9ñç]+/g, " ").split(" ").some((w) => DIRTY_WORDS.has(w));
+}
+
 // Preguntes ("hi ha mossos a ...?", "algú sap si...") no són avisos.
 const QUESTION_STARTS = [
   "algu sap", "alguien sabe", "sabeu si", "sabeis si", "algu ha vist", "alguien ha visto",
@@ -411,11 +424,14 @@ export function extractPatrolInfo(message: string, source: string = "unknown"): 
   const { zoneLiteral, zoneNorm, lat, lng } = detectZone(textLower);
   const hasZone = zoneNorm !== "Desconeguda";
 
-  if (!hasPresence && !hasPatrolWord) return null;
+  // "Rotonda de Sort bruta": sense cos policial ni "control", però en argot vol dir que n'hi ha.
+  const dirty = !hasPatrolWord && dirtyWord(textLower) && !DIRTY_NOT.some((w) => hasKeyword(textLower, w))
+    && (hasZone || DIRTY_PLACES.some((w) => hasKeyword(textLower, w)));
+  if (!hasPresence && !hasPatrolWord && !dirty) return null;
 
   // Sense cos policial, cal una paraula forta ("control", "radar"...): "està" o "hi ha"
   // sols no fan d'un missatge qualsevol un avís.
-  if (!hasPatrolWord && !STRONG_NORM.some(kw => textLower.includes(kw))) return null;
+  if (!hasPatrolWord && !dirty && !STRONG_NORM.some(kw => textLower.includes(kw))) return null;
 
   // Cos policial + lloc conegut ja és un avís ("Mossos a Organyà").
   if (hasPatrolWord && !hasPresence && !hasZone) {
@@ -424,7 +440,7 @@ export function extractPatrolInfo(message: string, source: string = "unknown"): 
   }
 
   const pk = detectPk(textLower);
-  const confidence = calcConfidence(textLower, patrolType, zoneNorm);
+  const confidence = dirty ? (hasZone ? "mitja" : "baixa") : calcConfidence(textLower, patrolType, zoneNorm);
 
   let zoneDisplay = zoneLiteral || zoneNorm;
   if (pk && zoneNorm !== "Desconeguda") zoneDisplay = `${zoneNorm} (${pk})`;
@@ -473,10 +489,11 @@ const STILL_PHRASES = [
   "aun siguen", "ahi siguen", "alli siguen", "alla estan", "alli estan",
 ].map(normalizeText);
 // Inici de missatge curt que parla d'ells en present: "Estan de palique.."
-const STILL_STARTS = ["estan", "hi son", "siguen", "sigue", "segueix"];
+const STILL_STARTS = ["estan", "hi son", "siguen", "sigue", "segueix", "brut", "bruta", "sucio", "sucia", "continua bruta"];
 
 // Pregunta que espera un sí/no sobre un control avisat abans
-const ASK_WORDS = ["encara", "todavia", "aun", "segueixen", "siguen", "continuen", "hi son", "estan", "siguen ahi"];
+const ASK_WORDS = ["encara", "todavia", "aun", "segueixen", "siguen", "continuen", "hi son", "estan", "siguen ahi",
+  "brut", "bruta", "net", "neta", "sucia", "limpia", "limpio"];
 const YES_ANSWERS = new Set(["si", "sip", "sii", "siii", "si si", "encara", "encara si", "si encara",
   "segueixen", "siguen", "aun", "aun si", "todavia", "si todavia", "afirmatiu", "yes", "ahi siguen"]);
 const NO_ANSWERS = new Set(["no", "nop", "noo", "nooo", "no no", "ja no", "ya no", "cap", "res", "nada",
