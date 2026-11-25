@@ -364,6 +364,7 @@ export function zoneProbsResponse(m: Model) {
       reports: ep ? ep.reports : 0,
       groups: ep ? ep.groups.size : 0,
       confirmations: ep ? ep.stills : 0,
+      type: ep ? ep.type : null,
       expected_end_at: ep && status === "active" ? iso(Math.max(m.now, ep.start + r.durationMin * MIN)) : null,
       duration_min: Math.round(r.durationMin),
       measured: z ? z.complete + z.partial : 0,

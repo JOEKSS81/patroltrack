@@ -52,3 +52,28 @@ for (const msg of NO_AVISOS) {
     assert.equal(extractPatrolInfo(msg, "whatsapp"), null);
   });
 }
+
+// Argot: "bruta" = hi ha control, "neta" = ja han marxat
+import { classifyFollowUp } from "../src/extractor.ts";
+const BRUTA: [string, string][] = [
+  ["Rotonda de Sort bruta", "Sort"],
+  ["Sortida de Tremp bruta", "Tremp"],
+  ["Bruta la rotonda de la Seu", "La Seu d'Urgell"],
+  ["Rotonda bruta", "Desconeguda"],
+];
+for (const [msg, zona] of BRUTA) {
+  test(`bruta és avís: ${msg}`, () => {
+    const r = extractPatrolInfo(msg, "whatsapp");
+    assert.ok(r, "hauria de ser un avís");
+    assert.equal(r!.zone_norm, zona);
+  });
+}
+for (const msg of ["La carretera està bruta de neu", "Tinc el cotxe brut", "Quina roba més bruta", "Bruta"]) {
+  test(`bruta no és avís: ${msg}`, () => assert.equal(extractPatrolInfo(msg, "whatsapp"), null));
+}
+test("neta / bruta com a seguiment", () => {
+  assert.equal(classifyFollowUp("Rotonda neta")?.kind, "cleared");
+  assert.equal(classifyFollowUp("Sort net")?.kind, "cleared");
+  assert.equal(classifyFollowUp("Bruta")?.kind, "still");
+  assert.equal(classifyFollowUp("Encara bruta?")?.kind, "ask");
+});

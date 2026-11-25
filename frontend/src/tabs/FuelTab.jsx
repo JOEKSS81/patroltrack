@@ -117,6 +117,8 @@ export default function FuelTab({ apiToken = "" }) {
   const [smsPhone, setSmsPhone] = useState(() => readLS("pt_fuel_phone", ""));
   const [smsState, setSmsState] = useState(null); // {ok, msg}
   const [smsBusy, setSmsBusy] = useState(false);
+  const [tg, setTg] = useState(null); // {ok, msg, url?} — avís per Telegram
+  const [tgBusy, setTgBusy] = useState(false);
 
   useEffect(() => { writeLS(PREF_KEY, { fuel, area }); }, [fuel, area]);
 
@@ -193,6 +195,31 @@ export default function FuelTab({ apiToken = "" }) {
   };
 
   // Avís per SMS: el Worker revisa el preu cada 30 min encara que l'app estigui tancada.
+  // Avís per Telegram (gratis): el bot de PatrolTrack t'escriu quan baixa el preu.
+  // La primera vegada cal obrir el bot i tocar INICIAR (enllaça el xat amb tu).
+  const activateTelegram = async () => {
+    if (!fav) return;
+    if (!apiToken) { setTg({ ok: false, msg: "Primer obre l'app amb el teu enllaç personal." }); return; }
+    setTgBusy(true); setTg(null);
+    try {
+      const r = await fetch(`${API}/api/fuel/alerts`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-ingest-token": apiToken },
+        body: JSON.stringify({ channel: "telegram", station_id: fav.id, fuel: fav.fuel, target: fav.target ?? undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) setTg({ ok: false, msg: d.reason || `Error ${r.status}` });
+      else if (d.telegram_linked) setTg({ ok: true, msg: d.sent ? "Avís actiu. T'he enviat un missatge de prova a Telegram." : "Avís actiu." });
+      else if (d.bot_url) {
+        setTg({ ok: true, url: d.bot_url, msg: "Avís desat. Falta un pas: obre el bot i toca INICIAR." });
+        try { window.open(d.bot_url, "_blank", "noopener"); } catch { /* el botó de sota també ho fa */ }
+      } else setTg({ ok: false, msg: "El bot de Telegram no està configurat al servidor." });
+    } catch (e) {
+      setTg({ ok: false, msg: e.message || "Error de xarxa" });
+    }
+    setTgBusy(false);
+  };
+
   const activateSms = async () => {
     if (!fav) return;
     if (!apiToken) { setSmsState({ ok: false, msg: "Primer configura el token a la pestanya Config." }); return; }
@@ -214,10 +241,29 @@ export default function FuelTab({ apiToken = "" }) {
     setSmsBusy(false);
   };
 
-  const locate = () => {
+  // Tendència: mitjana de la zona dels últims dies i el preu de cada gasolinera fa ~7 dies
+  const [trend, setTrend] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`${API}/api/fuel/trend?fuel=${fuel}`).then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d && d.ok) setTrend(d); }).catch(() => {});
+    return () => { alive = false; };
+  }, [fuel]);
+
+  // Ubicació sense preguntar si ja hi ha permís (per a «la més barata a prop»)
+  useEffect(() => {
+    let alive = true;
+    navigator.permissions?.query({ name: "geolocation" }).then((st) => {
+      if (!alive || st.state !== "granted") return;
+      navigator.geolocation.getCurrentPosition((p) => { if (alive) setMe({ lat: p.coords.latitude, lng: p.coords.longitude }); }, () => {}, { maximumAge: 600000, timeout: 10000 });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const locate = (sortToo = true) => {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
-      (p) => { const pos = { lat: p.coords.latitude, lng: p.coords.longitude }; setMe(pos); setSortBy("distance"); },
+      (p) => { const pos = { lat: p.coords.latitude, lng: p.coords.longitude }; setMe(pos); if (sortToo) setSortBy("distance"); },
       () => setError("No s'ha pogut obtenir la ubicació"),
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 },
     );
@@ -260,6 +306,54 @@ export default function FuelTab({ apiToken = "" }) {
         </button>
       </div>
 
+      {/* La més barata a prop teu (10 km) */}
+      {data && (() => {
+        if (!me) return (
+          <button onClick={() => locate(false)} style={{ ...card, width: "100%", textAlign: "left", cursor: "pointer", fontFamily: "inherit", color: C.text, fontSize: 13.5, fontWeight: 700 }}>
+            📍 Mira la més barata a prop teu
+          </button>
+        );
+        const near = data.stations.filter((st) => st.prices[fuel] != null).map((st) => ({ ...st, km: kmBetween(me, st) })).filter((st) => st.km <= 10)
+          .sort((a, b) => a.prices[fuel] - b.prices[fuel]);
+        const best = near[0];
+        return (
+          <div style={{ ...card, borderColor: C.success }}>
+            <div style={{ fontSize: 11, color: C.textMuted }}>📍 LA MÉS BARATA A MENYS DE 10 KM · {FUELS.find((f) => f.id === fuel)?.label}</div>
+            {best ? (
+              <div onClick={() => setFocus({ lat: best.lat, lng: best.lng, k: Date.now() })} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 3, cursor: "pointer" }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{best.name} · {best.town}</div>
+                  <div style={{ fontSize: 11.5, color: C.textDim }}>a {best.km.toFixed(1)} km{near.length > 1 ? ` · ${near.length} gasolineres a prop` : ""}</div>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.success }}>{fmt(best.prices[fuel])}</div>
+              </div>
+            ) : <div style={{ fontSize: 13, color: C.textDim, marginTop: 3 }}>No n'hi ha cap a menys de 10 km.</div>}
+          </div>
+        );
+      })()}
+
+      {/* Tendència de la mitjana de la zona */}
+      {trend && trend.area && trend.area.length >= 2 && (() => {
+        const a = trend.area, first = a[0], last = a[a.length - 1];
+        const diff = (last.avg - first.avg) * 100; // cèntims
+        const days = Math.max(1, Math.round((Date.parse(last.day) - Date.parse(first.day)) / 86400000));
+        const col = diff < -0.05 ? C.success : diff > 0.05 ? C.danger : C.textDim;
+        const max = Math.max(...a.map((x) => x.avg)), min = Math.min(...a.map((x) => x.avg));
+        const W = 120, H = 28, px = (i) => (i / (a.length - 1)) * W, py = (v) => (max === min ? H / 2 : H - ((v - min) / (max - min)) * H);
+        return (
+          <div style={{ ...card, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 11, color: C.textMuted }}>MITJANA DE LA ZONA · {days} DIES</div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: col }}>{diff < -0.05 ? "↓" : diff > 0.05 ? "↑" : "="} {Math.abs(diff).toFixed(1).replace(".", ",")} cèntims <span style={{ fontSize: 12, fontWeight: 600, color: C.textDim }}>· ara {fmt(last.avg)}</span></div>
+            </div>
+            <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Mitjana de ${fmt(first.avg)} a ${fmt(last.avg)}`} style={{ flexShrink: 0, overflow: "visible" }}>
+              <polyline points={a.map((x, i) => `${px(i)},${py(x.avg)}`).join(" ")} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round" />
+              <circle cx={px(a.length - 1)} cy={py(last.avg)} r="3" fill={col} />
+            </svg>
+          </div>
+        );
+      })()}
+
       {drop && (
         <div style={{ ...card, borderColor: C.success, color: C.success, fontSize: 13, display: "flex", justifyContent: "space-between", gap: 8 }}>
           <span>⬇ {drop}</span>
@@ -284,7 +378,20 @@ export default function FuelTab({ apiToken = "" }) {
             <span>€</span>
             <button onClick={clearFav} style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Treure</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: C.textDim }}>
+          <button onClick={activateTelegram} disabled={tgBusy}
+            style={{ width: "100%", marginTop: 10, background: "#229ED9", color: "#fff", border: "none", borderRadius: 8, padding: "10px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: 13.5, fontWeight: 800, opacity: tgBusy ? 0.6 : 1 }}>
+            {tgBusy ? "…" : "📲 Avisa'm per Telegram (gratis)"}
+          </button>
+          <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 4 }}>T'avisa encara que l'app estigui tancada, de 8 a 22 h (màx. 3 al dia). Desa l'objectiu abans.</div>
+          {tg && (
+            <div style={{ fontSize: 12, marginTop: 6, color: tg.ok ? C.success : C.danger, lineHeight: 1.45 }}>
+              {tg.ok ? "✓" : "⚠"} {tg.msg}
+              {tg.url && <a href={tg.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginTop: 6, color: "#229ED9", fontWeight: 800 }}>Obrir el bot a Telegram →</a>}
+            </div>
+          )}
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ fontSize: 11.5, color: C.textMuted, cursor: "pointer" }}>Per SMS (de pagament)</summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: C.textDim }}>
             <span>📱 SMS</span>
             <input type="tel" inputMode="tel" placeholder="612 345 678" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)}
               style={{ flex: 1, minWidth: 0, padding: "5px 6px", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontFamily: "inherit", fontSize: 13 }} />
@@ -295,6 +402,7 @@ export default function FuelTab({ apiToken = "" }) {
           </div>
           <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>T'avisa encara que l'app estigui tancada (de 8 a 22 h, màx. 3 SMS al dia). Desa l'objectiu abans d'activar.</div>
           {smsState && <div style={{ fontSize: 12, marginTop: 6, color: smsState.ok ? C.success : C.danger }}>{smsState.ok ? "✓" : "⚠"} {smsState.msg}</div>}
+          </details>
         </div>
       )}
 
@@ -342,7 +450,13 @@ export default function FuelTab({ apiToken = "" }) {
               {s.town}{s.km != null ? ` · ${s.km.toFixed(1)} km` : ""}
             </div>
           </div>
-          <div style={{ fontSize: 15, fontWeight: 800, color: priceColor(s.prices[fuel], stats.min, stats.max) }}>{s.prices[fuel].toFixed(3)}</div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: priceColor(s.prices[fuel], stats.min, stats.max) }}>{s.prices[fuel].toFixed(3)}</div>
+            {trend && trend.ref && trend.ref[s.id] != null && Math.abs(s.prices[fuel] - trend.ref[s.id]) >= 0.0005 && (() => {
+              const d = (s.prices[fuel] - trend.ref[s.id]) * 100;
+              return <div style={{ fontSize: 10.5, fontWeight: 700, color: d < 0 ? C.success : C.danger }} title="Respecte a fa uns dies">{d < 0 ? "↓" : "↑"}{Math.abs(d).toFixed(1).replace(".", ",")} c</div>;
+            })()}
+          </div>
           <button onClick={(e) => { e.stopPropagation(); fav?.id === s.id ? clearFav() : makeFav(s); }}
             style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: fav?.id === s.id ? C.accent : C.textMuted }}
             aria-label="Gasolinera preferida">{fav?.id === s.id ? "★" : "☆"}</button>

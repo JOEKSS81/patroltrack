@@ -17,6 +17,23 @@ export function hhmm(iso) {
 
 export const pct = (x) => Math.round((x || 0) * 100);
 
+const DOW = ["dg.", "dl.", "dt.", "dc.", "dj.", "dv.", "ds."];
+// "dc. 25/11" (curt, perquè hi càpiga a la capçalera)
+export function shortDate(d) {
+  return `${DOW[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
+}
+// Quan va ser un avís: "14:05" (avui), "ahir 14:05", "dt. 24/11 14:05"
+export function whenText(iso) {
+  const d = new Date(iso);
+  const hm = d.toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day = new Date(d); day.setHours(0, 0, 0, 0);
+  const diff = Math.round((today - day) / 86400000);
+  if (diff === 0) return hm;
+  if (diff === 1) return `ahir ${hm}`;
+  return `${shortDate(d)} ${hm}`;
+}
+
 // Durada en text curt: 62 → "1 h 2 min", 45 → "45 min"
 export function durText(min) {
   const m = Math.round(min || 0);
@@ -43,12 +60,12 @@ export function zoneStatus(zi, model) {
     };
   }
   if (zi?.status === "cleared") {
-    return { tone: "success", title: "✅ Ja han marxat", line: `ho han dit ${agoText(zi.cleared_at)}`, hint: "" };
+    return { tone: "success", title: "✅ Ja han marxat", line: `ho han dit ${agoText(zi.cleared_at)}`, hint: `Un control sol durar ~${durText(dur)}` };
   }
   return {
     tone: "neutral",
-    title: "Sense avisos ara",
-    line: zi && zi.hist > 0 ? `històric a aquesta hora: ${pct(zi.hist)}%` : "cap control aquí a aquesta hora fins ara",
+    title: "Cap avís avui",
+    line: "",
     hint: `Un control sol durar ~${durText(dur)}`,
   };
 }

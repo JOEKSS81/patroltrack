@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useC } from "../lib/themes";
 import Collapsible from "../components/Collapsible";
 import SubstancesView from "../components/SubstancesView";
-import { DRINKS, PRESETS, LIMITS, bacAt, simulate, fmtDur, clockPlus, hoursSince, level } from "../lib/alcohol";
+import { DRINKS, PRESETS, LIMITS, model, fmtDur, clockPlus, hoursSince, level } from "../lib/alcohol";
 
 // Números a la catalana: 0,77 en lloc de 0.77
 const n2 = (v) => v.toFixed(2).replace(".", ",");
@@ -54,20 +54,42 @@ function AlcoholView() {
   const [stomach, setStomach] = useState(saved?.stomach || "empty");
   const [start, setStart] = useState(saved?.start || nowHHMM());
   const [drinks, setDrinks] = useState(saved?.drinks || {});
+  // Mode nit: cada beguda s'apunta a l'hora que te la prens ({id, at})
+  const [live, setLive] = useState(!!saved?.live);
+  const [log, setLog] = useState(() => {
+    const l = Array.isArray(saved?.log) ? saved.log : [];
+    return l.length && Date.now() - l[l.length - 1].at > 24 * 3600e3 ? [] : l;
+  });
   const [inspect, setInspect] = useState(null); // hora inspeccionada a la gràfica (null = ara)
+  const [now, setNow] = useState(() => Date.now()); // "ara", es refresca cada minut
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(t); }, []);
 
   useEffect(() => {
-    try { localStorage.setItem(LS, JSON.stringify({ sex, weight, stomach, start, drinks, savedAt: Date.now() })); } catch { /* */ }
-  }, [sex, weight, stomach, start, drinks]);
+    try { localStorage.setItem(LS, JSON.stringify({ sex, weight, stomach, start, drinks, live, log, savedAt: Date.now() })); } catch { /* */ }
+  }, [sex, weight, stomach, start, drinks, live, log]);
 
-  const profile = { sex, weight, stomach };
-  const grams = DRINKS.reduce((a, d) => a + (drinks[d.id] || 0) * d.grams, 0);
-  const sim = useMemo(() => simulate(grams, { sex, weight, stomach }), [grams, sex, weight, stomach]);
-  const elapsed = hoursSince(start);
+  const gramsOf = (id) => DRINKS.find((d) => d.id === id)?.grams || 0;
+  const firstAt = log.length ? log[0].at : null;
+  const toHHMM = (ms) => new Date(ms).toLocaleTimeString("ca-ES", { hour: "2-digit", minute: "2-digit" });
+  const startStr = live ? (firstAt ? toHHMM(firstAt) : start) : start;
+  const grams = live ? log.reduce((a, x) => a + gramsOf(x.id), 0) : DRINKS.reduce((a, d) => a + (drinks[d.id] || 0) * d.grams, 0);
+  const doses = live
+    ? log.map((x) => ({ t: (x.at - firstAt) / 3.6e6, g: gramsOf(x.id) }))
+    : (grams > 0 ? [{ t: 0, g: grams }] : []);
+  const sim = model(doses, { sex, weight, stomach }); // càlcul lleuger: es refà a cada canvi
+  const elapsed = live ? (firstAt ? (now - firstAt) / 3.6e6 : 0) : hoursSince(start, new Date(now));
   const nowIn = grams > 0 && elapsed <= MAX_H ? elapsed : null;
-  const nowBreath = nowIn != null ? bacAt(nowIn, grams, profile).breath : 0;
+  const nowBreath = nowIn != null ? sim.at(nowIn).breath : 0;
+  const countOf = (id) => (live ? log.filter((x) => x.id === id).length : drinks[id] || 0);
 
-  const add = (id, d) => setDrinks((p) => ({ ...p, [id]: Math.max(0, Math.min(20, (p[id] || 0) + d)) }));
+  const add = (id, d) => {
+    if (live) {
+      if (d > 0) { const t = Date.now(); setNow(t); setLog((l) => [...l, { id, at: t }]); } // eslint-disable-line react-hooks/purity -- en tocar +
+      else setLog((l) => { const i = l.map((x) => x.id).lastIndexOf(id); return i < 0 ? l : l.filter((_, k) => k !== i); });
+      return;
+    }
+    setDrinks((p) => ({ ...p, [id]: Math.max(0, Math.min(20, (p[id] || 0) + d)) }));
+  };
   const preset = (p) => { setDrinks({ ...p.drinks }); setStomach(p.stomach); };
 
   const box = { background: C.surface, borderRadius: 12, padding: 14, border: `1px solid ${C.border}`, marginBottom: 10 };
@@ -78,10 +100,10 @@ function AlcoholView() {
   // Missatge principal
   const banner = (() => {
     if (!grams) return { col: C.border, title: "Afegeix el que has begut", text: "Et dirà quan baixes de cada límit i a quina hora tornes a 0,00." };
-    if (sim.peak >= LIMITS.crime) return { col: C.danger, title: `Delicte: pic de ${n2(sim.peak)} mg/L`, text: `Per sobre de 0,60 és delicte penal. No tornes a 0,00 fins a les ${clockPlus(start, sim.zero)}.` };
-    if (sim.peak >= LIMITS.general) return { col: C.warning, title: `Positiu: pic de ${n2(sim.peak)} mg/L`, text: `Donaries positiu durant ${fmtDur(sim.under.general)} encara que et trobis bé. 0,00 a les ${clockPlus(start, sim.zero)}.` };
-    if (sim.peak >= LIMITS.novel) return { col: C.warning, title: `Positiu per a novells i professionals (${n2(sim.peak)} mg/L)`, text: `Per sobre de 0,15. Els reflexos ja estan afectats. 0,00 a les ${clockPlus(start, sim.zero)}.` };
-    return { col: C.success, title: `Taxa baixa (${n2(sim.peak)} mg/L)`, text: `Per sota dels límits, però l'alcohol ja afecta la vista. 0,00 a les ${clockPlus(start, sim.zero)}.` };
+    if (sim.peak >= LIMITS.crime) return { col: C.danger, title: `Delicte: pic de ${n2(sim.peak)} mg/L`, text: `Per sobre de 0,60 és delicte penal. No tornes a 0,00 fins a les ${clockPlus(startStr, sim.zero)}.` };
+    if (sim.peak >= LIMITS.general) return { col: C.warning, title: `Positiu: pic de ${n2(sim.peak)} mg/L`, text: `Donaries positiu durant ${fmtDur(sim.under.general)} encara que et trobis bé. 0,00 a les ${clockPlus(startStr, sim.zero)}.` };
+    if (sim.peak >= LIMITS.novel) return { col: C.warning, title: `Positiu per a novells i professionals (${n2(sim.peak)} mg/L)`, text: `Per sobre de 0,15. Els reflexos ja estan afectats. 0,00 a les ${clockPlus(startStr, sim.zero)}.` };
+    return { col: C.success, title: `Taxa baixa (${n2(sim.peak)} mg/L)`, text: `Per sota dels límits, però l'alcohol ja afecta la vista. 0,00 a les ${clockPlus(startStr, sim.zero)}.` };
   })();
 
   return (
@@ -102,11 +124,11 @@ function AlcoholView() {
           <button onClick={() => setStomach("empty")} style={chip(stomach === "empty")}>En dejú</button>
           <button onClick={() => setStomach("full")} style={chip(stomach === "full")}>Amb menjar</button>
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.textDim }}>
+        {!live && <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: C.textDim }}>
           Vaig començar a beure a les
           <input type="time" value={start} onChange={(e) => setStart(e.target.value || "22:00")}
             style={{ padding: "6px 8px", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontFamily: "inherit", fontSize: 14, colorScheme: "dark" }} />
-        </label>
+        </label>}
       </div>
 
       {/* Begudes */}
@@ -115,14 +137,34 @@ function AlcoholView() {
           <div style={label}>Què has begut</div>
           <span style={{ fontSize: 12, color: C.textDim }}>{n1(grams)} g · {n1(grams / 10)} UBE</span>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+          <button onClick={() => setLive(false)} style={chip(!live)}>Comptar</button>
+          <button onClick={() => setLive(true)} style={chip(live)}>⏱ A l'hora que me la prenc</button>
+        </div>
+        {live && (
+          <div style={{ fontSize: 12.5, color: C.textDim, marginBottom: 10, lineHeight: 1.5 }}>
+            Toca <b>+</b> cada cop que comencis una beguda: es calcula amb l'hora de cadascuna.
+            {log.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                {log.map((x, i) => (
+                  <span key={x.at + "-" + i} style={{ fontSize: 12, background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: "3px 6px", color: C.text }}>
+                    {toHHMM(x.at)} {DRINKS.find((d) => d.id === x.id)?.name}
+                    <button onClick={() => setLog((l) => l.filter((_, k) => k !== i))} aria-label="Treure" style={{ background: "none", border: "none", color: C.textMuted, cursor: "pointer", fontFamily: "inherit", padding: "0 0 0 4px" }}>✕</button>
+                  </span>
+                ))}
+                <button onClick={() => setLog([])} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Nova nit</button>
+              </div>
+            )}
+          </div>
+        )}
+        {!live && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
           {PRESETS.map((p) => (
             <button key={p.id} onClick={() => preset(p)} style={{ background: C.bg, border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{p.label}</button>
           ))}
           {grams > 0 && <button onClick={() => setDrinks({})} style={{ background: "none", border: "none", color: C.textMuted, fontSize: 12, cursor: "pointer", fontFamily: "inherit" }}>Netejar</button>}
-        </div>
+        </div>}
         {DRINKS.map((d) => {
-          const n = drinks[d.id] || 0;
+          const n = countOf(d.id);
           return (
             <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${C.border}` }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -143,22 +185,22 @@ function AlcoholView() {
         <div style={{ fontSize: 13, color: C.textDim, marginTop: 4, lineHeight: 1.5 }}>{banner.text}</div>
         {nowIn != null && (
           <div style={{ fontSize: 13, color: C.textDim, marginTop: 8, paddingTop: 8, borderTop: `1px solid ${C.border}` }}>
-            Ara mateix (fa {fmtDur(nowIn)} que vas començar): <b style={{ color: levelCol(nowBreath) }}>{n2(nowBreath)} mg/L</b>
+            Ara mateix (fa {fmtDur(nowIn)} de la primera): <b style={{ color: levelCol(nowBreath) }}>{n2(nowBreath)} mg/L</b>
           </div>
         )}
       </div>
 
       {grams > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
-          <Kpi C={C} big title="Fins a 0,00" value={fmtDur(sim.zero)} sub={`a les ${clockPlus(start, sim.zero)}`} col={C.success} />
-          <Kpi C={C} big title="Pic" value={`${n2(sim.peak)} mg/L`} sub={`a les ${clockPlus(start, sim.peakTime)} · ${n2(sim.peakBlood)} g/L en sang`} col={levelCol(sim.peak)} />
+          <Kpi C={C} big title="Fins a 0,00" value={fmtDur(sim.zero)} sub={`a les ${clockPlus(startStr, sim.zero)}`} col={C.success} />
+          <Kpi C={C} big title="Pic" value={`${n2(sim.peak)} mg/L`} sub={`a les ${clockPlus(startStr, sim.peakTime)} · ${n2(sim.peakBlood)} g/L en sang`} col={levelCol(sim.peak)} />
         </div>
       )}
 
       {/* Gràfica */}
       <div style={box}>
         <div style={label}>Alcohol en aire espirat (mg/L) · {MAX_H} h des que comences</div>
-        <Chart C={C} grams={grams} profile={profile} start={start} peak={sim.peak} nowIn={nowIn} inspect={inspect} setInspect={setInspect} />
+        <Chart C={C} grams={grams} at={sim.at} start={startStr} peak={sim.peak} nowIn={nowIn} inspect={inspect} setInspect={setInspect} />
         <input type="range" min={0} max={MAX_H} step={0.25} value={inspect ?? nowIn ?? 0} onChange={(e) => setInspect(Number(e.target.value))}
           aria-label="Hora a inspeccionar" style={{ width: "100%", accentColor: C.accent, marginTop: 6 }} />
       </div>
@@ -214,7 +256,7 @@ function Kpi({ C, title, value, sub, col, big }) {
 
 // Corba de la taxa en SVG: una sola sèrie (sense llegenda), llindars 0,15 / 0,25 / 0,60
 // amb etiqueta en text neutre, i inspector: tocar o arrossegar sobre la gràfica.
-function Chart({ C, grams, profile, start, peak, nowIn, inspect, setInspect }) {
+function Chart({ C, grams, at: breathAt, start, peak, nowIn, inspect, setInspect }) {
   const W = 340, H = 200, pad = { t: 14, r: 10, b: 26, l: 36 };
   const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
   const maxY = Math.max(0.8, Math.ceil((peak + 0.15) * 10) / 10);
@@ -223,12 +265,12 @@ function Chart({ C, grams, profile, start, peak, nowIn, inspect, setInspect }) {
   const svgRef = useRef(null);
 
   const pts = [];
-  for (let h = 0; h <= MAX_H + 1e-9; h += 0.1) pts.push([x(h), y(bacAt(h, grams, profile).breath)]);
+  for (let h = 0; h <= MAX_H + 1e-9; h += 0.1) pts.push([x(h), y(breathAt(h).breath)]);
   const line = pts.map(([a, b], i) => `${i ? "L" : "M"}${a.toFixed(1)},${b.toFixed(1)}`).join("");
   const area = `${line}L${x(MAX_H)},${y(0)}L${x(0)},${y(0)}Z`;
 
   const at = inspect ?? nowIn;
-  const atB = at != null ? bacAt(at, grams, profile).breath : 0;
+  const atB = at != null ? breathAt(at).breath : 0;
   const lv = level(atB);
   const dotCol = lv === "crime" ? C.danger : lv === "general" || lv === "novel" ? C.warning : C.accent;
   const status = { crime: "delicte", general: "positiu", novel: "positiu novells", low: "per sota dels límits", zero: "0,00" }[lv];

@@ -5,7 +5,7 @@ import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
 import { computeHourly, distKm } from "./lib/utils";
-import { zoneStatus, durText, pct } from "./lib/risk";
+import { zoneStatus, durText, pct, whenText, shortDate, agoText, hhmm } from "./lib/risk";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
@@ -13,6 +13,7 @@ import GroupManager from "./components/GroupManager";
 import FriendsManager from "./components/FriendsManager";
 import ConnectGroups from "./components/ConnectGroups";
 import MyKey from "./components/MyKey";
+import ZoneAlerts from "./components/ZoneAlerts";
 import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
@@ -58,6 +59,9 @@ function lastKnownPos() {
 
 export default function App(){
   const [tab,setTab]=useState("dashboard");
+  // Stats i Historial comparteixen pestanya (menys pestanyes, noms sencers)
+  const [statsView,setStatsView]=useState(()=>{try{return localStorage.getItem("pt_stats_tab")||"stats";}catch{return "stats";}});
+  useEffect(()=>{try{localStorage.setItem("pt_stats_tab",statsView);}catch{/* */}},[statsView]);
   const [detections,setDetections]=useState([]);
   const [health,setHealth]=useState(null);
   // Zona seleccionada: per defecte la MÉS PROPERA a on ets (abans sempre "N-II").
@@ -78,7 +82,9 @@ export default function App(){
     const z=nearestMapZone(lat,lng);
     if(z)setSelectedZoneRaw(prev=>prev===z?prev:z);
   };
-  const [queryZone,setQueryZone]=useState("N-II");
+  // La consulta (sota el mapa) segueix la zona seleccionada; després es pot canviar a mà
+  const [queryZone,setQueryZone]=useState(()=>selectedZone||"N-II");
+  useEffect(()=>{ if(selectedZone) setQueryZone(selectedZone); },[selectedZone]);
   const [queryHour,setQueryHour]=useState(new Date().getHours());
   const [queryDay,setQueryDay]=useState(new Date().getDay());
   const [queryPK,setQueryPK]=useState("");
@@ -87,7 +93,11 @@ export default function App(){
   // Model de possibilitat del servidor (/api/zone-probs): per zona, ara mateix.
   // Té en compte els avisos en viu, quanta estona sol durar un control i l'històric.
   const [risk,setRisk]=useState(()=>{try{const r=JSON.parse(localStorage.getItem("pt_risk")||"null");return r&&r.zones?r:null;}catch{return null;}});
-  const zoneProbs=useMemo(()=>{const p={};if(risk&&risk.zones)for(const[z,v]of Object.entries(risk.zones))p[z]=v.p||0;return p;},[risk]);
+  // Mapa: pintar segons AVUI (avisos d'ara) o segons l'HISTÒRIC d'aquesta hora
+  const [mapLayer,setMapLayer]=useState(()=>{try{return localStorage.getItem("pt_map_layer")||"today";}catch{return "today";}});
+  useEffect(()=>{try{localStorage.setItem("pt_map_layer",mapLayer);}catch{/* */}},[mapLayer]);
+  const mapProbs=useMemo(()=>{const p={};if(risk&&risk.zones)for(const[z,v]of Object.entries(risk.zones))p[z]=(mapLayer==="hist"?v.hist:v.live)||0;return p;},[risk,mapLayer]);
+  const activeZones=useMemo(()=>risk&&risk.zones?Object.entries(risk.zones).filter(([,v])=>v.status==="active").map(([z])=>z):[],[risk]);
   const [filterType,setFilterType]=useState("all");
   const [newAlert,setNewAlert]=useState(null);
   const [online,setOnline]=useState(true);
@@ -416,7 +426,6 @@ export default function App(){
   };
 
   const curH=new Date().getHours();
-  const curP=zoneProbs[selectedZone]||0;
   const filtDets=filterType==="all"?detections:detections.filter(d=>d.patrol_type===filterType);
 
   // Dades reals per al Dashboard
@@ -430,11 +439,9 @@ export default function App(){
     {id:"dashboard",label:"Inici"},
     {id:"osm",      label:"Mapa"},
     {id:"radar",    label:"Radar"},
-    {id:"query",    label:"Consulta"},
     {id:"stats",    label:"Stats"},
     {id:"fuel",     label:"Benzina"},
     ...(showAlcohol?[{id:"alcohol",label:"Alcohol"}]:[]),
-    {id:"history",  label:"Historial"},
     {id:"config",   label:"Config"},
   ];
 
@@ -521,9 +528,9 @@ export default function App(){
               />
             </div>
 
-            <div style={{flex:"0 1 auto",textAlign:"right",flexShrink:0,maxWidth:"22%"}}>
+            <div style={{flex:"0 0 auto",textAlign:"right",minWidth:62}}>
               <div style={{fontSize:16,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
-              <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
+              <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{shortDate(new Date())}</div>
               {!online&&lastSync&&<div style={{fontSize:9,color:C.warning,whiteSpace:"nowrap",marginTop:2}}>últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>}
             </div>
           </div>
@@ -557,66 +564,80 @@ export default function App(){
 
         {/* DASHBOARD — dades REALS de la BD */}
         {tab==="dashboard"&&(()=>{
-          const now=new Date();
-          const cutoff24=Date.now()-24*3600*1000;
-          const last24=detections.filter(d=>d.created_at&&new Date(d.created_at).getTime()>=cutoff24);
-          // Top 5 zones reals últimes 24h
-          const zoneCount={};
-          for(const d of last24){const z=d.zone_norm||d.zone||"?";zoneCount[z]=(zoneCount[z]||0)+1;}
-          const topZones=Object.entries(zoneCount).sort((a,b)=>b[1]-a[1]).slice(0,5);
           const hourlyVals=Object.values(hourly);
           const hourlyMax=Math.max(...hourlyVals);
           return(
             <div>
-              {/* Resum global 24h */}
-              <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:10}}>
-                  <span style={{fontSize:13,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Activitat 24h</span>
-                  <span style={{fontSize:22,fontWeight:800,color:last24.length>5?C.danger:last24.length>2?C.warning:C.success}}>{last24.length}</span>
-                </div>
-                {topZones.length===0?(
-                  <div style={{fontSize:13,color:C.textDim,textAlign:"center",padding:"8px 0"}}>Cap detecció a les últimes 24h</div>
-                ):(
-                  <div>
-                    <div style={{fontSize:11,color:C.textMuted,marginBottom:6}}>Zones més actives</div>
-                    {topZones.map(([z,n])=>(
-                      <div key={z} onClick={()=>setSelectedZone(z)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",cursor:"pointer",borderRadius:4}}>
-                        <span style={{fontSize:14,color:z===selectedZone?C.accent:C.text,fontWeight:z===selectedZone?700:500}}>{z}</span>
-                        <div style={{display:"flex",gap:6,alignItems:"center"}}>
-                          <div style={{height:5,width:60,background:C.border,borderRadius:3,overflow:"hidden"}}>
-                            <div style={{height:"100%",width:`${(n/topZones[0][1])*100}%`,background:C.accent,borderRadius:3}}/>
-                          </div>
-                          <span style={{fontSize:13,color:C.accent,fontWeight:700,minWidth:18,textAlign:"right"}}>{n}</span>
-                        </div>
+              {/* Controls actius ara: el més important, a dalt de tot */}
+              {(()=>{
+                const zs=risk&&risk.zones?risk.zones:{};
+                const act=Object.entries(zs).filter(([,v])=>v.status==="active").sort((x,y)=>(y[1].live||0)-(x[1].live||0));
+                const gone=Object.entries(zs).filter(([,v])=>v.status==="cleared");
+                const last=detections.find(d=>d.created_at);
+                return(
+                  <div style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${act.length?C.danger+"88":C.border}`,marginBottom:10}}>
+                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:act.length?8:4}}>
+                      <span style={{fontSize:13,color:C.textDim,textTransform:"uppercase",letterSpacing:"0.08em"}}>Controls actius ara</span>
+                      <span style={{fontSize:22,fontWeight:800,color:act.length?C.danger:C.success}}>{act.length}</span>
+                    </div>
+                    {act.length===0?(
+                      <div style={{fontSize:13,color:C.textDim,lineHeight:1.5}}>
+                        ✓ Cap control avisat ara mateix.
+                        {last&&<span style={{color:C.textMuted}}> Últim avís: {last.zone_norm&&last.zone_norm!=="Desconeguda"?last.zone_norm:"zona desconeguda"}, {whenText(last.created_at)}.</span>}
                       </div>
-                    ))}
+                    ):act.map(([z,v])=>{
+                      const pt=PT[v.type]||PT.unknown;
+                      return(
+                        <div key={z} onClick={()=>setSelectedZone(z)} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderTop:`1px solid ${C.border}`,cursor:"pointer"}}>
+                          <span style={{width:9,height:9,borderRadius:"50%",background:C.danger,flexShrink:0,animation:"pulse 0.9s infinite alternate"}}/>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:14,fontWeight:800,color:C.text}}>{z} <span style={{fontSize:11,fontWeight:800,color:pt.color,background:`${pt.color}22`,padding:"1px 6px",borderRadius:3,marginLeft:4}}>{pt.short}</span></div>
+                            <div style={{fontSize:12,color:C.textDim}}>avisat {agoText(v.started_at)}{v.expected_end_at?` · fins ~${hhmm(v.expected_end_at)}`:""}{v.groups>1?` · ${v.groups} grups`:""}</div>
+                          </div>
+                          <b style={{fontSize:16,color:(v.live||0)>0.6?C.danger:C.warning}}>{pct(v.live)}%</b>
+                        </div>
+                      );
+                    })}
+                    {gone.length>0&&<div style={{fontSize:12,color:C.success,marginTop:6}}>✅ Ja han marxat: {gone.map(([z])=>z).join(", ")}</div>}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Zona seleccionada — dades reals */}
               <div onClick={()=>setZoneDetail(selectedZone)} style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10,cursor:"pointer",position:"relative"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:2}}>ZONA SELECCIONADA</div>
-                    <div style={{fontSize:18,fontWeight:700,color:C.accent}}>{selectedZone}</div>
-                    <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{zoneDets.length} deteccions registrades · <span style={{color:C.accent}}>toca per detall</span></div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:10}}>
-                    <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
-                    <div style={{fontSize:10,color:C.textMuted}}>possibilitat ara</div>
-                  </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:2}}>ZONA SELECCIONADA</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.accent}}>{selectedZone}</div>
+                  <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{zoneDets.length} deteccions registrades · <span style={{color:C.accent}}>toca per detall</span></div>
                 </div>
 
-                {/* Estat ara: control actiu / ja han marxat / històric */}
+                {/* Dues xifres separades: el que passa AVUI (avisos d'ara) i el que sol passar (històric) */}
                 {(()=>{
-                  const st=zoneStatus(risk&&risk.zones&&risk.zones[selectedZone],risk&&risk.model);
-                  const col=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  const zi=risk&&risk.zones&&risk.zones[selectedZone];
+                  const st=zoneStatus(zi,risk&&risk.model);
+                  const live=zi?zi.live||0:0, hist=zi?zi.hist||0:0;
+                  const pc=(v)=>v>0.6?C.danger:v>0.35?C.warning:v>0.1?C.text:C.success;
+                  const stCol=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  const tile={background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:0};
                   return(
-                    <div style={{background:st.tone==="neutral"?C.bg:`${col}14`,border:`1px solid ${st.tone==="neutral"?C.border:col+"66"}`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
-                      <div style={{fontSize:13,color:C.text,lineHeight:1.4}}><b style={{color:st.tone==="neutral"?C.text:col}}>{st.title}</b>{st.line?<span style={{color:C.textDim}}> · {st.line}</span>:null}</div>
-                      {st.hint&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ {st.hint}</div>}
-                    </div>
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                        <div style={{...tile,borderColor:st.tone==="danger"?`${C.danger}88`:C.border}}>
+                          <div style={{fontSize:10.5,color:C.textMuted,letterSpacing:"0.06em"}}>AVUI, ARA</div>
+                          <div style={{fontSize:24,fontWeight:900,color:pc(live),lineHeight:1.15}}>{pct(live)}%</div>
+                          <div style={{fontSize:11.5,color:stCol,fontWeight:700,marginTop:2}}>{st.title}</div>
+                        </div>
+                        <div style={tile}>
+                          <div style={{fontSize:10.5,color:C.textMuted,letterSpacing:"0.06em"}}>HISTÒRIC</div>
+                          <div style={{fontSize:24,fontWeight:900,color:pc(hist),lineHeight:1.15}}>{pct(hist)}%</div>
+                          <div style={{fontSize:11.5,color:C.textDim,marginTop:2}}>a aquesta hora · {[0,6].includes(new Date().getDay())?"cap de setm.":"feiners"}</div>
+                        </div>
+                      </div>
+                      <div style={{fontSize:12,color:C.textMuted,marginBottom:10,lineHeight:1.45}}>
+                        {st.line?<span style={{color:stCol}}>{st.line}. </span>:null}
+                        {st.hint?<>⏱ {st.hint}</>:null}
+                      </div>
+                    </>
                   );
                 })()}
 
@@ -659,7 +680,7 @@ export default function App(){
                 </div>
               ):detections.slice(0,4).map((d,i)=>{
                 const ptype=PT[d.patrol_type]||PT.unknown;
-                const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??:??";
+                const time=d.created_at?whenText(d.created_at):"??:??";
                 return(
                   <div key={i} onClick={()=>setSelectedDet(d)} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer"}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
@@ -685,12 +706,20 @@ export default function App(){
                 <button key={k} onClick={()=>setMapMode(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:mapMode===k?C.accent:"transparent",color:mapMode===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .15s"}}>{l}</button>
               ))}
             </div>
+            {/* Què pinta el mapa: avui o històric */}
+            <div style={{display:"flex",gap:6,marginBottom:8,alignItems:"center"}}>
+              <span style={{fontSize:12,color:C.textDim}}>Colors:</span>
+              {[["today","🔴 Avui, ara"],["hist","📊 Històric a aquesta hora"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setMapLayer(k)} style={{flex:1,padding:"6px 6px",borderRadius:8,border:`1px solid ${mapLayer===k?C.accent:C.border}`,background:mapLayer===k?C.accentDim:"transparent",color:mapLayer===k?C.accent:C.textDim,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+              ))}
+            </div>
             <div ref={mapBoxRef} style={mapMode==="schema"?undefined:{height:mapH?`${mapH}px`:"calc(100dvh - 320px)",minHeight:300}}>
               {mapMode==="schema"?(
                 <ZoneMap
                   mapHeight={mapH?`${Math.max(300,mapH-56)}px`:"calc(100dvh - 376px)"}
                   zones={MAP_ZONES}
-                  probs={zoneProbs}
+                  probs={mapProbs}
+                  activeZones={activeZones}
                   selected={selectedZone}
                   onSelect={setSelectedZone}
                   onPosition={followMyZone}
@@ -702,7 +731,8 @@ export default function App(){
               ):(
                 <MapTab
                   zones={MAP_ZONES}
-                  probs={zoneProbs}
+                  probs={mapProbs}
+                  activeZones={activeZones}
                   selected={selectedZone}
                   onSelect={setSelectedZone}
                   onPosition={followMyZone}
@@ -720,11 +750,19 @@ export default function App(){
         {tab==="radar"&&<RadarTab radar={radar} dogPhoto={dogPhoto} onDetTap={(d)=>setSelectedDet(d)} zone={selectedZone} zoneInfo={risk&&risk.zones&&risk.zones[selectedZone]} riskModel={risk&&risk.model}/>}
         {tab==="fuel"&&<FuelTab apiToken={apiToken}/>}
         {tab==="alcohol"&&showAlcohol&&<AlcoholTab/>}
-        {tab==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
+        {tab==="stats"&&(
+          <div style={{display:"flex",gap:6,marginBottom:10,background:C.surface,padding:4,borderRadius:10,border:`1px solid ${C.border}`}}>
+            {[["stats","📊 Estadístiques"],["history","📜 Historial"]].map(([k,l])=>(
+              <button key={k} onClick={()=>setStatsView(k)} style={{flex:1,padding:"9px 8px",borderRadius:8,border:"none",background:statsView===k?C.accent:"transparent",color:statsView===k?C.bg:C.textDim,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{l}</button>
+            ))}
+          </div>
+        )}
+        {tab==="stats"&&statsView==="stats"&&<StatsTab detections={detections} risk={risk} onZoneTap={(z)=>setZoneDetail(z)} onDetTap={(d)=>setSelectedDet(d)}/>}
 
-        {/* QUERY */}
-        {tab==="query"&&(
+        {/* CONSULTA: ara és a sota del mapa (pestanya Mapa, fent scroll) */}
+        {tab==="osm"&&(
           <div>
+            <div style={{fontSize:13,color:C.textDim,margin:"16px 0 8px",textTransform:"uppercase",letterSpacing:"0.1em"}}>🔍 Consulta per dia i hora</div>
             {showPkPicker&&(
               <PkPicker zone={queryZone} pkText={queryPK} onClose={()=>setShowPkPicker(false)}
                 onUse={({zone,pk})=>{setQueryZone(zone);setQueryPK(pk);setShowPkPicker(false);}}/>
@@ -813,8 +851,8 @@ export default function App(){
           </div>
         )}
 
-        {/* HISTORIAL */}
-        {tab==="history"&&(
+        {/* HISTORIAL (dins de Stats) */}
+        {tab==="stats"&&statsView==="history"&&(
           <div>
             <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto"}}>
               {[["all","Tots"],["mossos","MSE"],["guardia","GC"],["local","PL"]].map(([k,l])=>(
@@ -862,6 +900,10 @@ export default function App(){
             {/* 📲 Connectar els teus grups (MacroDroid) — el primer i el més important */}
             <Collapsible title="📲 Connecta els teus grups" subtitle="Perquè els avisos dels teus grups entrin a l'app" defaultOpen={true}>
               <ConnectGroups apiToken={apiToken} onGoToGroups={()=>document.getElementById("cfg-groups")?.scrollIntoView({behavior:"smooth",block:"start"})}/>
+            </Collapsible>
+
+            <Collapsible title="🔔 Avisos al mòbil (Telegram)" subtitle="Et diu quan hi ha un control a les teves zones" defaultOpen={false}>
+              <ZoneAlerts apiToken={apiToken} extraZones={risk&&risk.zones?Object.keys(risk.zones):[]}/>
             </Collapsible>
 
             {/* 👥 Gestió de grups (activar, desactivar, afegir) */}

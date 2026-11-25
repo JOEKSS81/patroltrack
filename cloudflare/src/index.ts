@@ -418,7 +418,7 @@ async function groupGate(env: Env, owner: string, source: string, name: string):
   }
 }
 
-async function handleIngest(env: Env, req: Request): Promise<Response> {
+async function handleIngest(env: Env, req: Request, ctx?: ExecutionContext): Promise<Response> {
   if (!env.INGEST_TOKEN) return json({ ok: false, reason: "INGEST_TOKEN no configurat" }, 500);
   const who = await identify(req, env, new URL(req.url));
   if (!who) {
@@ -473,6 +473,10 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
     if (fu) {
       try { outcome = await handleFollowUp(env, fu, message, sourceRaw, groupName); }
       catch (error) { console.error("handleFollowUp failed", error); }
+      // "Ja han marxat" d'una zona coneguda: també s'avisa qui la segueix
+      if (outcome === "followup_cleared" && fu.zone_norm && ctx) {
+        ctx.waitUntil(notifyZone(env, fu.zone_norm, `✅ ${fu.zone_norm}: diuen que ja han marxat (${madridHHMM()}).\n«${message.slice(0, 200)}»`));
+      }
     }
     await logIngestHit(env, outcome ?? "not_patrol", sourceRaw, groupName, message, who.id);
     if (outcome && outcome !== "followup_duplicate") return json({ ok: true, stored: false, follow_up: fu?.kind, outcome });
@@ -480,6 +484,12 @@ async function handleIngest(env: Env, req: Request): Promise<Response> {
   }
   riskCache = null;
   await logIngestHit(env, "stored", sourceRaw, groupName, message, who.id);
+  // Avís per Telegram a qui segueix aquesta zona
+  const zoneStored = result.info?.zone_norm ?? "";
+  if (ctx && zoneStored && zoneStored !== "Desconeguda") {
+    const cos = PATROL_NAMES[result.info?.patrol_type ?? ""] ?? "Control";
+    ctx.waitUntil(notifyZone(env, zoneStored, `🔴 ${cos} a ${zoneStored} (${madridHHMM()})\n«${message.slice(0, 200)}»\nhttps://patroltrack.pages.dev`));
+  }
   return json({
     ok: true, stored: true, id: result.id,
     patrol_type: result.info?.patrol_type,
@@ -526,6 +536,26 @@ async function handleTelegramWebhook(env: Env, req: Request): Promise<Response> 
   const chatId = chat.id;
   const chatTitle = stringValue(chat.title) || stringValue(chat.username) || (chatId != null ? `chat:${chatId}` : "Telegram");
   const text = (stringValue(msg.text) || stringValue(msg.caption)).trim();
+  // Xat privat amb el bot des del botó "Avisa'm per Telegram" de Benzina:
+  // "/start fuel-<codi>" enllaça aquest xat amb la persona per enviar-li els avisos.
+  const fuelStart = /^\/start(?:@\w+)?\s+(?:fuel|alerts)-([A-Za-z0-9_-]{2,64})$/.exec(text);
+  if (fuelStart && chatId != null && chat.type === "private") {
+    const code = fuelStart[1];
+    const owner = code === "admin"
+      ? "admin"
+      : (await env.DB.prepare("SELECT id FROM users WHERE code = ? AND revoked = 0").bind(code).first<{ id: string }>())?.id;
+    if (owner) {
+      await env.DB.prepare(`
+        INSERT INTO telegram_users (owner, chat_id, linked_at) VALUES (?, ?, ?)
+        ON CONFLICT (owner) DO UPDATE SET chat_id = excluded.chat_id, linked_at = excluded.linked_at
+      `).bind(owner, String(chatId), new Date().toISOString()).run();
+      await sendTelegram(env, String(chatId), "✅ Fet! Rebràs aquí els avisos de PatrolTrack: controls nous a les zones que has triat i baixades de preu de la teva gasolinera.");
+    } else {
+      await sendTelegram(env, String(chatId), "No t'he reconegut. Torna a tocar «Avisa'm per Telegram» des de la pestanya Benzina de PatrolTrack.");
+    }
+    await logTelegramHit(env, "fuel_link", { chat_id: chatId, reason: owner ?? "codi desconegut" });
+    return json({ ok: true, fuel_link: !!owner });
+  }
   // En afegir el bot amb l'enllaç personal (startgroup=<codi>), Telegram envia
   // "/start@bot <codi>" al grup: així sabem de qui és aquest grup.
   const startMatch = /^\/start(?:@\w+)?\s+([A-Za-z0-9_-]{4,64})$/.exec(text);
@@ -983,17 +1013,109 @@ async function sendSms(env: Env, to: string, text: string): Promise<{ ok: boolea
   return { ok: false, status: res.status, detail };
 }
 
+// ── Avisos de benzina per Telegram (gratis) ──────────────────────────────────
+// L'avís es desa amb phone = "tg:<owner>". Quan la persona toca INICIAR al bot amb
+// l'enllaç t.me/<bot>?start=fuel-<codi>, el webhook guarda el seu chat a telegram_users.
+const TG_PREFIX = "tg:";
+let botUsernameCache: string | null = null;
+async function botUsername(env: Env): Promise<string | null> {
+  if (botUsernameCache) return botUsernameCache;
+  if (!env.TELEGRAM_BOT_TOKEN) return null;
+  try {
+    const { data } = await telegramApi(env, "getMe");
+    const u = isRecord(data?.result) ? stringValue((data!.result as Record<string, unknown>).username) : "";
+    botUsernameCache = u || null;
+  } catch { /* sense xarxa: es torna a provar la propera vegada */ }
+  return botUsernameCache;
+}
+async function telegramChatFor(env: Env, owner: string): Promise<string | null> {
+  const row = await env.DB.prepare("SELECT chat_id FROM telegram_users WHERE owner = ?").bind(owner)
+    .first<{ chat_id: string }>().catch(() => null);
+  return row?.chat_id ?? null;
+}
+async function sendTelegram(env: Env, chatId: string, text: string): Promise<{ ok: boolean; status: number; detail?: string }> {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, status: 0, detail: "bot de Telegram no configurat" };
+  try {
+    const { response, data } = await telegramApi(env, "sendMessage", new URLSearchParams({ chat_id: chatId, text }));
+    return data?.ok ? { ok: true, status: response.status } : { ok: false, status: response.status, detail: stringValue(data?.description) };
+  } catch (error) {
+    return { ok: false, status: 0, detail: String(error) };
+  }
+}
+// Envia l'avís pel canal de l'alerta: Telegram ("tg:<owner>") o SMS (telèfon)
+async function sendFuelAlert(env: Env, target: string, text: string): Promise<{ ok: boolean; status: number; detail?: string }> {
+  if (target.startsWith(TG_PREFIX)) {
+    const chat = await telegramChatFor(env, target.slice(TG_PREFIX.length));
+    return chat ? sendTelegram(env, chat, text) : { ok: false, status: 0, detail: "Telegram encara no enllaçat" };
+  }
+  return sendSms(env, target, text);
+}
+const showTarget = (t: string) => (t.startsWith(TG_PREFIX) ? "Telegram" : maskPhone(t));
+
+// ── Avisos de controls per Telegram, per zones ───────────────────────────────
+// Cadascú tria zones a Config; quan entra un avís nou (o un "ja han marxat") d'una
+// d'aquestes zones, el bot l'envia a tothom que la segueix i té Telegram enllaçat.
+const MAX_ZONE_SUBS = 30;
+async function notifyZone(env: Env, zone: string, text: string): Promise<void> {
+  if (!zone || zone === "Desconeguda" || !env.TELEGRAM_BOT_TOKEN) return;
+  try {
+    const rs = await env.DB.prepare(`
+      SELECT DISTINCT t.chat_id FROM zone_subscriptions z JOIN telegram_users t ON t.owner = z.owner WHERE z.zone = ?
+    `).bind(zone).all<{ chat_id: string }>();
+    await Promise.all((rs.results ?? []).map((r) => sendTelegram(env, r.chat_id, text)));
+  } catch (error) {
+    console.error("notifyZone failed", error);
+  }
+}
+const PATROL_NAMES: Record<string, string> = { mossos: "Mossos", guardia: "Guàrdia Civil", local: "Policia Local" };
+function madridHHMM(d = new Date()): string {
+  return new Intl.DateTimeFormat("ca-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" }).format(d);
+}
+
+async function handleZoneSubsGet(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
+  const [rs, chat, bot] = await Promise.all([
+    env.DB.prepare("SELECT zone FROM zone_subscriptions WHERE owner = ? ORDER BY zone").bind(who.id).all<{ zone: string }>(),
+    telegramChatFor(env, who.id),
+    botUsername(env),
+  ]);
+  return json({
+    ok: true, zones: (rs.results ?? []).map((r) => r.zone), telegram_linked: !!chat,
+    bot_url: bot ? `https://t.me/${bot}?start=alerts-${who.code}` : null,
+  });
+}
+
+async function handleZoneSubsSave(env: Env, req: Request, url: URL): Promise<Response> {
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid" }, 401);
+  let body: unknown;
+  try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
+  const zones = isRecord(body) && Array.isArray(body.zones)
+    ? [...new Set(body.zones.map((z) => stringValue(z).trim().slice(0, 80)).filter(Boolean))].slice(0, MAX_ZONE_SUBS)
+    : null;
+  if (!zones) return json({ ok: false, reason: "zones invàlides" }, 400);
+  const now = new Date().toISOString();
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM zone_subscriptions WHERE owner = ?").bind(who.id),
+    ...zones.map((z) => env.DB.prepare("INSERT INTO zone_subscriptions (owner, zone, created_at) VALUES (?, ?, ?)").bind(who.id, z, now)),
+  ]);
+  return json({ ok: true, zones });
+}
+
 function fuelSmsText(name: string, town: string, fuel: string, price: number, reason: string): string {
   return `PatrolTrack: ${FUEL_LABELS[fuel] ?? fuel} a ${name} (${town}) ara ${price.toFixed(3).replace(".", ",")} EUR. ${reason}`;
 }
 
 async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(req.url);
-  if (!(await identify(req, env, url))) return json({ ok: false, reason: "token invàlid (configura'l a la pestanya Config)" }, 401);
+  const who = await identify(req, env, url);
+  if (!who) return json({ ok: false, reason: "token invàlid (configura'l a la pestanya Config)" }, 401);
   let body: unknown;
   try { body = await req.json(); } catch { return json({ ok: false, reason: "JSON invàlid" }, 400); }
   if (!isRecord(body)) return json({ ok: false, reason: "cos invàlid" }, 400);
-  const phone = normalizePhone(stringValue(body.phone));
+  const viaTelegram = stringValue(body.channel) === "telegram";
+  const phone = viaTelegram ? `${TG_PREFIX}${who.id}` : normalizePhone(stringValue(body.phone));
   const stationId = stringValue(body.station_id).trim();
   const fuel = stringValue(body.fuel).trim();
   const target = typeof body.target === "number" && body.target > 0 ? body.target : null;
@@ -1008,8 +1130,12 @@ async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionConte
   const existing = await env.DB.prepare("SELECT id FROM fuel_alerts WHERE phone = ? AND station_id = ? AND fuel = ?")
     .bind(phone, stationId, fuel).first();
   if (!existing) {
-    const total = await env.DB.prepare("SELECT COUNT(*) AS n FROM fuel_alerts").first<{ n: number }>();
-    if ((total?.n ?? 0) >= MAX_FUEL_ALERTS) return json({ ok: false, reason: `màxim ${MAX_FUEL_ALERTS} avisos` }, 429);
+    // Els SMS costen diners: límit global. Per Telegram (gratis), límit ampli.
+    const total = await env.DB.prepare(
+      viaTelegram ? "SELECT COUNT(*) AS n FROM fuel_alerts WHERE phone LIKE 'tg:%'" : "SELECT COUNT(*) AS n FROM fuel_alerts WHERE phone NOT LIKE 'tg:%'",
+    ).first<{ n: number }>();
+    const max = viaTelegram ? 300 : MAX_FUEL_ALERTS;
+    if ((total?.n ?? 0) >= max) return json({ ok: false, reason: `màxim ${max} avisos` }, 429);
   }
   await env.DB.prepare(`
     INSERT INTO fuel_alerts (phone, station_id, station_name, fuel, target, last_price, target_hit, created_at)
@@ -1020,6 +1146,16 @@ async function handleFuelAlertCreate(env: Env, req: Request, ctx: ExecutionConte
 
   // SMS de confirmació: comprova de seguida que l'enviament funciona.
   const reason = target ? `Avis actiu: t'escriurem si baixa o passa per sota de ${target.toFixed(3).replace(".", ",")}.` : "Avis actiu: t'escriurem quan baixi.";
+  if (viaTelegram) {
+    const chat = await telegramChatFor(env, who.id);
+    if (!chat) {
+      const bot = await botUsername(env);
+      return json({ ok: true, channel: "telegram", telegram_linked: false, price,
+        bot_url: bot ? `https://t.me/${bot}?start=fuel-${who.code}` : null });
+    }
+    const tg = await sendTelegram(env, chat, `⛽ ${fuelSmsText(st.name, st.town, fuel, price, reason)}`);
+    return json({ ok: true, channel: "telegram", telegram_linked: true, price, sent: tg.ok, error: tg.ok ? undefined : tg.detail });
+  }
   const sms = await sendSms(env, phone, fuelSmsText(st.name, st.town, fuel, price, reason));
   return json({ ok: true, phone: maskPhone(phone), price, sms_sent: sms.ok, sms_error: sms.ok ? undefined : (sms.detail || `HTTP ${sms.status}`) });
 }
@@ -1029,7 +1165,7 @@ async function handleFuelAlertList(env: Env, req: Request, url: URL): Promise<Re
   const { results } = await env.DB.prepare(
     "SELECT id, phone, station_id, station_name, fuel, target, last_price, last_sent_at FROM fuel_alerts ORDER BY id DESC",
   ).all<{ phone: string }>();
-  return json({ ok: true, sms_configured: Boolean(env.BIRD_API_KEY), alerts: results.map((a) => ({ ...a, phone: maskPhone(a.phone) })) });
+  return json({ ok: true, sms_configured: Boolean(env.BIRD_API_KEY), alerts: results.map((a) => ({ ...a, phone: showTarget(a.phone) })) });
 }
 
 async function handleFuelAlertDelete(env: Env, req: Request, url: URL): Promise<Response> {
@@ -1048,10 +1184,62 @@ type FuelAlertRow = {
 };
 
 // Cron: compara cada avís amb el preu actual i envia SMS si baixa o creua l'objectiu.
+// ── Historial de preus (un cop al dia) per a la tendència de la pestanya Benzina ──
+function madridDay(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+}
+async function recordFuelDaily(env: Env, data: FuelData): Promise<void> {
+  const day = madridDay();
+  const done = await env.DB.prepare("SELECT 1 FROM fuel_daily WHERE day = ? LIMIT 1").bind(day).first().catch(() => null);
+  if (done) return;
+  const stmts: D1PreparedStatement[] = [];
+  for (const fuel of Object.keys(FUEL_FIELDS)) {
+    const ps = data.stations.map((s) => s.prices[fuel]).filter((p): p is number => typeof p === "number");
+    if (!ps.length) continue;
+    const avg = ps.reduce((a, b) => a + b, 0) / ps.length;
+    stmts.push(env.DB.prepare("INSERT OR REPLACE INTO fuel_daily (day, fuel, avg, min, n) VALUES (?, ?, ?, ?, ?)")
+      .bind(day, fuel, Math.round(avg * 1000) / 1000, Math.min(...ps), ps.length));
+  }
+  // Preu de cada gasolinera (25 files per sentència: D1 admet 100 paràmetres)
+  const rows: [string, string, number][] = [];
+  for (const s of data.stations) for (const [fuel, p] of Object.entries(s.prices)) rows.push([s.id, fuel, p]);
+  for (let i = 0; i < rows.length; i += 25) {
+    const chunk = rows.slice(i, i + 25);
+    stmts.push(env.DB.prepare(
+      `INSERT OR REPLACE INTO fuel_station_daily (day, station_id, fuel, price) VALUES ${chunk.map(() => "(?, ?, ?, ?)").join(", ")}`,
+    ).bind(...chunk.flatMap(([id, fuel, p]) => [day, id, fuel, p])));
+  }
+  await env.DB.batch(stmts);
+  await env.DB.prepare("DELETE FROM fuel_station_daily WHERE day < ?").bind(madridDay(new Date(Date.now() - 60 * 86_400_000))).run();
+}
+
+// GET /api/fuel/trend?fuel=g95 — evolució de la mitjana i el preu de fa ~7 dies de cada gasolinera
+async function handleFuelTrend(env: Env, url: URL): Promise<Response> {
+  const fuel = url.searchParams.get("fuel") ?? "g95";
+  if (!FUEL_FIELDS[fuel]) return json({ ok: false, reason: "carburant invàlid" }, 400);
+  const since = madridDay(new Date(Date.now() - 14 * 86_400_000));
+  const area = await env.DB.prepare("SELECT day, avg, min FROM fuel_daily WHERE fuel = ? AND day >= ? ORDER BY day")
+    .bind(fuel, since).all<{ day: string; avg: number; min: number }>().catch(() => ({ results: [] as { day: string; avg: number; min: number }[] }));
+  const today = madridDay();
+  const target = madridDay(new Date(Date.now() - 7 * 86_400_000));
+  // El dia de referència: el més proper a fa 7 dies que no sigui avui
+  const refRow = await env.DB.prepare(
+    "SELECT day FROM fuel_daily WHERE fuel = ? AND day < ? ORDER BY ABS(julianday(day) - julianday(?)) LIMIT 1",
+  ).bind(fuel, today, target).first<{ day: string }>().catch(() => null);
+  const ref: Record<string, number> = {};
+  if (refRow) {
+    const rs = await env.DB.prepare("SELECT station_id, price FROM fuel_station_daily WHERE day = ? AND fuel = ?")
+      .bind(refRow.day, fuel).all<{ station_id: string; price: number }>();
+    for (const r of rs.results ?? []) ref[r.station_id] = r.price;
+  }
+  return json({ ok: true, fuel, area: area.results ?? [], ref_day: refRow?.day ?? null, ref });
+}
+
 async function runFuelAlerts(env: Env, ctx: ExecutionContext): Promise<void> {
+  const data = await getFuelData(ctx);
+  try { await recordFuelDaily(env, data); } catch (error) { console.error("recordFuelDaily failed", error); }
   const { results } = await env.DB.prepare("SELECT * FROM fuel_alerts").all<FuelAlertRow>();
   if (!results.length) return;
-  const data = await getFuelData(ctx);
   const { hour } = lleidaHourAndDow(new Date());
   const quiet = hour >= SMS_QUIET_START || hour < SMS_QUIET_END;
   const today = new Date().toISOString().slice(0, 10);
@@ -1075,7 +1263,7 @@ async function runFuelAlerts(env: Env, ctx: ExecutionContext): Promise<void> {
         const reason = dropped && a.last_price != null
           ? `Ha baixat ${((a.last_price - now) * 100).toFixed(1).replace(".", ",")} cent.`
           : "Per sota del teu objectiu.";
-        const r = await sendSms(env, a.phone, fuelSmsText(st.name, st.town, a.fuel, now, reason));
+        const r = await sendFuelAlert(env, a.phone, (a.phone.startsWith(TG_PREFIX) ? "⛽ " : "") + fuelSmsText(st.name, st.town, a.fuel, now, reason));
         sent = r.ok;
         if (r.ok) {
           await env.DB.prepare("INSERT INTO fuel_sms_log (alert_id, sent_at, price) VALUES (?, ?, ?)")
@@ -1102,7 +1290,10 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/probability") return await handleProbability(env, url);
       if (req.method === "GET" && url.pathname === "/api/zone-probs") return await handleZoneProbs(env);
       if (req.method === "GET" && url.pathname === "/api/ingest-check") return await handleIngestCheck(env, req, url);
-      if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req);
+      if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req, ctx);
+      if (req.method === "GET" && url.pathname === "/api/zone-subs") return await handleZoneSubsGet(env, req, url);
+      if (req.method === "POST" && url.pathname === "/api/zone-subs") return await handleZoneSubsSave(env, req, url);
+      if (req.method === "GET" && url.pathname === "/api/fuel/trend") return await handleFuelTrend(env, url);
       if (req.method === "GET" && url.pathname === "/api/ingest-fingerprint") return await handleIngestFingerprint(env);
       if (req.method === "GET" && url.pathname === "/api/groups") return await handleGroups(env);
       if (req.method === "POST" && url.pathname === "/api/detections/delete") return await handleDetectionDelete(env, req, url);

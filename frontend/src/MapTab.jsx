@@ -18,14 +18,14 @@ const PT_COLOR = (t) => ({
   unknown: t.textDim,
 });
 
-function pinIcon(pct, risk, t) {
-  const color = risk ? t.danger : t.accent;
+function pinIcon(pct, risk, t, active = false) {
+  const color = risk || active ? t.danger : t.accent;
   return L.divIcon({
     className: "", iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -32],
     html: `<div style="display:grid;place-items:center;width:34px;height:34px;
       border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${color};
       border:2px solid ${t.bg};box-shadow:0 4px 10px rgba(0,0,0,.5);font-weight:800;
-      font-size:11px;color:${t.bg};${risk ? "animation:ptPulse 1.6s infinite;" : ""}">
+      font-size:11px;color:${t.bg};${active ? "animation:ptPulse .8s infinite;" : risk ? "animation:ptPulse 1.6s infinite;" : ""}">
       <span style="transform:rotate(45deg)">${pct}</span></div>`,
   });
 }
@@ -119,7 +119,7 @@ const THEME_TO_TILE = {
 };
 
 export default function MapTab({
-  zones = [], probs = {},
+  zones = [], probs = {}, activeZones = [],
   selected, onSelect, theme = FALLBACK, themeName = "normal",
   detections = [],           // deteccions reals (per la capa 24h)
   radarPos = null,           // posició del radar si està actiu (estalvia geo)
@@ -421,11 +421,12 @@ export default function MapTab({
                 <Circle center={c} radius={(z.rKm || 5) * 1000}
                   pathOptions={{ color: t.danger, weight: 1.5, fillColor: t.danger, fillOpacity: 0.12 }} />
               )}
-              <Marker position={c} icon={pinIcon(pct, risk, t)}
+              <Marker position={c} icon={pinIcon(pct, risk, t, activeZones.includes(z.id))}
                 eventHandlers={{ click: () => onSelect && onSelect(z.id) }}>
                 <Popup>
                   <b>{z.label || z.id}</b><br />
-                  Possibilitat ara: {pct}%{d != null ? ` · 📍 ${d} km` : ""}
+                  {pct}%{d != null ? ` · 📍 ${d} km` : ""}
+                  {activeZones.includes(z.id) && <><br /><span style={{ color: t.danger, fontWeight: 700 }}>🔴 Control actiu ara</span></>}
                   {risk && <><br /><span style={{ color: t.danger, fontWeight: 700 }}>🚨 ZONA DE RISC</span></>}
                 </Popup>
               </Marker>
