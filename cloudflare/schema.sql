@@ -104,6 +104,13 @@ CREATE TABLE IF NOT EXISTS fuel_sms_log (
 );
 CREATE INDEX IF NOT EXISTS idx_fuel_sms_alert ON fuel_sms_log (alert_id, sent_at);
 
+-- Avisos de benzina per Telegram: a quin xat privat del bot s'envien els de cada persona.
+CREATE TABLE IF NOT EXISTS telegram_users (
+    owner     TEXT PRIMARY KEY,
+    chat_id   TEXT NOT NULL,
+    linked_at TEXT NOT NULL
+);
+
 -- Grups de WhatsApp i Telegram que alimenten l'app, gestionables des de Config.
 -- status: 'active' (es desen els avisos), 'pending' (nou, esperant que algú l'activi),
 --         'off' (ignorat). Els grups de WhatsApp nous entren com a 'pending';

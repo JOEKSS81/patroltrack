@@ -117,6 +117,8 @@ export default function FuelTab({ apiToken = "" }) {
   const [smsPhone, setSmsPhone] = useState(() => readLS("pt_fuel_phone", ""));
   const [smsState, setSmsState] = useState(null); // {ok, msg}
   const [smsBusy, setSmsBusy] = useState(false);
+  const [tg, setTg] = useState(null); // {ok, msg, url?} — avís per Telegram
+  const [tgBusy, setTgBusy] = useState(false);
 
   useEffect(() => { writeLS(PREF_KEY, { fuel, area }); }, [fuel, area]);
 
@@ -193,6 +195,31 @@ export default function FuelTab({ apiToken = "" }) {
   };
 
   // Avís per SMS: el Worker revisa el preu cada 30 min encara que l'app estigui tancada.
+  // Avís per Telegram (gratis): el bot de PatrolTrack t'escriu quan baixa el preu.
+  // La primera vegada cal obrir el bot i tocar INICIAR (enllaça el xat amb tu).
+  const activateTelegram = async () => {
+    if (!fav) return;
+    if (!apiToken) { setTg({ ok: false, msg: "Primer obre l'app amb el teu enllaç personal." }); return; }
+    setTgBusy(true); setTg(null);
+    try {
+      const r = await fetch(`${API}/api/fuel/alerts`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-ingest-token": apiToken },
+        body: JSON.stringify({ channel: "telegram", station_id: fav.id, fuel: fav.fuel, target: fav.target ?? undefined }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.ok) setTg({ ok: false, msg: d.reason || `Error ${r.status}` });
+      else if (d.telegram_linked) setTg({ ok: true, msg: d.sent ? "Avís actiu. T'he enviat un missatge de prova a Telegram." : "Avís actiu." });
+      else if (d.bot_url) {
+        setTg({ ok: true, url: d.bot_url, msg: "Avís desat. Falta un pas: obre el bot i toca INICIAR." });
+        try { window.open(d.bot_url, "_blank", "noopener"); } catch { /* el botó de sota també ho fa */ }
+      } else setTg({ ok: false, msg: "El bot de Telegram no està configurat al servidor." });
+    } catch (e) {
+      setTg({ ok: false, msg: e.message || "Error de xarxa" });
+    }
+    setTgBusy(false);
+  };
+
   const activateSms = async () => {
     if (!fav) return;
     if (!apiToken) { setSmsState({ ok: false, msg: "Primer configura el token a la pestanya Config." }); return; }
@@ -284,7 +311,20 @@ export default function FuelTab({ apiToken = "" }) {
             <span>€</span>
             <button onClick={clearFav} style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border}`, color: C.textDim, borderRadius: 6, padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 11 }}>Treure</button>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, fontSize: 12, color: C.textDim }}>
+          <button onClick={activateTelegram} disabled={tgBusy}
+            style={{ width: "100%", marginTop: 10, background: "#229ED9", color: "#fff", border: "none", borderRadius: 8, padding: "10px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: 13.5, fontWeight: 800, opacity: tgBusy ? 0.6 : 1 }}>
+            {tgBusy ? "…" : "📲 Avisa'm per Telegram (gratis)"}
+          </button>
+          <div style={{ fontSize: 10.5, color: C.textMuted, marginTop: 4 }}>T'avisa encara que l'app estigui tancada, de 8 a 22 h (màx. 3 al dia). Desa l'objectiu abans.</div>
+          {tg && (
+            <div style={{ fontSize: 12, marginTop: 6, color: tg.ok ? C.success : C.danger, lineHeight: 1.45 }}>
+              {tg.ok ? "✓" : "⚠"} {tg.msg}
+              {tg.url && <a href={tg.url} target="_blank" rel="noopener noreferrer" style={{ display: "block", marginTop: 6, color: "#229ED9", fontWeight: 800 }}>Obrir el bot a Telegram →</a>}
+            </div>
+          )}
+          <details style={{ marginTop: 8 }}>
+            <summary style={{ fontSize: 11.5, color: C.textMuted, cursor: "pointer" }}>Per SMS (de pagament)</summary>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: C.textDim }}>
             <span>📱 SMS</span>
             <input type="tel" inputMode="tel" placeholder="612 345 678" value={smsPhone} onChange={(e) => setSmsPhone(e.target.value)}
               style={{ flex: 1, minWidth: 0, padding: "5px 6px", background: C.bg, color: C.text, border: `1px solid ${C.border}`, borderRadius: 6, fontFamily: "inherit", fontSize: 13 }} />
@@ -295,6 +335,7 @@ export default function FuelTab({ apiToken = "" }) {
           </div>
           <div style={{ fontSize: 10, color: C.textMuted, marginTop: 4 }}>T'avisa encara que l'app estigui tancada (de 8 a 22 h, màx. 3 SMS al dia). Desa l'objectiu abans d'activar.</div>
           {smsState && <div style={{ fontSize: 12, marginTop: 6, color: smsState.ok ? C.success : C.danger }}>{smsState.ok ? "✓" : "⚠"} {smsState.msg}</div>}
+          </details>
         </div>
       )}
 

@@ -5,7 +5,7 @@ import ZoneMap from "./ZoneMap";
 import { THEMES, ThemeContext, useC } from "./lib/themes";
 import { API, ZONES, MAP_ZONES, ptWith, DAYS_FULL, MONTHS, DAYS_ORDER_MON } from "./lib/constants";
 import { computeHourly, distKm } from "./lib/utils";
-import { zoneStatus, durText, pct } from "./lib/risk";
+import { zoneStatus, durText, pct, whenText, shortDate } from "./lib/risk";
 import { useRadar } from "./lib/useRadar";
 import Splash from "./components/Splash";
 import Collapsible from "./components/Collapsible";
@@ -416,7 +416,6 @@ export default function App(){
   };
 
   const curH=new Date().getHours();
-  const curP=zoneProbs[selectedZone]||0;
   const filtDets=filterType==="all"?detections:detections.filter(d=>d.patrol_type===filterType);
 
   // Dades reals per al Dashboard
@@ -521,9 +520,9 @@ export default function App(){
               />
             </div>
 
-            <div style={{flex:"0 1 auto",textAlign:"right",flexShrink:0,maxWidth:"22%"}}>
+            <div style={{flex:"0 0 auto",textAlign:"right",minWidth:62}}>
               <div style={{fontSize:16,fontWeight:700,whiteSpace:"nowrap"}}>{new Date().toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>
-              <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{new Date().toLocaleDateString("ca-ES",{weekday:"short",day:"numeric",month:"short"})}</div>
+              <div style={{fontSize:10,color:C.textDim,whiteSpace:"nowrap"}}>{shortDate(new Date())}</div>
               {!online&&lastSync&&<div style={{fontSize:9,color:C.warning,whiteSpace:"nowrap",marginTop:2}}>últim: {new Date(lastSync).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"})}</div>}
             </div>
           </div>
@@ -596,27 +595,39 @@ export default function App(){
 
               {/* Zona seleccionada — dades reals */}
               <div onClick={()=>setZoneDetail(selectedZone)} style={{background:C.surface,borderRadius:12,padding:14,border:`1px solid ${C.border}`,marginBottom:10,cursor:"pointer",position:"relative"}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
-                  <div style={{minWidth:0,flex:1}}>
-                    <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:2}}>ZONA SELECCIONADA</div>
-                    <div style={{fontSize:18,fontWeight:700,color:C.accent}}>{selectedZone}</div>
-                    <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{zoneDets.length} deteccions registrades · <span style={{color:C.accent}}>toca per detall</span></div>
-                  </div>
-                  <div style={{textAlign:"right",flexShrink:0,marginLeft:10}}>
-                    <div style={{fontSize:22,fontWeight:800,color:curP>0.6?C.danger:curP>0.35?C.warning:C.success}}>{Math.round(curP*100)}%</div>
-                    <div style={{fontSize:10,color:C.textMuted}}>possibilitat ara</div>
-                  </div>
+                <div style={{marginBottom:10}}>
+                  <div style={{fontSize:11,color:C.textDim,letterSpacing:"0.05em",marginBottom:2}}>ZONA SELECCIONADA</div>
+                  <div style={{fontSize:18,fontWeight:700,color:C.accent}}>{selectedZone}</div>
+                  <div style={{fontSize:12,color:C.textDim,marginTop:2}}>{zoneDets.length} deteccions registrades · <span style={{color:C.accent}}>toca per detall</span></div>
                 </div>
 
-                {/* Estat ara: control actiu / ja han marxat / històric */}
+                {/* Dues xifres separades: el que passa AVUI (avisos d'ara) i el que sol passar (històric) */}
                 {(()=>{
-                  const st=zoneStatus(risk&&risk.zones&&risk.zones[selectedZone],risk&&risk.model);
-                  const col=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  const zi=risk&&risk.zones&&risk.zones[selectedZone];
+                  const st=zoneStatus(zi,risk&&risk.model);
+                  const live=zi?zi.live||0:0, hist=zi?zi.hist||0:0;
+                  const pc=(v)=>v>0.6?C.danger:v>0.35?C.warning:v>0.1?C.text:C.success;
+                  const stCol=st.tone==="danger"?C.danger:st.tone==="success"?C.success:C.textDim;
+                  const tile={background:C.bg,border:`1px solid ${C.border}`,borderRadius:10,padding:"10px 12px",minWidth:0};
                   return(
-                    <div style={{background:st.tone==="neutral"?C.bg:`${col}14`,border:`1px solid ${st.tone==="neutral"?C.border:col+"66"}`,borderRadius:8,padding:"8px 10px",marginBottom:10}}>
-                      <div style={{fontSize:13,color:C.text,lineHeight:1.4}}><b style={{color:st.tone==="neutral"?C.text:col}}>{st.title}</b>{st.line?<span style={{color:C.textDim}}> · {st.line}</span>:null}</div>
-                      {st.hint&&<div style={{fontSize:12,color:C.textMuted,marginTop:3}}>⏱ {st.hint}</div>}
-                    </div>
+                    <>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}}>
+                        <div style={{...tile,borderColor:st.tone==="danger"?`${C.danger}88`:C.border}}>
+                          <div style={{fontSize:10.5,color:C.textMuted,letterSpacing:"0.06em"}}>AVUI, ARA</div>
+                          <div style={{fontSize:24,fontWeight:900,color:pc(live),lineHeight:1.15}}>{pct(live)}%</div>
+                          <div style={{fontSize:11.5,color:stCol,fontWeight:700,marginTop:2}}>{st.title}</div>
+                        </div>
+                        <div style={tile}>
+                          <div style={{fontSize:10.5,color:C.textMuted,letterSpacing:"0.06em"}}>HISTÒRIC</div>
+                          <div style={{fontSize:24,fontWeight:900,color:pc(hist),lineHeight:1.15}}>{pct(hist)}%</div>
+                          <div style={{fontSize:11.5,color:C.textDim,marginTop:2}}>a aquesta hora · {[0,6].includes(new Date().getDay())?"cap de setm.":"feiners"}</div>
+                        </div>
+                      </div>
+                      <div style={{fontSize:12,color:C.textMuted,marginBottom:10,lineHeight:1.45}}>
+                        {st.line?<span style={{color:stCol}}>{st.line}. </span>:null}
+                        {st.hint?<>⏱ {st.hint}</>:null}
+                      </div>
+                    </>
                   );
                 })()}
 
@@ -659,7 +670,7 @@ export default function App(){
                 </div>
               ):detections.slice(0,4).map((d,i)=>{
                 const ptype=PT[d.patrol_type]||PT.unknown;
-                const time=d.created_at?new Date(d.created_at).toLocaleTimeString("ca-ES",{hour:"2-digit",minute:"2-digit"}):"??:??";
+                const time=d.created_at?whenText(d.created_at):"??:??";
                 return(
                   <div key={i} onClick={()=>setSelectedDet(d)} style={{background:C.surface,border:`1px solid ${C.border}`,borderLeft:`3px solid ${ptype.color}`,borderRadius:8,padding:"10px 12px",marginBottom:6,cursor:"pointer"}}>
                     <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
