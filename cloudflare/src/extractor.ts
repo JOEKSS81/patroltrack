@@ -9,7 +9,7 @@ const PATROL_KEYWORDS: Record<string, string[]> = {
     "pitufos", "pitufo", "pitufs",
   ],
   guardia: [
-    "guardia civil", "guardias civiles", "guardia", "gc ", " gc,", "(gc)",
+    "guardia civil", "guardias civiles", "guardia", "gc",
     "benemérita", "benemerita",
     "tricornio", "tricorni", "picoleto", "picolos",
     "policia nacional", "policía nacional", "nacionales",
@@ -67,6 +67,8 @@ const STRONG_KEYWORDS = [
   "control", "radar", "patrull", "alcoholemi", "drogotest", "atestat", "atestado", "camuflat", "camuflad",
 ];
 const STRONG_NORM = STRONG_KEYWORDS.map(normalizeText);
+// "Policia a Sort", "poli a la rotonda": policia sense dir quin cos (tipus desconegut)
+const POLICE_WORDS = ["policia", "policies", "policias", "poli", "polis", "poliz"];
 
 // Argot dels grups: "rotonda bruta" = hi ha control; "neta" = ja han marxat (vegeu
 // classifyFollowUp). "Brut/bruta" només compta si diu on (zona coneguda o un lloc de
@@ -319,6 +321,8 @@ function normalizeText(text: string): string {
     ["ç","c"],["ñ","n"],
   ];
   for (const [o, r] of subs) t = t.replaceAll(o, r);
+  // Lletres allargades dels xats: "brutaaa" → "bruta", "mossooos" → "mossos", "siii" → "si"
+  t = t.replace(/([a-z])\1{2,}/g, "$1").replace(/([aeiou])\1+(?=[^a-z]|$)/g, "$1");
   return t;
 }
 
@@ -425,16 +429,17 @@ export function extractPatrolInfo(message: string, source: string = "unknown"): 
   const hasZone = zoneNorm !== "Desconeguda";
 
   // "Rotonda de Sort bruta": sense cos policial ni "control", però en argot vol dir que n'hi ha.
+  const police = !hasPatrolWord && POLICE_WORDS.some((w) => hasKeyword(textLower, w));
   const dirty = !hasPatrolWord && dirtyWord(textLower) && !DIRTY_NOT.some((w) => hasKeyword(textLower, w))
     && (hasZone || DIRTY_PLACES.some((w) => hasKeyword(textLower, w)));
-  if (!hasPresence && !hasPatrolWord && !dirty) return null;
+  if (!hasPresence && !hasPatrolWord && !police && !dirty) return null;
 
   // Sense cos policial, cal una paraula forta ("control", "radar"...): "està" o "hi ha"
   // sols no fan d'un missatge qualsevol un avís.
-  if (!hasPatrolWord && !dirty && !STRONG_NORM.some(kw => textLower.includes(kw))) return null;
+  if (!hasPatrolWord && !police && !dirty && !STRONG_NORM.some(kw => textLower.includes(kw))) return null;
 
   // Cos policial + lloc conegut ja és un avís ("Mossos a Organyà").
-  if (hasPatrolWord && !hasPresence && !hasZone) {
+  if ((hasPatrolWord || police) && !hasPresence && !hasZone) {
     const roadHints = ["km", "pk", "rotonda", "carretera", "carrer", "calle", "avinguda"];
     if (!roadHints.some(h => textLower.includes(h))) return null;
   }
@@ -528,4 +533,18 @@ export function classifyFollowUp(message: string): FollowUp | null {
   if (STILL_PHRASES.some((p) => hasKeyword(bare + " ", p))) return out("still");
   if (words.length <= 6 && STILL_STARTS.some((s) => bare === s || bare.startsWith(s + " "))) return out("still");
   return null;
+}
+
+// Avís fet a mà des de l'app (botó +): la persona vol avisar, encara que no escrigui
+// "mossos" o "control". S'accepta si diu una zona coneguda ("Rock dur Sort").
+export function manualReportInfo(message: string): PatrolInfo | null {
+  const auto = extractPatrolInfo(message, "manual");
+  if (auto) return auto;
+  const text = normalizeText(message);
+  const { zoneLiteral, zoneNorm, lat, lng } = detectZone(text);
+  if (zoneNorm === "Desconeguda") return null;
+  return {
+    is_patrol: true, patrol_type: detectPatrolType(text), zone: zoneLiteral || zoneNorm, zone_norm: zoneNorm,
+    pk: detectPk(text), confidence: "baixa", lat, lng, source: "manual",
+  };
 }

@@ -104,6 +104,18 @@ CREATE TABLE IF NOT EXISTS fuel_sms_log (
 );
 CREATE INDEX IF NOT EXISTS idx_fuel_sms_alert ON fuel_sms_log (alert_id, sent_at);
 
+-- Missatges rebuts per mòbil i dia, i últim avís "MacroDroid sembla aturat".
+CREATE TABLE IF NOT EXISTS ingest_daily (
+    owner TEXT NOT NULL,
+    day   TEXT NOT NULL,
+    hits  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (owner, day)
+);
+CREATE TABLE IF NOT EXISTS watchdog (
+    owner      TEXT PRIMARY KEY,
+    alerted_at TEXT NOT NULL
+);
+
 -- Zones que cadascú segueix per rebre per Telegram els controls nous.
 CREATE TABLE IF NOT EXISTS zone_subscriptions (
     owner      TEXT NOT NULL,
