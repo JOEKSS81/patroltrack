@@ -45,7 +45,7 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
   useEffect(() => {
     let alive = true;
     SOURCES.forEach(({ key }) => {
-      fetch(`/macros/${key}.macro`, { cache: "no-store" })
+      fetch(`/macros/${key}.mdr`, { cache: "no-store" })
         .then((r) => (r.ok ? r.text() : ""))
         .then((t) => { if (alive && t.trim().startsWith("{") && t.includes("__PT_TOKEN__")) setTemplates((p) => ({ ...p, [key]: t })); })
         .catch(() => {});
@@ -108,7 +108,7 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
     const text = templates[key].split("__PT_TOKEN__").join(apiToken).split("__PT_URL__").join(ingestUrl);
     const url = URL.createObjectURL(new Blob([text], { type: "application/octet-stream" }));
     const a = document.createElement("a");
-    a.href = url; a.download = `PatrolTrack ${label}.macro`;
+    a.href = url; a.download = `PatrolTrack ${label}.mdr`;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   };
@@ -234,7 +234,8 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
                   <button key={key} onClick={() => download(key, label)} style={btn(C.surface, C.text, { border: `1px solid ${C.border}` })}>⬇ {label}</button>
                 ))}
               </div>
-              <div style={small}>Ja porten la teva clau. A MacroDroid: menú <b>☰</b> → <b>Exportar/Importar</b> → <b>Importar</b> → tria el fitxer. Fes-ho amb els dos.</div>
+              <div style={small}>Ja porten la teva clau. A MacroDroid: menú <b>☰</b> → <b>Exportar/Importar</b> → <b>Importar</b> → tria el fitxer. Fes-ho amb els dos (o només el que facis servir).</div>
+              <div style={{ ...small, fontSize: 11.5, color: C.textMuted }}>Si ja tenies altres macros a MacroDroid, abans fes-ne una còpia (Exportar/Importar → <b>Exportar</b>), per si de cas.</div>
             </>
           ) : (
             <div style={small}>Crea a MacroDroid una macro per a WhatsApp i una altra per a Telegram amb les dades de «Fer-ho a mà», aquí sota.</div>

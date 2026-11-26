@@ -103,7 +103,7 @@
     <table class="vs">
       <tr><th></th><th>🤖 Android</th><th>🍎 iPhone</th></tr>
       <tr><td><b>Com entren els avisos</b></td><td>Sols. MacroDroid llegeix les notificacions dels grups i les envia.</td><td>Els envies tu: captura de pantalla del grup → <b>+</b> → <b>Adjuntar una captura</b>.</td></tr>
-      <tr><td><b>Preparar-ho</b></td><td>Un sol cop (uns 10 min): instal·lar MacroDroid i crear-hi la macro amb les dades que et dona l'app (adreça, clau i text).</td><td>Res obligatori. Opcional: una drecera per enviar amb dos copets al darrere del mòbil.</td></tr>
+      <tr><td><b>Preparar-ho</b></td><td>Un sol cop (5 min): instal·lar MacroDroid i importar-hi la macro que et baixes de l'app (ja porta la teva clau).</td><td>Res obligatori. Opcional: una drecera per enviar amb dos copets al darrere del mòbil.</td></tr>
       <tr><td><b>Cada dia</b></td><td>Res. Només que MacroDroid no s'aturi.</td><td>Quan vegis un avís en un grup, fas la captura i l'envies.</td></tr>
       <tr><td><b>Quins grups</b></td><td>Tries quins segueixes (<b>Seguir</b> / <b>Ignorar</b>). La resta no es guarda.</td><td>Només entra el que tu captures.</td></tr>
       <tr><td><b>Mapa, %, Telegram, benzina…</b></td><td colspan="2" style="text-align:center">Igual als dos</td></tr>
@@ -157,7 +157,7 @@
       <div class="tab"><div class="t">⚙️ Config</div>
         <div class="d">
           <ul class="sub">
-            <li><b>📲 Connecta els teus grups</b>. 🤖 <b>Android:</b> instal·les MacroDroid, hi crees la macro amb les dades que t'hi surten (adreça, la teva clau i el text a enviar, amb botons de copiar) i ho comproves amb el botó de prova. 🍎 <b>iPhone:</b> t'explica la drecera per enviar un missatge des del mateix WhatsApp. El més pràctic, però, és la captura amb el <b>+</b>.</li>
+            <li><b>📲 Connecta els teus grups</b>. 🤖 <b>Android:</b> instal·les MacroDroid, et baixes la macro de WhatsApp i/o Telegram (ja porta la teva clau), la importes a MacroDroid (☰ → Exportar/Importar → Importar) i ho comproves amb el botó de prova. Si cal, també es pot crear a mà amb les dades que hi surten. 🍎 <b>iPhone:</b> t'explica la drecera per enviar un missatge des del mateix WhatsApp. El més pràctic, però, és la captura amb el <b>+</b>.</li>
             <li><b>🔔 Avisos al mòbil:</b> enllaces Telegram, tries zones i el bot t'escriu quan hi ha un control (i quan ha marxat).</li>
             <li><b>📥 Importar xats:</b> puges un xat exportat per omplir l'històric. 🍎 A l'iPhone, també la drecera de captura amb doble toc.</li>
             <li><b>👥 Els meus grups</b> (sobretot 🤖 Android): els xats nous surten com a <i>pendents</i>. Toca <b>Seguir</b> als grups d'avisos i <b>Ignorar</b> als xats privats; dels ignorats no es guarda res.</li>
@@ -250,7 +250,7 @@
 
     <h2>Android i iPhone</h2>
     <ul>
-      <li>La PWA detecta iOS (<code>userAgent</code>, i iPad com a «MacIntel» amb pantalla tàctil) i mostra només el que toca. 🤖 <b>Android:</b> guia de MacroDroid (disparador de notificació → petició HTTP amb la clau), comprovació en directe i vigilant. 🍎 <b>iPhone:</b> drecera, captura al botó + i drecera de doble toc.</li>
+      <li>La PWA detecta iOS (<code>userAgent</code>, i iPad com a «MacIntel» amb pantalla tàctil) i mostra només el que toca. 🤖 <b>Android:</b> macro de MacroDroid llesta per importar (<code>/macros/*.mdr</code>, amb la clau de cadascú posada al mòbil), guia per fer-la a mà, comprovació en directe i vigilant. 🍎 <b>iPhone:</b> drecera, captura al botó + i drecera de doble toc.</li>
       <li>El motiu: iOS no deixa que cap app llegeixi les notificacions d'una altra. Per això a l'iPhone l'entrada és sempre una acció de la persona (compartir, drecera o captura).</li>
       <li>La clau (<code>pt_…</code>) es desa a <code>localStorage</code>, que és de cada navegador i de cada instal·lació. Un altre navegador no té la clau fins que s'hi enganxa o s'hi obre l'enllaç personal (<code>#invite=…</code>).</li>
     </ul>
