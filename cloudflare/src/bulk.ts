@@ -5,7 +5,7 @@
 //   · per tornar a com estava n'hi ha prou de treure aquest fitxer i les 2 línies
 //     que el connecten a index.ts (import + ruta /api/ingest-bulk).
 // No toca cap altra part del codi: fa servir l'extractor tal com és.
-import { extractPatrolInfo, classifyFollowUp, type FollowUp, type PatrolInfo } from "./extractor";
+import { extractPatrolInfo, classifyFollowUp, ZONE_COORDS, type FollowUp, type PatrolInfo } from "./extractor";
 import type { Env } from "./index";
 import { madridParts, parseScreenshot, type Msg } from "./bulkParse";
 
@@ -24,6 +24,11 @@ const DUP_MS = 12 * 3600_000;      // mateix criteri que l'ingest normal
 const RISK_ROWS_CAP = 4500;        // el model llegeix 5.000 avisos (180 dies): no l'omplim
 const SOURCES = ["import", "captura"] as const;
 type BulkSource = typeof SOURCES[number];
+
+// Paraules dels noms de zona ("sort", "tremp", "pobla"…): una línia curta que en diu una no és un nom
+const norm = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const PLACE_WORDS = new Set(Object.keys(ZONE_COORDS).flatMap((z) => norm(z).split(/[^a-z0-9]+/)).filter((w) => w.length >= 4));
+const mentionsPlace = (l: string) => norm(l).split(/[^a-z0-9]+/).some((w) => PLACE_WORDS.has(w));
 
 const PATROL_NAMES: Record<string, string> = { mossos: "Mossos", guardia: "Guàrdia Civil", local: "Policia Local" };
 
@@ -190,7 +195,7 @@ export async function handleBulkIngest(env: Env, req: Request, ctx: ExecutionCon
   } else if (mode === "screenshot") {
     const text = String(body.text ?? "");
     if (!text.trim()) return json({ ok: false, reason: "text buit" }, 400);
-    msgs = parseScreenshot(text.slice(0, 20_000)).slice(-MAX_MESSAGES);
+    msgs = parseScreenshot(text.slice(0, 20_000), Date.now(), mentionsPlace).slice(-MAX_MESSAGES);
     source = "captura";
     // Previsualització (botó + de l'app): què s'hi ha trobat, sense desar res
     if (body.preview === true) {

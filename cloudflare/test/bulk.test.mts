@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseScreenshot, madridToUtc } from "../src/bulkParse.ts";
+import { parseScreenshot, madridToUtc, cleanBlock } from "../src/bulkParse.ts";
 import { extractPatrolInfo, classifyFollowUp } from "../src/extractor.ts";
 
 const hhmm = (ms: number) => new Intl.DateTimeFormat("ca-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit" }).format(new Date(ms));
@@ -47,6 +47,26 @@ test("captura llegida amb soroll: ✓✓ com «--» i el nom com «xv Joan»", (
     "- Maria", "Encara hi són? 16:48", "Sí, segueixen 16:53 --", "Pep", "Ja han marxat de Sort 17:07"].join("\n");
   const msgs = parseScreenshot(ocr, now);
   assert.deepEqual(msgs.map((m) => m.text), [
-    "Control de la Guardia Civil a la rotonda de Sort de pujada", "Encara hi són?", "Sí, segueixen", "Pep Ja han marxat de Sort",
+    "Control de la Guardia Civil a la rotonda de Sort de pujada", "Encara hi són?", "Sí, segueixen", "Ja han marxat de Sort",
   ]);
+});
+
+// Casos com els de la primera captura real (noms i telèfons inventats)
+test("només el missatge: fora noms, telèfons, «Reenviado», «X añadió a» i soroll", () => {
+  const sort = (l: string) => /sort|tremp|pobla/i.test(l);
+  assert.equal(cleanBlock(["- Brulus +34 600 11 22 33", "a Gc rotonda de Sort de pujada"], sort), "a Gc rotonda de Sort de pujada");
+  assert.equal(cleanBlock(["- NBGM Y añadió a — E.", "- constru... +34 600 00 00 01", "mM Reenviado", "Control en la salida de tremp a pobla", "Pasando el esclat"], sort),
+    "Control en la salida de tremp a pobla Pasando el esclat");
+  assert.equal(cleanBlock(["- Xavier 434 600 11 22 33", "Estan pujant 8/10 motos d mossos"], sort), "Estan pujant 8/10 motos d mossos");
+  assert.equal(cleanBlock(["Oriol Fontelles", "Mossos cementiri de Pobla. Paren"], sort), "Mossos cementiri de Pobla. Paren");
+  assert.equal(cleanBlock(["-Paula Y $ +34663 100200 E", "Control central talarn"], sort), "Control central talarn");
+  // una línia curta que diu un lloc no és un nom
+  assert.equal(cleanBlock(["Sort", "GC pujant"], sort), "Sort GC pujant");
+  assert.equal(cleanBlock(["Sí"], sort), "Sí");
+});
+
+test("capçalera amb soroll del lector («< … en línea») abans del primer missatge", () => {
+  const now = madridToUtc(2026, 11, 26, 13, 40);
+  const ocr = ["17:31 ul 56 ES", "| 9 Reca i | |", "ptadors Finder I < y 5 en línea", "KO ns", "—-MRDB —134685 126765 m", "Cruse tornafort brut 13:34"].join("\n");
+  assert.deepEqual(parseScreenshot(ocr, now).map((m) => m.text), ["Cruse tornafort brut"]);
 });

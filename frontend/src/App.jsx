@@ -1091,8 +1091,17 @@ export default function App(){
                   <span style={{fontSize:15,color:s.ok?C.success:C.danger,fontWeight:600}}>{s.value}</span>
                 </div>
               ))}
-              <a href="/arquitectura.html" target="_blank" rel="noopener" style={{display:"block",marginTop:12,textAlign:"center",fontSize:13,color:C.accent,textDecoration:"underline"}}>📐 Com funciona PatrolTrack (arquitectura)</a>
             </Collapsible>
+
+            {/* 📖 Com funciona: explicació per passar a qualsevol (fàcil + tècnica) */}
+            <a href="/arquitectura.html" target="_blank" rel="noopener" style={{display:"flex",alignItems:"center",gap:12,marginTop:12,padding:"14px 16px",background:C.surface,border:`1px solid ${C.accent}`,borderRadius:12,textDecoration:"none"}}>
+              <span style={{fontSize:24}}>📖</span>
+              <span style={{flex:1,textAlign:"left"}}>
+                <span style={{display:"block",fontSize:15,fontWeight:800,color:C.accent}}>Com funciona PatrolTrack</span>
+                <span style={{display:"block",fontSize:12,color:C.textDim,marginTop:2}}>Explicat fàcil i per a tècnics · per passar-ho a algú</span>
+              </span>
+              <span style={{color:C.accent,fontSize:18}}>›</span>
+            </a>
           </div>
         )}
       </div>

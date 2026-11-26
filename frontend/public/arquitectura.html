@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PatrolTrack · Com funciona</title>
+<meta name="description" content="Com funciona PatrolTrack: explicat fàcil i explicat per a tècnics.">
 <style>
   :root{
     --bg:#0a0c10; --surface:#111318; --surface2:#0d1117; --border:#2a3340;
@@ -11,126 +12,302 @@
     --blue:#60a5fa; --green:#22d97a; --purple:#c084fc; --red:#ff5757;
   }
   *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
   body{margin:0;background:var(--bg);color:var(--text);
-    font-family:'DM Mono',ui-monospace,Menlo,Consolas,monospace;
-    line-height:1.5;padding:22px 14px 60px}
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    line-height:1.6;padding:22px 16px 60px;font-size:15px}
   .wrap{max-width:760px;margin:0 auto}
-  h1{font-size:22px;margin:0 0 2px}
-  h1 .b{color:var(--accent)} h1 .g{color:var(--dim)}
-  .sub{font-size:13px;color:var(--muted);margin:0 0 22px}
-  h2{font-size:15px;color:var(--accent);letter-spacing:.04em;
-    margin:30px 0 12px;border-bottom:1px solid var(--border);padding-bottom:6px}
-  .flow{display:flex;flex-direction:column;align-items:center;gap:0}
-  .box{width:100%;max-width:520px;background:var(--surface);
-    border:1px solid var(--border);border-radius:14px;padding:14px 16px;
-    box-shadow:0 6px 18px rgba(0,0,0,.35)}
-  .box .t{font-weight:800;font-size:15px;margin-bottom:2px}
-  .box .u{font-size:11px;color:var(--muted);margin-bottom:8px;word-break:break-all}
-  .box ul{margin:0;padding-left:18px;font-size:13px;color:var(--dim)}
-  .box li{margin:3px 0}
-  .box.fe{border-color:var(--accent)} .box.fe .t{color:var(--accent)}
+  .mono{font-family:'DM Mono',ui-monospace,Menlo,Consolas,monospace}
+  h1{font-size:24px;margin:0 0 2px;font-family:'DM Mono',ui-monospace,Menlo,monospace}
+  h1 .g{color:var(--dim)}
+  .sub{font-size:14px;color:var(--muted);margin:0 0 18px}
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 8px}
+  .tabs a{display:block;text-align:center;text-decoration:none;border-radius:12px;padding:12px 8px;
+    font-weight:800;font-size:15px;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+  .tabs a.easy{border-color:var(--accent);color:var(--accent)}
+  .tabs a.tech{border-color:var(--blue);color:var(--blue)}
+  .tabs small{display:block;font-weight:400;font-size:12px;color:var(--muted);margin-top:2px}
+  .part{margin-top:34px}
+  .part-title{font-size:20px;font-weight:800;margin:0 0 4px}
+  .part-title.easy{color:var(--accent)} .part-title.tech{color:var(--blue)}
+  h2{font-size:16px;margin:28px 0 10px;border-bottom:1px solid var(--border);padding-bottom:6px}
+  #facil h2{color:var(--accent)} #tecnic h2{color:var(--blue)}
+  p{margin:8px 0}
+  ul{margin:6px 0;padding-left:20px} li{margin:4px 0}
+  b{color:var(--text)}
+  .dim{color:var(--dim)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin:10px 0}
+  .card .t{font-weight:800;font-size:15px;margin-bottom:4px}
+  .ways{display:grid;gap:10px}
+  .way{background:var(--surface);border:1px solid var(--border);border-left:4px solid var(--accent);border-radius:12px;padding:12px 14px}
+  .way .t{font-weight:800}
+  .way .d{color:var(--dim);font-size:14px}
+  .flow{display:flex;flex-direction:column;align-items:center}
+  .box{width:100%;max-width:560px;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px}
+  .box .t{font-weight:800;font-size:15px}
+  .box .u{font-size:12px;color:var(--muted);word-break:break-all;font-family:'DM Mono',ui-monospace,Menlo,monospace}
+  .box ul{font-size:13.5px;color:var(--dim)}
+  .box.src{border-color:var(--purple)} .box.src .t{color:var(--purple)}
   .box.api{border-color:var(--blue)} .box.api .t{color:var(--blue)}
   .box.db{border-color:var(--green)} .box.db .t{color:var(--green)}
-  .arrow{color:var(--accent);font-size:22px;line-height:1;margin:8px 0}
-  .lbl{font-size:11px;color:var(--muted);margin:-4px 0 4px;text-align:center}
-  .note{background:rgba(255,176,32,.12);border:1px solid var(--accent);
-    border-radius:12px;padding:12px 14px;font-size:13px;color:var(--text);margin-top:14px}
-  .split{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
-  .split .box{flex:1;min-width:200px}
-  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
-  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
-  th{color:var(--accent);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
-  td .k{color:var(--text)}
-  .keys{list-style:none;padding:0;margin:10px 0 0}
-  .keys li{background:var(--surface);border:1px solid var(--border);
-    border-left:3px solid var(--accent);border-radius:8px;padding:10px 12px;
-    margin-bottom:8px;font-size:13px;color:var(--dim)}
-  .keys b{color:var(--text)}
-  code{background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12px;color:var(--accent)}
-  footer{margin-top:32px;font-size:11px;color:var(--muted);text-align:center}
+  .box.fe{border-color:var(--accent)} .box.fe .t{color:var(--accent)}
+  .arrow{color:var(--muted);font-size:20px;line-height:1;margin:6px 0}
+  .lbl{font-size:12px;color:var(--muted);text-align:center;margin:-2px 0 4px}
+  .pct{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .pct .card{margin:0}
+  .pct .n{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  .note{background:rgba(255,184,77,.10);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-size:14px;margin-top:12px}
+  .note.blue{background:rgba(96,165,250,.08);border-color:var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+  th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--blue);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  code{background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12.5px;color:var(--accent);
+    font-family:'DM Mono',ui-monospace,Menlo,monospace;word-break:break-word}
+  .formula{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;
+    font-family:'DM Mono',ui-monospace,Menlo,monospace;font-size:13px;color:var(--text);overflow-x:auto}
+  .top{display:block;text-align:right;font-size:13px;color:var(--muted);margin-top:14px;text-decoration:none}
+  .share{display:block;width:100%;margin:22px 0 0;padding:12px;border-radius:12px;border:1px solid var(--accent);
+    background:transparent;color:var(--accent);font-weight:800;font-size:15px;cursor:pointer;font-family:inherit}
+  .vs td,.vs th{font-size:13.5px}
+  .vs th{color:var(--accent)}
+  .vs td:first-child{width:28%}
+  .tabs-list{display:grid;gap:10px}
+  .tab{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+  .tab .t{font-weight:800;margin-bottom:2px}
+  .tab .d{color:var(--dim);font-size:14px}
+  ul.sub{margin:2px 0 0;padding-left:18px} ul.sub li{margin:6px 0}
+  footer{margin-top:28px;font-size:12px;color:var(--muted);text-align:center}
+  @media (max-width:420px){ .pct{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="inici">
   <h1>🐕 PATROL<span class="g">TRACK</span></h1>
-  <p class="sub">Com funciona l'app · de quina manera i amb què</p>
+  <p class="sub">Com funciona l'app. Tria com t'ho vols llegir:</p>
 
-  <h2>1 · Funcionament (quan fas servir l'app)</h2>
-  <div class="flow">
-    <div class="box fe">
-      <div class="t">📱 El teu mòbil — PWA</div>
-      <div class="u">patroltrack.pages.dev · React + Vite</div>
-      <ul>
-        <li>Mapa · Radar · Stats · Calendari · Historial</li>
-        <li>El <b>radar GPS</b> calcula la probabilitat <b>al mòbil</b> amb les deteccions descarregades</li>
-        <li>Botó <b>“+ Reportar”</b> per afegir avisos a mà</li>
-      </ul>
-    </div>
-    <div class="arrow">↓</div>
-    <div class="lbl">HTTPS · cada 15s llegeix dades · report = POST amb token</div>
-    <div class="box api">
-      <div class="t">☁️ Worker — API (sense servidor)</div>
-      <div class="u">patroltrack-api…workers.dev</div>
-      <ul>
-        <li><code>GET /api/detections</code> · <code>/health</code> · <code>/probability</code></li>
-        <li><code>POST /api/ingest</code> (protegit amb token)</li>
-        <li><b>extractor</b>: llegeix el missatge i en treu patrulla / zona / tipus</li>
-        <li>No està sempre encès: es desperta a cada petició</li>
-      </ul>
-    </div>
-    <div class="arrow">↓</div>
-    <div class="box db">
-      <div class="t">🗄️ D1 — base de dades (SQLite)</div>
-      <div class="u">taula “detections”</div>
-      <ul><li>Desa cada detecció: data, hora, zona, tipus, confiança…</li></ul>
-    </div>
-  </div>
+  <nav class="tabs">
+    <a class="easy" href="#facil">👋 Explicat fàcil<small>5 minuts, sense tecnicismes</small></a>
+    <a class="tech" href="#tecnic">🛠 Per a tècnics<small>arquitectura, dades i model</small></a>
+  </nav>
 
-  <h2>2 · D'on surten les dades</h2>
-  <div class="flow">
-    <div class="box">
-      <div class="t">✍️ Missatge de patrulla</div>
-      <ul><li>Ex: “Mossos a la N-II km 45, cuidado”</li><li>El copies tu i l'enganxes al botó “+ Reportar”</li></ul>
+  <!-- ═════════════════════════ EXPLICAT FÀCIL ═════════════════════════ -->
+  <section class="part" id="facil">
+    <div class="part-title easy">👋 Explicat fàcil</div>
+
+    <h2>Què és</h2>
+    <p>Als grups de WhatsApp i Telegram de la zona (Lleida, Pallars, Alt Urgell) la gent avisa quan veu un control: <i>«GC a la rotonda de Sort»</i>, <i>«Mossos sortida de Tremp»</i>…</p>
+    <p><b>PatrolTrack recull aquests avisos</b>, els posa en un mapa i et diu, per a cada zona, <b>quina probabilitat hi ha de trobar-hi un control ara mateix</b>.</p>
+
+    <h2>Dues versions: Android i iPhone</h2>
+    <p>L'app és la mateixa per a tothom. L'única diferència és <b>com hi entren els avisos dels teus grups</b>, perquè Apple no deixa que cap app llegeixi les notificacions de WhatsApp.</p>
+    <table class="vs">
+      <tr><th></th><th>🤖 Android</th><th>🍎 iPhone</th></tr>
+      <tr><td><b>Com entren els avisos</b></td><td>Sols. MacroDroid llegeix les notificacions dels grups i les envia.</td><td>Els envies tu: captura de pantalla del grup → <b>+</b> → <b>Adjuntar una captura</b>.</td></tr>
+      <tr><td><b>Preparar-ho</b></td><td>Un sol cop (5 min): instal·lar MacroDroid i importar-hi la macro que et baixes de l'app (ja porta la teva clau).</td><td>Res obligatori. Opcional: una drecera per enviar amb dos copets al darrere del mòbil.</td></tr>
+      <tr><td><b>Cada dia</b></td><td>Res. Només que MacroDroid no s'aturi.</td><td>Quan vegis un avís en un grup, fas la captura i l'envies.</td></tr>
+      <tr><td><b>Quins grups</b></td><td>Tries quins segueixes (<b>Seguir</b> / <b>Ignorar</b>). La resta no es guarda.</td><td>Només entra el que tu captures.</td></tr>
+      <tr><td><b>Mapa, %, Telegram, benzina…</b></td><td colspan="2" style="text-align:center">Igual als dos</td></tr>
+    </table>
+    <p class="dim" style="font-size:14px">L'app detecta sola quin mòbil tens i et mostra només el que et toca.</p>
+
+    <h2>Altres maneres d'afegir avisos (tothom)</h2>
+    <ul>
+      <li><b>✋ A mà:</b> amb el botó <b>+</b> escrius o enganxes un avís.</li>
+      <li><b>📚 L'històric:</b> si exportes un xat de WhatsApp (<b>Config → Importar xats</b>), entren els avisos dels últims mesos. Així la probabilitat és fiable des del primer dia.</li>
+      <li><b>🤖 Bot de Telegram:</b> si l'afegeixes a un grup de Telegram, en llegeix els avisos.</li>
+    </ul>
+
+    <h2>Què fa amb cada missatge</h2>
+    <ul>
+      <li>Busca <b>qui</b> (Mossos, Guàrdia Civil, Policia Local, «control», «radar», «bruta»…) i <b>on</b> (Sort, Tremp, la N-260…). Si hi ha totes dues coses, és un avís i surt al mapa.</li>
+      <li>Si algú diu <i>«ja han marxat»</i> o <i>«Sort net»</i>, el control es dona per acabat.</li>
+      <li>Si el mateix avís arriba per tres grups, compta com <b>un sol avís</b>, però més creïble.</li>
+      <li>Els missatges que no parlen de controls («bon dia», «qui ve a sopar?») <b>no es guarden</b>.</li>
+    </ul>
+
+    <h2>El percentatge: d'on surt</h2>
+    <div class="pct">
+      <div class="card">
+        <div class="n">Avui, ara</div>
+        <div class="t">🔴 Hi ha un avís recent?</div>
+        <div class="dim" style="font-size:14px">Si fa poc que han avisat d'un control, és molt probable que hi segueixi. Amb el pas del temps baixa, perquè un control sol durar <b>una hora</b> més o menys. Aquest temps l'app el mesura amb els mateixos grups.</div>
+      </div>
+      <div class="card">
+        <div class="n">Històric</div>
+        <div class="t">📅 Hi sol haver controls a aquesta hora?</div>
+        <div class="dim" style="font-size:14px">Mira els últims mesos: quants dies hi ha hagut un control en aquesta zona a aquesta mateixa hora, separant els dies de cada dia del cap de setmana. El que és recent compta més.</div>
+      </div>
     </div>
-    <div class="arrow">↓</div>
-    <div class="box api"><div class="t">Worker → extractor → D1</div>
-      <ul><li>Si sembla una alerta de patrulla → es desa ✅</li><li>Si no → es descarta</li></ul>
+    <p>El número final combina les dues coses. <b>0 %</b> vol dir que no hi ha cap dada, no que sigui segur. Si no hi ha avisos, l'app no s'inventa res.</p>
+
+    <h2>Pestanya per pestanya</h2>
+    <div class="tabs-list">
+      <div class="tab"><div class="t">🏠 Inici</div>
+        <div class="d">El resum: <b>controls actius ara</b>, la zona que has triat amb el seu % (<b>Avui, ara</b> i <b>Històric</b>) i els <b>últims avisos</b> amb dia i hora.</div></div>
+      <div class="tab"><div class="t">🗺 Mapa</div>
+        <div class="d">Les zones pintades segons el %. Pots veure el d'<b>avui</b> o l'<b>històric</b>, i un control actiu fa pampallugues. A sota, la <b>Consulta</b>: tries una zona i una hora i et diu el %.</div></div>
+      <div class="tab"><div class="t">📡 Radar</div>
+        <div class="d">Amb el <b>GPS</b> activat, et diu el % de les zones que tens a prop (5, 10 o 20 km) i t'avisa amb un so si t'acostes a una zona de risc. Va apagat fins que l'actives.</div></div>
+      <div class="tab"><div class="t">📊 Stats</div>
+        <div class="d">A quines <b>hores</b>, quins <b>dies</b> i en quines <b>zones</b> hi ha més controls, i de quin cos. També hi ha l'<b>historial</b> amb tots els avisos.</div></div>
+      <div class="tab"><div class="t">⛽ Benzina</div>
+        <div class="d">Preus <b>oficials</b> de les gasolineres de Lleida. Hi veus la més barata a prop teu, si els preus pugen o baixen, i pots marcar una favorita. Si vols, un <b>avís per Telegram</b> quan baixi del preu que triïs.</div></div>
+      <div class="tab"><div class="t">🍺 Alcohol</div>
+        <div class="d">Una calculadora <b>orientativa</b>. Pots comptar begudes o apuntar-les a mesura que beus a la nit, i et diu quan baixaries dels límits. A <b>Substàncies</b>: quant dura l'efecte i quant temps es detecten. No és cap garantia.</div></div>
+      <div class="tab"><div class="t">⚙️ Config</div>
+        <div class="d">
+          <ul class="sub">
+            <li><b>📲 Connecta els teus grups</b>. 🤖 <b>Android:</b> instal·les MacroDroid, et baixes la macro de WhatsApp i/o Telegram (ja porta la teva clau), la importes a MacroDroid (☰ → Exportar/Importar → Importar) i ho comproves amb el botó de prova. Si cal, també es pot crear a mà amb les dades que hi surten. 🍎 <b>iPhone:</b> t'explica la drecera per enviar un missatge des del mateix WhatsApp. El més pràctic, però, és la captura amb el <b>+</b>.</li>
+            <li><b>🔔 Avisos al mòbil:</b> enllaces Telegram, tries zones i el bot t'escriu quan hi ha un control (i quan ha marxat).</li>
+            <li><b>📥 Importar xats:</b> puges un xat exportat per omplir l'històric. 🍎 A l'iPhone, també la drecera de captura amb doble toc.</li>
+            <li><b>👥 Els meus grups</b> (sobretot 🤖 Android): els xats nous surten com a <i>pendents</i>. Toca <b>Seguir</b> als grups d'avisos i <b>Ignorar</b> als xats privats; dels ignorats no es guarda res.</li>
+            <li><b>🔑 La meva clau:</b> la teva clau personal. Serveix per fer servir l'app en un altre navegador o mòbil (vegeu més avall).</li>
+            <li><b>🎨 Aspecte</b> i <b>🗺 Mapa:</b> colors de l'app i a partir de quin % una zona surt en vermell.</li>
+          </ul>
+        </div></div>
+      <div class="tab"><div class="t">➕ El botó +</div>
+        <div class="d">Per afegir un avís a mà (escrit o enganxat). 🍎 A l'iPhone, també <b>📷 Adjuntar una captura del xat</b>: l'app en llegeix el text dins del mòbil, t'ensenya què hi ha trobat i l'envies.</div></div>
     </div>
-  </div>
-  <div class="note">⚠️ <b>Ara mateix NO hi ha captura automàtica</b> de WhatsApp/Telegram. L'única entrada de dades és el botó <b>“+ Reportar”</b> manual. (La captura automàtica és la peça que queda pendent.)</div>
 
-  <h2>3 · On van les actualitzacions</h2>
-  <div class="flow">
-    <div class="box"><div class="t">💻 Local (Mac)</div><div class="u">codi font — on s'edita</div></div>
-    <div class="arrow">↓ &nbsp; ↓</div>
-    <div class="split">
-      <div class="box"><div class="t">🐙 GitHub</div><ul><li><code>commit</code> + <code>push</code></li><li>Còpia de seguretat + historial</li></ul></div>
-      <div class="box fe"><div class="t">☁️ Cloudflare</div><ul><li><code>build</code> + <code>deploy</code></li><li>L'<b>app EN VIU</b> al mòbil</li></ul></div>
+    <h2>Privacitat</h2>
+    <ul>
+      <li>Només entren els grups que <b>tu actives</b>. Els xats privats no es guarden mai.</li>
+      <li>Es desa <b>només el text de l'avís</b>: sense noms ni telèfons de qui l'ha escrit.</li>
+      <li>Cada persona té la seva <b>clau personal</b>. L'administrador la pot donar de baixa.</li>
+      <li>Les captures de pantalla <b>no surten del mòbil</b>.</li>
+    </ul>
+
+    <h2>Coses a tenir en compte</h2>
+    <ul>
+      <li>Depèn del que la gent publica als grups: si ningú avisa, l'app no ho sap.</li>
+      <li>El percentatge és <b>orientatiu</b>. Condueix sempre amb prudència i sense haver begut.</li>
+      <li><b>Cada navegador és com un mòbil nou.</b> La clau i la configuració es guarden al navegador on obres l'app. Si l'obres amb un altre (per exemple, Brave en lloc de Chrome), no sap qui ets. Copia la clau d'on ja funciona (<b>Config → 🔑 La meva clau → Copiar</b>) i enganxa-la al nou. També pots tornar a obrir el teu enllaç personal.</li>
+      <li>És <b>gratis</b>: funciona amb serveis gratuïts (Cloudflare i Telegram).</li>
+    </ul>
+    <a class="top" href="#inici">↑ Amunt</a>
+  </section>
+
+  <!-- ═════════════════════════ PER A TÈCNICS ═════════════════════════ -->
+  <section class="part" id="tecnic">
+    <div class="part-title tech">🛠 Per a tècnics</div>
+    <p class="dim">Tot corre a Cloudflare (pla gratuït): una PWA estàtica, un Worker sense servidor i una base de dades SQLite gestionada. No depèn de cap ordinador encès.</p>
+
+    <h2>Arquitectura</h2>
+    <div class="flow">
+      <div class="box src">
+        <div class="t">📥 Fonts</div>
+        <ul>
+          <li><b>MacroDroid</b> (Android): notificació de WhatsApp/Telegram → <code>POST /api/ingest</code></li>
+          <li><b>iPhone</b>: captura → OCR al navegador → <code>POST /api/ingest-bulk</code> · Drecera → <code>/api/ingest</code></li>
+          <li><b>Bot de Telegram</b> en grups → <code>POST /api/telegram-webhook</code></li>
+          <li><b>Botó +</b> (manual) · <b>xat exportat</b> (.txt/.zip) → <code>/api/ingest-bulk</code></li>
+        </ul>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="lbl">HTTPS · capçalera <code>x-ingest-token</code> (clau personal)</div>
+      <div class="box api">
+        <div class="t">☁️ Cloudflare Worker (TypeScript)</div>
+        <div class="u">patroltrack-api.patroltrack.workers.dev</div>
+        <ul>
+          <li><b>Filtre de grups</b> per usuari: els nous queden <i>pendents</i> fins que es tria «Seguir»</li>
+          <li><b>Extractor</b> (<code>extractor.ts</code>): normalitza i detecta cos, zona, PK i confiança</li>
+          <li><b>Seguiments</b>: «segueixen», «ja han marxat», «encara hi són?» + sí/no</li>
+          <li><b>Repetits</b>: el mateix text en 12 h, de qualsevol grup, és un eco (dona credibilitat)</li>
+          <li><b>Model de risc</b> (<code>risk.ts</code>), amb 30 s de memòria cau</li>
+          <li><b>Cron</b> cada 30 min: avisos de benzina i vigilant de MacroDroid</li>
+        </ul>
+      </div>
+      <div class="arrow">↓ ↑</div>
+      <div class="box db">
+        <div class="t">🗄️ Cloudflare D1 (SQLite)</div>
+        <ul>
+          <li><code>detections</code> (avisos) · <code>patrol_events</code> (eco, segueixen, marxat, pregunta)</li>
+          <li><code>users</code> (claus en SHA-256) · <code>user_groups</code> (grups per usuari)</li>
+          <li><code>zone_subscriptions</code> · <code>telegram_users</code> · <code>fuel_*</code> · <code>ingest_*</code> · <code>watchdog</code></li>
+        </ul>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="lbl">consulta periòdica · <code>/api/zone-probs</code>, <code>/api/detections</code></div>
+      <div class="box fe">
+        <div class="t">📱 PWA: React + Vite</div>
+        <div class="u">patroltrack.pages.dev · Cloudflare Pages</div>
+        <ul>
+          <li>Inici · Mapa (Leaflet) · Radar (GPS) · Stats · Benzina · Alcohol · Config</li>
+          <li>Service worker: l'app s'obre encara que l'API no respongui</li>
+          <li>Notificacions de sortida: bot de Telegram (zones i benzina)</li>
+        </ul>
+      </div>
     </div>
-  </div>
-  <div class="note">Cada destí és un <b>pas a part</b>: editar canvia el local a l'instant; veure-ho al mòbil = desplegar a Cloudflare; guardar-ho = push a GitHub. <b>Google Drive no s'actualitza</b> (és una còpia a part).</div>
 
-  <h2>4 · Amb què està fet</h2>
-  <table>
-    <tr><th>Capa</th><th>Tecnologia</th><th>On viu</th></tr>
-    <tr><td class="k">Frontend (PWA)</td><td>React + Vite</td><td>Cloudflare Pages</td></tr>
-    <tr><td class="k">API / lògica</td><td>Worker TypeScript</td><td>Cloudflare Workers</td></tr>
-    <tr><td class="k">Base de dades</td><td>SQLite</td><td>Cloudflare D1</td></tr>
-    <tr><td class="k">Extractor</td><td>Regex (al Worker)</td><td>dins l'API</td></tr>
-    <tr><td class="k">Radar</td><td>GPS + càlcul al navegador</td><td>al mòbil</td></tr>
-    <tr><td class="k">Codi / backup</td><td>Git</td><td>GitHub</td></tr>
-  </table>
+    <h2>Model de probabilitat</h2>
+    <ul>
+      <li><b>Episodis:</b> els avisos d'una zona separats menys de 120 min són un mateix control. Comença amb el primer avís i acaba amb el «marxat» o amb l'últim senyal.</li>
+      <li><b>Durada:</b> es mesura amb els episodis tancats. La mitjana parteix de 60 min (pes 3) i s'ajusta amb les dades. Els episodis sense «marxat» compten mig, més 20 min de cua.</li>
+      <li><b>Avui, ara:</b> supervivència de Weibull (forma 1,5) des de l'últim senyal, multiplicada per la credibilitat (grups, ecos, confirmacions).</li>
+      <li><b>Històric:</b> proporció de dies amb control dins d'una finestra de ±45 min, separant feiners i cap de setmana, amb un pes que es redueix a la meitat cada 30 dies. Com a mínim cal tenir 7 dies de dades.</li>
+    </ul>
+    <div class="formula">P = 1 − (1 − P<sub>ara</sub>) · (1 − P<sub>històric</sub>)</div>
 
-  <h2>Idees clau</h2>
-  <ul class="keys">
-    <li>Tot corre a <b>Cloudflare</b> (gratis) → <b>no depèn del teu Mac</b>; funciona 24/7.</li>
-    <li>El Worker <b>no està sempre encès</b>: es desperta a cada petició (per això és gratis i ràpid).</li>
-    <li>El <b>radar</b> no envia res: descarrega les deteccions i calcula la probabilitat <b>al teu mòbil</b>.</li>
-    <li>Les probabilitats són <b>reals</b>: si no hi ha deteccions en una zona/hora → 0% (cap alarma inventada).</li>
-    <li>L'única entrada de dades és <b>“+ Reportar”</b> (captura automàtica pendent).</li>
-  </ul>
+    <h2>Android i iPhone</h2>
+    <ul>
+      <li>La PWA detecta iOS (<code>userAgent</code>, i iPad com a «MacIntel» amb pantalla tàctil) i mostra només el que toca. 🤖 <b>Android:</b> macro de MacroDroid llesta per importar (<code>/macros/*.mdr</code>, amb la clau de cadascú posada al mòbil), guia per fer-la a mà, comprovació en directe i vigilant. 🍎 <b>iPhone:</b> drecera, captura al botó + i drecera de doble toc.</li>
+      <li>El motiu: iOS no deixa que cap app llegeixi les notificacions d'una altra. Per això a l'iPhone l'entrada és sempre una acció de la persona (compartir, drecera o captura).</li>
+      <li>La clau (<code>pt_…</code>) es desa a <code>localStorage</code>, que és de cada navegador i de cada instal·lació. Un altre navegador no té la clau fins que s'hi enganxa o s'hi obre l'enllaç personal (<code>#invite=…</code>).</li>
+    </ul>
 
-  <footer>PatrolTrack · Lleida · document generat automàticament</footer>
+    <h2>Entrada de dades: detalls</h2>
+    <ul>
+      <li><b>MacroDroid:</b> cos <code>{"message","group_name","source"}</code>. Si el JSON arriba trencat, es recupera (les cometes no s'escapen). Les notificacions del sistema («copia de seguridad», «llamadas perdidas»…) s'ignoren.</li>
+      <li><b>Captures (iPhone):</b> <i>tesseract.js</i> (castellà + català) al navegador. Abans es passa a gris, s'inverteix si és mode fosc i es binaritza. Al servidor, cada bombolla es tanca per l'hora final, els separadors («Hoy», «Ayer»…) donen el dia, i es treuen la capçalera, els noms, els telèfons i els «Reenviado». Hi ha previsualització abans de desar.</li>
+      <li><b>Xats exportats:</b> s'analitzen al mòbil (formats d'iPhone i d'Android, .zip inclòs). S'envien a trossos de 80 missatges amb l'hora real, i es descarten els repetits.</li>
+      <li><b>Vigilant:</b> si un mòbil que sol enviar ≥20 missatges al dia fa més de 2 h que no n'envia cap (de 10 a 22 h), el bot avisa el propietari.</li>
+    </ul>
+
+    <h2>API principal</h2>
+    <table>
+      <tr><th>Ruta</th><th>Per a què</th></tr>
+      <tr><td><code>POST /api/ingest</code></td><td>Un missatge (MacroDroid, drecera, botó +)</td></tr>
+      <tr><td><code>POST /api/ingest-bulk</code></td><td>Captures i xats exportats (amb hora real) · previsualitzar · esborrar importats</td></tr>
+      <tr><td><code>GET /api/zone-probs</code></td><td>Probabilitat i estat de totes les zones</td></tr>
+      <tr><td><code>GET /api/probability</code></td><td>Probabilitat d'una zona (ara o a una hora)</td></tr>
+      <tr><td><code>GET /api/detections</code></td><td>Llista d'avisos</td></tr>
+      <tr><td><code>GET/POST /api/group-settings</code></td><td>Grups: seguir, ignorar, pendents</td></tr>
+      <tr><td><code>GET/POST /api/zone-subs</code></td><td>Zones per rebre avisos per Telegram</td></tr>
+      <tr><td><code>GET /api/fuel</code> · <code>/api/fuel/trend</code></td><td>Preus oficials (Ministeri, província 25) i tendència</td></tr>
+      <tr><td><code>POST /api/telegram-webhook</code></td><td>Missatges del bot (protegit amb secret)</td></tr>
+    </table>
+
+    <h2>Amb què està fet</h2>
+    <table>
+      <tr><th>Capa</th><th>Tecnologia</th><th>On viu</th></tr>
+      <tr><td>App (PWA)</td><td>React 19 + Vite · Leaflet · tesseract.js</td><td>Cloudflare Pages</td></tr>
+      <tr><td>API i lògica</td><td>Worker en TypeScript</td><td>Cloudflare Workers</td></tr>
+      <tr><td>Base de dades</td><td>SQLite</td><td>Cloudflare D1</td></tr>
+      <tr><td>Captura Android</td><td>MacroDroid (notificacions → HTTP)</td><td>al mòbil</td></tr>
+      <tr><td>Avisos de sortida</td><td>Bot de Telegram</td><td>Telegram</td></tr>
+      <tr><td>Codi i desplegament</td><td>Git · GitHub Actions</td><td>GitHub → Cloudflare</td></tr>
+    </table>
+
+    <h2>Desplegament</h2>
+    <p>Un canvi es fusiona a <code>main</code> a GitHub. Llavors GitHub Actions aplica <code>schema.sql</code> a D1 (taules amb <code>CREATE TABLE IF NOT EXISTS</code>), desplega el Worker amb <code>wrangler</code> i compila la PWA cap a Cloudflare Pages. Tot plegat triga un minut. Les claus (token d'admin, bot de Telegram) són secrets de Cloudflare i de GitHub, mai al codi.</p>
+    <div class="note blue">🧪 <b>En prova:</b> la importació de xats i les captures desen les dades marcades (<code>source = import / captura</code>). L'administrador les pot esborrar d'un cop des de Config.</div>
+    <a class="top" href="#inici">↑ Amunt</a>
+  </section>
+
+  <button class="share" id="share">📤 Envia aquesta explicació</button>
+  <footer>PatrolTrack · Lleida · Pallars · Alt Urgell</footer>
 </div>
+<script>
+  // Compartir l'enllaç d'aquesta pàgina (WhatsApp, Telegram…) o copiar-lo
+  document.getElementById("share").addEventListener("click", async () => {
+    const url = location.origin + "/arquitectura.html";
+    const btn = document.getElementById("share");
+    try {
+      if (navigator.share) { await navigator.share({ title: "Com funciona PatrolTrack", url }); return; }
+      await navigator.clipboard.writeText(url);
+      btn.textContent = "✓ Enllaç copiat";
+    } catch (e) { /* cancel·lat */ }
+  });
+</script>
 </body>
 </html>
