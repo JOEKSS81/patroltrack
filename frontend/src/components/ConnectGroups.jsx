@@ -135,8 +135,11 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
   if (!apiToken) {
     return (
       <div style={{ ...box, borderColor: C.warning }}>
-        <div style={{ fontWeight: 800, color: C.warning, marginBottom: 4 }}>Primer, obre el teu enllaç personal</div>
-        <div style={small}>Qui t'ha passat l'app t'ha d'enviar un enllaç només per a tu. Obre'l des d'aquest mòbil i torna aquí.</div>
+        <div style={{ fontWeight: 800, color: C.warning, marginBottom: 4 }}>Aquest navegador encara no té la teva clau</div>
+        <div style={small}>
+          Cada navegador guarda la seva clau. <b>Si ja fas servir PatrolTrack en un altre navegador</b> (per exemple Chrome), obre-hi Config → <b>🔑 La meva clau</b> → <b>Copiar</b>, i enganxa-la aquí a <b>🔑 La meva clau</b> (al final d'aquesta pestanya).
+          Si és el primer cop, obre l'enllaç personal que t'ha passat qui t'ha donat l'app.
+        </div>
       </div>
     );
   }

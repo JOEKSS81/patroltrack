@@ -68,6 +68,14 @@
   .top{display:block;text-align:right;font-size:13px;color:var(--muted);margin-top:14px;text-decoration:none}
   .share{display:block;width:100%;margin:22px 0 0;padding:12px;border-radius:12px;border:1px solid var(--accent);
     background:transparent;color:var(--accent);font-weight:800;font-size:15px;cursor:pointer;font-family:inherit}
+  .vs td,.vs th{font-size:13.5px}
+  .vs th{color:var(--accent)}
+  .vs td:first-child{width:28%}
+  .tabs-list{display:grid;gap:10px}
+  .tab{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+  .tab .t{font-weight:800;margin-bottom:2px}
+  .tab .d{color:var(--dim);font-size:14px}
+  ul.sub{margin:2px 0 0;padding-left:18px} ul.sub li{margin:6px 0}
   footer{margin-top:28px;font-size:12px;color:var(--muted);text-align:center}
   @media (max-width:420px){ .pct{grid-template-columns:1fr} }
 </style>
@@ -88,27 +96,26 @@
 
     <h2>Què és</h2>
     <p>Als grups de WhatsApp i Telegram de la zona (Lleida, Pallars, Alt Urgell) la gent avisa quan veu un control: <i>«GC a la rotonda de Sort»</i>, <i>«Mossos sortida de Tremp»</i>…</p>
-    <p><b>PatrolTrack recull aquests avisos automàticament</b>, els posa en un mapa i et diu, per a cada zona, <b>quina probabilitat hi ha de trobar-hi un control ara mateix</b>.</p>
+    <p><b>PatrolTrack recull aquests avisos</b>, els posa en un mapa i et diu, per a cada zona, <b>quina probabilitat hi ha de trobar-hi un control ara mateix</b>.</p>
 
-    <h2>D'on surten els avisos</h2>
-    <div class="ways">
-      <div class="way">
-        <div class="t">🤖 Android: automàtic</div>
-        <div class="d">Una app que es diu <b>MacroDroid</b> llegeix les notificacions dels grups que tu triïs i les envia a PatrolTrack. No has de fer res més. Es configura un sol cop des de <b>Config → Connecta els teus grups</b>.</div>
-      </div>
-      <div class="way">
-        <div class="t">📸 iPhone: amb una captura</div>
-        <div class="d">L'iPhone no deixa llegir les notificacions. Fas una captura de pantalla del grup, toques <b>+</b> → <b>Adjuntar una captura</b>, i l'app en llegeix el text i et diu quins avisos hi ha. <b>La imatge no surt del mòbil</b>: només s'envia el text del missatge.</div>
-      </div>
-      <div class="way">
-        <div class="t">✋ Tothom: a mà</div>
-        <div class="d">Amb el botó <b>+</b> pots escriure o enganxar un avís. També pots afegir el bot de PatrolTrack a un grup de Telegram.</div>
-      </div>
-      <div class="way">
-        <div class="t">📚 L'històric</div>
-        <div class="d">Si exportes un xat de WhatsApp (<b>Config → Importar xats</b>), entren els avisos dels últims mesos. Així la probabilitat és més fiable des del primer dia.</div>
-      </div>
-    </div>
+    <h2>Dues versions: Android i iPhone</h2>
+    <p>L'app és la mateixa per a tothom. L'única diferència és <b>com hi entren els avisos dels teus grups</b>, perquè Apple no deixa que cap app llegeixi les notificacions de WhatsApp.</p>
+    <table class="vs">
+      <tr><th></th><th>🤖 Android</th><th>🍎 iPhone</th></tr>
+      <tr><td><b>Com entren els avisos</b></td><td>Sols. MacroDroid llegeix les notificacions dels grups i les envia.</td><td>Els envies tu: captura de pantalla del grup → <b>+</b> → <b>Adjuntar una captura</b>.</td></tr>
+      <tr><td><b>Preparar-ho</b></td><td>Un sol cop (uns 10 min): instal·lar MacroDroid i crear-hi la macro amb les dades que et dona l'app (adreça, clau i text).</td><td>Res obligatori. Opcional: una drecera per enviar amb dos copets al darrere del mòbil.</td></tr>
+      <tr><td><b>Cada dia</b></td><td>Res. Només que MacroDroid no s'aturi.</td><td>Quan vegis un avís en un grup, fas la captura i l'envies.</td></tr>
+      <tr><td><b>Quins grups</b></td><td>Tries quins segueixes (<b>Seguir</b> / <b>Ignorar</b>). La resta no es guarda.</td><td>Només entra el que tu captures.</td></tr>
+      <tr><td><b>Mapa, %, Telegram, benzina…</b></td><td colspan="2" style="text-align:center">Igual als dos</td></tr>
+    </table>
+    <p class="dim" style="font-size:14px">L'app detecta sola quin mòbil tens i et mostra només el que et toca.</p>
+
+    <h2>Altres maneres d'afegir avisos (tothom)</h2>
+    <ul>
+      <li><b>✋ A mà:</b> amb el botó <b>+</b> escrius o enganxes un avís.</li>
+      <li><b>📚 L'històric:</b> si exportes un xat de WhatsApp (<b>Config → Importar xats</b>), entren els avisos dels últims mesos. Així la probabilitat és fiable des del primer dia.</li>
+      <li><b>🤖 Bot de Telegram:</b> si l'afegeixes a un grup de Telegram, en llegeix els avisos.</li>
+    </ul>
 
     <h2>Què fa amb cada missatge</h2>
     <ul>
@@ -133,14 +140,34 @@
     </div>
     <p>El número final combina les dues coses. <b>0 %</b> vol dir que no hi ha cap dada, no que sigui segur. Si no hi ha avisos, l'app no s'inventa res.</p>
 
-    <h2>Què més fa</h2>
-    <ul>
-      <li><b>🔔 Avisos per Telegram:</b> tries zones i el bot t'escriu quan hi ha un control i quan diuen que ja han marxat. Gratis.</li>
-      <li><b>📡 Radar:</b> amb el GPS, et pot avisar quan t'acostes a una zona amb probabilitat alta.</li>
-      <li><b>⛽ Benzina:</b> preus oficials de les gasolineres de Lleida, la més barata a prop teu i avís quan baixa del preu que triïs.</li>
-      <li><b>🍺 Alcohol:</b> calculadora orientativa d'alcohol i de quant temps es detecten altres substàncies. No és cap garantia.</li>
-      <li><b>📊 Stats:</b> a quines hores, quins dies i en quines zones hi ha més controls.</li>
-    </ul>
+    <h2>Pestanya per pestanya</h2>
+    <div class="tabs-list">
+      <div class="tab"><div class="t">🏠 Inici</div>
+        <div class="d">El resum: <b>controls actius ara</b>, la zona que has triat amb el seu % (<b>Avui, ara</b> i <b>Històric</b>) i els <b>últims avisos</b> amb dia i hora.</div></div>
+      <div class="tab"><div class="t">🗺 Mapa</div>
+        <div class="d">Les zones pintades segons el %. Pots veure el d'<b>avui</b> o l'<b>històric</b>, i un control actiu fa pampallugues. A sota, la <b>Consulta</b>: tries una zona i una hora i et diu el %.</div></div>
+      <div class="tab"><div class="t">📡 Radar</div>
+        <div class="d">Amb el <b>GPS</b> activat, et diu el % de les zones que tens a prop (5, 10 o 20 km) i t'avisa amb un so si t'acostes a una zona de risc. Va apagat fins que l'actives.</div></div>
+      <div class="tab"><div class="t">📊 Stats</div>
+        <div class="d">A quines <b>hores</b>, quins <b>dies</b> i en quines <b>zones</b> hi ha més controls, i de quin cos. També hi ha l'<b>historial</b> amb tots els avisos.</div></div>
+      <div class="tab"><div class="t">⛽ Benzina</div>
+        <div class="d">Preus <b>oficials</b> de les gasolineres de Lleida. Hi veus la més barata a prop teu, si els preus pugen o baixen, i pots marcar una favorita. Si vols, un <b>avís per Telegram</b> quan baixi del preu que triïs.</div></div>
+      <div class="tab"><div class="t">🍺 Alcohol</div>
+        <div class="d">Una calculadora <b>orientativa</b>. Pots comptar begudes o apuntar-les a mesura que beus a la nit, i et diu quan baixaries dels límits. A <b>Substàncies</b>: quant dura l'efecte i quant temps es detecten. No és cap garantia.</div></div>
+      <div class="tab"><div class="t">⚙️ Config</div>
+        <div class="d">
+          <ul class="sub">
+            <li><b>📲 Connecta els teus grups</b>. 🤖 <b>Android:</b> instal·les MacroDroid, hi crees la macro amb les dades que t'hi surten (adreça, la teva clau i el text a enviar, amb botons de copiar) i ho comproves amb el botó de prova. 🍎 <b>iPhone:</b> t'explica la drecera per enviar un missatge des del mateix WhatsApp. El més pràctic, però, és la captura amb el <b>+</b>.</li>
+            <li><b>🔔 Avisos al mòbil:</b> enllaces Telegram, tries zones i el bot t'escriu quan hi ha un control (i quan ha marxat).</li>
+            <li><b>📥 Importar xats:</b> puges un xat exportat per omplir l'històric. 🍎 A l'iPhone, també la drecera de captura amb doble toc.</li>
+            <li><b>👥 Els meus grups</b> (sobretot 🤖 Android): els xats nous surten com a <i>pendents</i>. Toca <b>Seguir</b> als grups d'avisos i <b>Ignorar</b> als xats privats; dels ignorats no es guarda res.</li>
+            <li><b>🔑 La meva clau:</b> la teva clau personal. Serveix per fer servir l'app en un altre navegador o mòbil (vegeu més avall).</li>
+            <li><b>🎨 Aspecte</b> i <b>🗺 Mapa:</b> colors de l'app i a partir de quin % una zona surt en vermell.</li>
+          </ul>
+        </div></div>
+      <div class="tab"><div class="t">➕ El botó +</div>
+        <div class="d">Per afegir un avís a mà (escrit o enganxat). 🍎 A l'iPhone, també <b>📷 Adjuntar una captura del xat</b>: l'app en llegeix el text dins del mòbil, t'ensenya què hi ha trobat i l'envies.</div></div>
+    </div>
 
     <h2>Privacitat</h2>
     <ul>
@@ -154,6 +181,7 @@
     <ul>
       <li>Depèn del que la gent publica als grups: si ningú avisa, l'app no ho sap.</li>
       <li>El percentatge és <b>orientatiu</b>. Condueix sempre amb prudència i sense haver begut.</li>
+      <li><b>Cada navegador és com un mòbil nou.</b> La clau i la configuració es guarden al navegador on obres l'app. Si l'obres amb un altre (per exemple, Brave en lloc de Chrome), no sap qui ets. Copia la clau d'on ja funciona (<b>Config → 🔑 La meva clau → Copiar</b>) i enganxa-la al nou. També pots tornar a obrir el teu enllaç personal.</li>
       <li>És <b>gratis</b>: funciona amb serveis gratuïts (Cloudflare i Telegram).</li>
     </ul>
     <a class="top" href="#inici">↑ Amunt</a>
@@ -219,6 +247,13 @@
       <li><b>Històric:</b> proporció de dies amb control dins d'una finestra de ±45 min, separant feiners i cap de setmana, amb un pes que es redueix a la meitat cada 30 dies. Com a mínim cal tenir 7 dies de dades.</li>
     </ul>
     <div class="formula">P = 1 − (1 − P<sub>ara</sub>) · (1 − P<sub>històric</sub>)</div>
+
+    <h2>Android i iPhone</h2>
+    <ul>
+      <li>La PWA detecta iOS (<code>userAgent</code>, i iPad com a «MacIntel» amb pantalla tàctil) i mostra només el que toca. 🤖 <b>Android:</b> guia de MacroDroid (disparador de notificació → petició HTTP amb la clau), comprovació en directe i vigilant. 🍎 <b>iPhone:</b> drecera, captura al botó + i drecera de doble toc.</li>
+      <li>El motiu: iOS no deixa que cap app llegeixi les notificacions d'una altra. Per això a l'iPhone l'entrada és sempre una acció de la persona (compartir, drecera o captura).</li>
+      <li>La clau (<code>pt_…</code>) es desa a <code>localStorage</code>, que és de cada navegador i de cada instal·lació. Un altre navegador no té la clau fins que s'hi enganxa o s'hi obre l'enllaç personal (<code>#invite=…</code>).</li>
+    </ul>
 
     <h2>Entrada de dades: detalls</h2>
     <ul>
