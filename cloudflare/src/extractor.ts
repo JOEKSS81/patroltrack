@@ -534,3 +534,17 @@ export function classifyFollowUp(message: string): FollowUp | null {
   if (words.length <= 6 && STILL_STARTS.some((s) => bare === s || bare.startsWith(s + " "))) return out("still");
   return null;
 }
+
+// Avís fet a mà des de l'app (botó +): la persona vol avisar, encara que no escrigui
+// "mossos" o "control". S'accepta si diu una zona coneguda ("Rock dur Sort").
+export function manualReportInfo(message: string): PatrolInfo | null {
+  const auto = extractPatrolInfo(message, "manual");
+  if (auto) return auto;
+  const text = normalizeText(message);
+  const { zoneLiteral, zoneNorm, lat, lng } = detectZone(text);
+  if (zoneNorm === "Desconeguda") return null;
+  return {
+    is_patrol: true, patrol_type: detectPatrolType(text), zone: zoneLiteral || zoneNorm, zone_norm: zoneNorm,
+    pk: detectPk(text), confidence: "baixa", lat, lng, source: "manual",
+  };
+}

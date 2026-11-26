@@ -95,3 +95,8 @@ for (const [msg, tipus, zona] of REALS) {
 }
 test("lletres allargades: «Sort netaaa» tanca el control", () => assert.equal(classifyFollowUp("Sort netaaa")?.kind, "cleared"));
 test("«Polígon» no és «poli»", () => assert.equal(extractPatrolInfo("Anem al polígon de Sort a dinar", "whatsapp"), null));
+
+// Avís fet a mà des de l'app: s'accepta si diu una zona
+import { manualReportInfo } from "../src/extractor.ts";
+test("manual: «Rock dur Sort» s'accepta (zona Sort)", () => assert.equal(manualReportInfo("Rock dur Sort")?.zone_norm, "Sort"));
+test("manual: sense zona no s'accepta", () => assert.equal(manualReportInfo("hola què tal"), null));

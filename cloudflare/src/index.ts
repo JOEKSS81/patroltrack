@@ -1,6 +1,6 @@
 // PatrolTrack — Cloudflare Worker API
 // Ingestion compatible con Tasker/WhatsApp y Telegram Bot API.
-import { extractPatrolInfo, classifyFollowUp, type FollowUp } from "./extractor";
+import { extractPatrolInfo, classifyFollowUp, manualReportInfo, type FollowUp } from "./extractor";
 import { buildModel, zoneProbsResponse, probabilityResponse, type DetRow, type EventRow, type Model } from "./risk";
 
 export interface Env {
@@ -310,7 +310,8 @@ async function storeDetection(
   source: string,
   telegramUpdateId?: number,
 ): Promise<{ stored: boolean; id: number | null; info: ReturnType<typeof extractPatrolInfo> }> {
-  const info = extractPatrolInfo(message, source);
+  // Els avisos fets a mà (botó + de l'app) s'accepten si diuen una zona coneguda
+  const info = source === "manual" ? manualReportInfo(message) : extractPatrolInfo(message, source);
   if (!info) return { stored: false, id: null, info: null };
 
   const now = new Date();
