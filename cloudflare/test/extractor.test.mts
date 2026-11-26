@@ -77,3 +77,21 @@ test("neta / bruta com a seguiment", () => {
   assert.equal(classifyFollowUp("Bruta")?.kind, "still");
   assert.equal(classifyFollowUp("Encara bruta?")?.kind, "ask");
 });
+
+// Casos reals que no entraven (novembre 2026)
+const REALS: [string, string, string][] = [
+  ["Creu roja Tremp brutaa", "unknown", "Tremp"],
+  ["Tremp GC", "guardia", "Tremp"],
+  ["Policia a Sort", "unknown", "Sort"],
+  ["Poli a la rotonda de Sort", "unknown", "Sort"],
+];
+for (const [msg, tipus, zona] of REALS) {
+  test(`cas real: ${msg}`, () => {
+    const r = extractPatrolInfo(msg, "whatsapp");
+    assert.ok(r, "hauria de ser un avís");
+    assert.equal(r!.patrol_type, tipus);
+    assert.equal(r!.zone_norm, zona);
+  });
+}
+test("lletres allargades: «Sort netaaa» tanca el control", () => assert.equal(classifyFollowUp("Sort netaaa")?.kind, "cleared"));
+test("«Polígon» no és «poli»", () => assert.equal(extractPatrolInfo("Anem al polígon de Sort a dinar", "whatsapp"), null));

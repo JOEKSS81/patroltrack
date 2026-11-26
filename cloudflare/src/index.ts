@@ -373,9 +373,11 @@ const GENERIC_GROUP_NAMES = new Set(["", "whatsapp", "telegram", "report manual"
 
 // Notificacions del sistema de WhatsApp/Telegram (còpies de seguretat, enviaments, etc.).
 // No són missatges de cap grup: s'ignoren del tot i no apareixen a Config → Grups.
-const SYSTEM_NOTIFICATION = /^(copia de seguridad|copia finalizada|c[oò]pia de seguretat|backup|eliminando|esborrant|comprobando si hay mensajes|checking for new messages|sending|enviando|enviant|descargando|subiendo|restaurando|whatsapp web)\b/i;
+const SYSTEM_NOTIFICATION = /^(copia de seguridad|copia finalizada|c[oò]pia de seguretat|backup|eliminando|esborrant|comprobando si hay mensajes|checking for new messages|sending|enviando|enviant|descargando|subiendo|restaurando|whatsapp web|revisando nuevas llamadas|comprovant (si hi ha )?trucades|checking for new calls|se ocult[oó] contenido sensible|s'ha amagat el contingut|contingut sensible amagat|sensitive notification content hidden|\d+ (llamadas perdidas|trucades perdudes|missed calls)|llamada perdida|trucada perduda)/i;
+// Títols que no són cap xat real ("Tú", "Tu", "You": les teves pròpies respostes)
+const SELF_TITLES = new Set(["tu", "tú", "you", "yo", "jo"]);
 function isSystemNotification(title: string, text: string): boolean {
-  return SYSTEM_NOTIFICATION.test(title.trim()) || SYSTEM_NOTIFICATION.test(text.trim());
+  return SYSTEM_NOTIFICATION.test(title.trim()) || SYSTEM_NOTIFICATION.test(text.trim()) || SELF_TITLES.has(title.trim().toLowerCase());
 }
 
 // WhatsApp a vegades posa el comptador al títol ("Grup (3 missatges)") o el format
