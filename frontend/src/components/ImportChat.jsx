@@ -10,6 +10,8 @@ import { readChatFile, parseChat, groupFromFileName } from "../lib/chatImport";
 // Per treure-ho: esborrar aquest fitxer, lib/chatImport.js i les línies d'App.jsx.
 const CHUNK = 80;
 const BULK_URL = `${API}/api/ingest-bulk`;
+// La captura amb doble toc és una drecera de l'iPhone: als Android no es mostra
+const IS_IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
 
 export default function ImportChat({ apiToken, admin }) {
   const C = useC();
@@ -102,7 +104,9 @@ export default function ImportChat({ apiToken, admin }) {
       <div style={box}>
         <div style={h}>📚 Omplir l'històric amb un xat</div>
         <div style={p}>
-          WhatsApp → obre el grup → toca el <b>nom del grup</b> a dalt → <b>Exportar xat</b> → <b>Sense fitxers</b> → desa'l (a l'iPhone: <i>Desar a Fitxers</i>). Després tria'l aquí.
+          {IS_IOS
+            ? <>WhatsApp → obre el grup → toca el <b>nom del grup</b> a dalt → <b>Exportar xat</b> → <b>Sense fitxers</b> → <b>Desar a Fitxers</b>. Després tria'l aquí.</>
+            : <>WhatsApp → obre el grup → <b>⋮</b> → <b>Més</b> → <b>Exportar xat</b> → <b>Sense fitxers</b> → desa'l al mòbil (Drive o Fitxers). Després tria'l aquí.</>}
           Entren els avisos dels últims 6 mesos amb el seu dia i hora: el % de cada zona millora de cop.
         </div>
         <input ref={fileRef} type="file" accept=".txt,.zip,text/plain,application/zip" onChange={onFile} style={{ display: "none" }} />
@@ -129,8 +133,8 @@ export default function ImportChat({ apiToken, admin }) {
         {result && <div style={{ fontSize: 13, color: result.ok ? C.success : C.danger, lineHeight: 1.45 }}>{result.text}</div>}
       </div>
 
-      {/* 2. Captura de pantalla a l'iPhone */}
-      <div style={box}>
+      {/* 2. Captura de pantalla a l'iPhone (només als iPhone) */}
+      {IS_IOS && <div style={box}>
         <div style={h}>📸 Captura de pantalla (iPhone)</div>
         <div style={p}>
           Mentre mires un grup, <b>dos copets a la part de darrere de l'iPhone</b>: l'iPhone llegeix la pantalla i envia tots els missatges que s'hi veuen, amb la seva hora. Gratis i sense instal·lar res.
@@ -158,7 +162,7 @@ export default function ImportChat({ apiToken, admin }) {
           style={{ background: C.surface, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, padding: 8, fontSize: 13, fontFamily: "inherit", resize: "vertical" }} />
         <button onClick={sendPaste} disabled={!paste.trim()} style={{ ...btn(paste.trim() ? C.accent : C.border, "#fff"), opacity: paste.trim() ? 1 : 0.6 }}>Enviar com a captura</button>
         {pasteRes && <div style={{ fontSize: 13, color: pasteRes.ok ? C.success : C.danger }}>{pasteRes.ok ? "✓ " : "⚠ "}{pasteRes.text}</div>}
-      </div>
+      </div>}
 
       {status && (
         <div style={{ ...p, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
