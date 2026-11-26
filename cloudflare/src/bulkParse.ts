@@ -38,6 +38,32 @@ const TIME_END = /(?:^|\s)(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?\s?m\.?)?(?:\s*[✓
 const SKIP_LINE = /^(escrib[ea] un mensaje|escriu un missatge|type a message|mensaje|missatge|\d+\s+(mensajes? no le[ií]dos?|missatges? no llegits?|unread messages?)|los mensajes y las llamadas est[aá]n cifrados|els missatges i les trucades|messages and calls are end-to-end|en l[ií]nea|en l[ií]nia|online|escribiendo\.*|escrivint\.*|typing\.*)$/i;
 const HEADER_LINE = /^([<‹〈く]\s*\d*|\d{1,3}%?|[345]g|lte|wi-?fi|t[uú]|you|.*,\s*(t[uú]|you)|.*,.*,.*|toca (aqu[ií]|para)|clica aqu[ií]|tap here.*)$/i;
 
+// Capçalera del xat (barra d'estat, nom, "en línea", participants…): només al primer bloc
+const HEADER_HINT = /(en l[ií]nea|en l[ií]nia|\bonline\b|[uú]lt(ima|\.)\s*vez|[uú]ltima vegada|escribiendo|escrivint|toca (aqu[ií]|para)|[<‹〈])/i;
+// Només volem el missatge: fora noms, telèfons, "Reenviado", "X añadió a Y"…
+const FORWARD = /(?:^|\s)\S{0,3}\s*\b(reenviado|reenviat|forwarded)(\s+(muchas veces|moltes vegades|many times))?\b/gi;
+const GROUP_EVENT = /\b(añadió a|ha afegit a|added|se unió|s'ha unit|joined|salió del grupo|ha sortit del grup|left the group|cambió (el|la|su)|ha canviat (el|la))\b/i;
+const NAME_MARK = /^(~|xv|x|-|–|—|»|\*)\s*\p{L}[\p{L} .'-]{0,24}$/u;
+const PATROL_HINT = /\b(gc|guardia|gu[aà]rdia|mossos?|policia|poli|local|control|controls|radar|patrulla|alcoholemia|bruta?|neta?|net|marxat|segueixen|estan|hi s[oó]n)\b/i;
+function hasPhone(line: string): boolean {
+  for (const m of line.match(/[+\d][\d\s().-]{7,}\d/g) ?? []) if ((m.match(/\d/g) ?? []).length >= 9) return true;
+  return false;
+}
+// Línies d'una bombolla → només el text del missatge.
+// mentionsPlace: si una línia curta parla d'un lloc no és un nom (ve de l'extractor)
+export function cleanBlock(lines: string[], mentionsPlace: (l: string) => boolean = () => false): string {
+  let ls = lines.map((l) => l.replace(FORWARD, " ").replace(/\s+/g, " ").trim()).filter(Boolean)
+    .filter((l) => !hasPhone(l) && !GROUP_EVENT.test(l) && !NAME_MARK.test(l) && !/^~/.test(l));
+  // soroll del lector (línies sense cap paraula de 3 lletres), excepte l'última (on hi ha "Sí", "no"…)
+  ls = ls.filter((l, i) => i === ls.length - 1 || /\p{L}{3,}/u.test(l));
+  // nom de qui escriu a la primera línia ("Pep", "Oriol Fontelles"): curt, sense xifres ni signes
+  if (ls.length >= 2) {
+    const f = ls[0];
+    if (/^\p{L}[\p{L} .'-]{0,29}$/u.test(f) && f.split(/\s+/).length <= 4 && !PATROL_HINT.test(f) && !mentionsPlace(f)) ls = ls.slice(1);
+  }
+  return ls.join(" ").replace(/\s+/g, " ").trim();
+}
+
 function dayFromSeparator(line: string, todayMs: number): number | null {
   const l = line.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
   if (l in DAY_WORDS) return todayMs - DAY_WORDS[l] * 86_400_000;
@@ -53,7 +79,7 @@ function dayFromSeparator(line: string, todayMs: number): number | null {
   return null;
 }
 
-export function parseScreenshot(text: string, nowMs = Date.now()): Msg[] {
+export function parseScreenshot(text: string, nowMs = Date.now(), mentionsPlace?: (l: string) => boolean): Msg[] {
   const lines = text.split(/\r?\n/).map((l) => l.replace(/[‎‏]/g, "").trim()).filter(Boolean);
   const today = madridParts(nowMs);
   const todayNoon = madridToUtc(today.y, today.m, today.d, 12, 0);
@@ -74,11 +100,10 @@ export function parseScreenshot(text: string, nowMs = Date.now()): Msg[] {
     // participants…). Es descarta tot fins a l'última línia que sembla capçalera.
     if (first && !sawSeparator) {
       let cut = -1;
-      buf.forEach((l, i) => { if (HEADER_LINE.test(l)) cut = i; });
+      buf.forEach((l, i) => { if (HEADER_LINE.test(l) || HEADER_HINT.test(l)) cut = i; });
       if (cut >= 0) buf = buf.slice(cut + 1);
     }
-    // Fora el nom de qui escriu: "~ Joan" (el lector el pot llegir "xv Joan", "- Maria"…) i telèfons
-    const body = buf.filter((l) => !/^(~|xv|x|-|–|—|»|\*)\s*\p{L}[\p{L} .'-]{0,24}$/u.test(l) && !/^~/.test(l) && !/^\+?\d[\d\s-]{7,}$/.test(l)).join(" ").replace(/\s+/g, " ").trim();
+    const body = cleanBlock(buf, mentionsPlace);
     buf = [];
     if (body.length < 2) continue; // p. ex. l'hora de la barra d'estat, a dalt de tot
     first = false;
