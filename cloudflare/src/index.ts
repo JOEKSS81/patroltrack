@@ -155,6 +155,12 @@ async function logIngestHit(env: Env, outcome: string, source: string, groupName
         ON CONFLICT (owner) DO UPDATE SET last_at = excluded.last_at, last_outcome = excluded.last_outcome,
           last_source = excluded.last_source, last_group = excluded.last_group
       `).bind(owner, now, outcome, source.slice(0, 20), groupName.slice(0, MAX_GROUP_LENGTH)));
+      // Quants missatges envia cada mòbil al dia: distingeix un MacroDroid (molts) d'una
+      // drecera d'iPhone (pocs) per a l'avís "MacroDroid sembla aturat".
+      stmts.push(env.DB.prepare(`
+        INSERT INTO ingest_daily (owner, day, hits) VALUES (?, ?, 1)
+        ON CONFLICT (owner, day) DO UPDATE SET hits = hits + 1
+      `).bind(owner, madridDay()));
     }
     await env.DB.batch(stmts);
   } catch {
@@ -1186,6 +1192,40 @@ type FuelAlertRow = {
 };
 
 // Cron: compara cada avís amb el preu actual i envia SMS si baixa o creua l'objectiu.
+// ── Vigilant de MacroDroid ──────────────────────────────────────────────────
+// De 10 a 22 h, si un mòbil que sol enviar molts missatges (MacroDroid: ≥20 al dia)
+// fa més de 2 h que no n'envia cap, el bot de Telegram avisa el seu propietari un cop
+// (fins que torni a arribar alguna cosa). Les dreceres d'iPhone (pocs missatges) no compten.
+const WATCHDOG_SILENCE_MS = 2 * 3600_000;
+const WATCHDOG_MIN_DAILY_HITS = 20;
+async function runWatchdog(env: Env): Promise<void> {
+  const { hour } = lleidaHourAndDow(new Date());
+  if (hour < 10 || hour >= 22 || !env.TELEGRAM_BOT_TOKEN) return;
+  const since = new Date(Date.now() - WATCHDOG_SILENCE_MS).toISOString();
+  const days = [madridDay(), madridDay(new Date(Date.now() - 86_400_000))];
+  const rs = await env.DB.prepare(`
+    SELECT s.owner, s.last_at, t.chat_id FROM ingest_seen s
+    JOIN telegram_users t ON t.owner = s.owner
+    LEFT JOIN watchdog w ON w.owner = s.owner
+    WHERE s.last_at < ?
+      AND (w.alerted_at IS NULL OR w.alerted_at < s.last_at)
+      AND (SELECT COALESCE(MAX(d.hits), 0) FROM ingest_daily d WHERE d.owner = s.owner AND d.day IN (?, ?)) >= ?
+  `).bind(since, days[0], days[1], WATCHDOG_MIN_DAILY_HITS).all<{ owner: string; last_at: string; chat_id: string }>();
+  for (const r of rs.results ?? []) {
+    const hours = Math.max(2, Math.round((Date.now() - Date.parse(r.last_at)) / 3600_000));
+    const sent = await sendTelegram(env, r.chat_id,
+      `⚠ PatrolTrack: fa ${hours} h que el teu mòbil no envia cap notificació.\n` +
+      "Potser MacroDroid s'ha tancat: obre'l, comprova que la macro està activada i posa-hi el cadenat 🔒 a les apps obertes.");
+    if (sent.ok) {
+      await env.DB.prepare(`
+        INSERT INTO watchdog (owner, alerted_at) VALUES (?, ?)
+        ON CONFLICT (owner) DO UPDATE SET alerted_at = excluded.alerted_at
+      `).bind(r.owner, new Date().toISOString()).run();
+    }
+  }
+  await env.DB.prepare("DELETE FROM ingest_daily WHERE day < ?").bind(madridDay(new Date(Date.now() - 7 * 86_400_000))).run();
+}
+
 // ── Historial de preus (un cop al dia) per a la tendència de la pestanya Benzina ──
 function madridDay(d = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
@@ -1330,6 +1370,11 @@ export default {
       await runFuelAlerts(env, ctx);
     } catch (error) {
       console.error("Fuel alerts cron failed", error);
+    }
+    try {
+      await runWatchdog(env);
+    } catch (error) {
+      console.error("Watchdog cron failed", error);
     }
   },
 } satisfies ExportedHandler<Env>;

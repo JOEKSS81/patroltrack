@@ -241,7 +241,7 @@ export default function ConnectGroups({ apiToken, onGoToGroups }) {
           </button>
           {showManual && (
             <div style={{ ...box, display: "grid", gap: 7, fontSize: 12.5, color: C.textDim, lineHeight: 1.5 }}>
-              <div><b>Disparador:</b> Notificació rebuda → WhatsApp (o Telegram)</div>
+              <div><b>Disparador:</b> Notificació rebuda → WhatsApp i WhatsApp Business (o Telegram)</div>
               <div><b>Acció:</b> Petició HTTP · POST · tipus application/json</div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}><code style={code}>{ingestUrl}</code><button onClick={() => copy("url", ingestUrl)} style={btn(C.accent, C.bg, { padding: "7px 10px", fontSize: 12 })}>{copied === "url" ? "✓" : "Copiar"}</button></div>
               <div>Capçalera <b>x-ingest-token</b> = la teva clau</div>
