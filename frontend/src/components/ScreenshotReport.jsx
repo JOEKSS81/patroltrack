@@ -43,6 +43,9 @@ async function readImage(file, onProgress) {
   }
 }
 
+// Pensat per a l'iPhone (que no pot llegir les notificacions): als Android no es mostra
+const IS_IOS = typeof navigator !== "undefined" && (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
 const KIND = { alert: "🔴", cleared: "✅ Ja han marxat", still: "⏳ Segueixen", ask: "❓ Pregunten", yes: "Sí", no: "No" };
 
 export default function ScreenshotReport({ apiToken }) {
@@ -81,6 +84,8 @@ export default function ScreenshotReport({ apiToken }) {
 
   const btn = (bg, fg, extra) => ({ background: bg, color: fg, border: "none", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, fontWeight: 800, cursor: "pointer", fontFamily: "inherit", ...extra });
   const box = { marginBottom: 10, padding: 10, borderRadius: 8, background: C.bg, border: `1px solid ${C.border}`, fontSize: 13, color: C.textDim, lineHeight: 1.45 };
+
+  if (!IS_IOS) return null;
 
   return (
     <div style={{ marginBottom: 10 }}>

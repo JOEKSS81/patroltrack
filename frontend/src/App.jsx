@@ -909,7 +909,7 @@ export default function App(){
             </Collapsible>
 
             {/* 🧪 PROVA TEMPORAL: importar xats exportats i captures de l'iPhone (components/ImportChat.jsx) */}
-            <Collapsible title="📥 Importar xats i captures" subtitle="En prova · omple l'històric i llegeix captures de l'iPhone" defaultOpen={false}>
+            <Collapsible title="📥 Importar xats i captures" subtitle="En prova · omple l'històric amb els xats dels grups" defaultOpen={false}>
               <ImportChat apiToken={apiToken} admin={!!me?.admin}/>
             </Collapsible>
 
