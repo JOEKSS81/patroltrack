@@ -192,6 +192,20 @@ export async function handleBulkIngest(env: Env, req: Request, ctx: ExecutionCon
     if (!text.trim()) return json({ ok: false, reason: "text buit" }, 400);
     msgs = parseScreenshot(text.slice(0, 20_000)).slice(-MAX_MESSAGES);
     source = "captura";
+    // Previsualització (botó + de l'app): què s'hi ha trobat, sense desar res
+    if (body.preview === true) {
+      const fmt = new Intl.DateTimeFormat("ca-ES", { timeZone: "Europe/Madrid", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" });
+      const found = msgs.flatMap((m) => {
+        const info = extractPatrolInfo(m.text, "whatsapp");
+        const fu = info ? null : classifyFollowUp(m.text);
+        if (!info && !fu) return [];
+        return [{
+          kind: info ? "alert" : fu!.kind, when: fmt.format(new Date(m.t)), text: m.text.slice(0, 160),
+          zone: info?.zone_norm ?? fu?.zone_norm ?? null, type: info ? (PATROL_NAMES[info.patrol_type] ?? "Control") : null,
+        }];
+      });
+      return json({ ok: true, preview: true, messages: msgs.length, found });
+    }
   } else {
     return json({ ok: false, reason: "mode desconegut" }, 400);
   }

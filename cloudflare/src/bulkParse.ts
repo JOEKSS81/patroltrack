@@ -32,7 +32,9 @@ const WEEKDAYS: Record<string, number> = {
   diumenge: 0, dilluns: 1, dimarts: 2, dimecres: 3, dijous: 4, divendres: 5, dissabte: 6,
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
 };
-const TIME_END = /(?:^|\s)(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?\s?m\.?)?[\s✓✔√✓/\\]*$/i;
+// L'hora al final de la bombolla; després hi poden anar les marques de llegit, que el
+// lector de text pot llegir com "✓✓", "√√", "//", "W", "vv"…
+const TIME_END = /(?:^|\s)(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?\s?m\.?)?(?:\s*[✓✔√/\\vVwW«»"'*~\-–—]{1,3})?\s*$/i;
 const SKIP_LINE = /^(escrib[ea] un mensaje|escriu un missatge|type a message|mensaje|missatge|\d+\s+(mensajes? no le[ií]dos?|missatges? no llegits?|unread messages?)|los mensajes y las llamadas est[aá]n cifrados|els missatges i les trucades|messages and calls are end-to-end|en l[ií]nea|en l[ií]nia|online|escribiendo\.*|escrivint\.*|typing\.*)$/i;
 const HEADER_LINE = /^([<‹〈く]\s*\d*|\d{1,3}%?|[345]g|lte|wi-?fi|t[uú]|you|.*,\s*(t[uú]|you)|.*,.*,.*|toca (aqu[ií]|para)|clica aqu[ií]|tap here.*)$/i;
 
@@ -75,7 +77,8 @@ export function parseScreenshot(text: string, nowMs = Date.now()): Msg[] {
       buf.forEach((l, i) => { if (HEADER_LINE.test(l)) cut = i; });
       if (cut >= 0) buf = buf.slice(cut + 1);
     }
-    const body = buf.filter((l) => !/^~/.test(l) && !/^\+?\d[\d\s-]{7,}$/.test(l)).join(" ").replace(/\s+/g, " ").trim();
+    // Fora el nom de qui escriu: "~ Joan" (el lector el pot llegir "xv Joan", "- Maria"…) i telèfons
+    const body = buf.filter((l) => !/^(~|xv|x|-|–|—|»|\*)\s*\p{L}[\p{L} .'-]{0,24}$/u.test(l) && !/^~/.test(l) && !/^\+?\d[\d\s-]{7,}$/.test(l)).join(" ").replace(/\s+/g, " ").trim();
     buf = [];
     if (body.length < 2) continue; // p. ex. l'hora de la barra d'estat, a dalt de tot
     first = false;

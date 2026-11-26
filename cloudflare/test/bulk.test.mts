@@ -40,3 +40,13 @@ test("separadors Ayer / Hoy i hores 'del futur' sense separador", () => {
 test("text sense cap hora: res", () => {
   assert.equal(parseScreenshot("Hola\nquè tal").length, 0);
 });
+
+test("captura llegida amb soroll: ✓✓ com «--» i el nom com «xv Joan»", () => {
+  const now = madridToUtc(2026, 11, 26, 17, 13);
+  const ocr = ["17:13 56 87", "< 12 Avisos Pallars", "Hoy", "xv Joan", "Control de la Guardia Civil a la rotonda", "de Sort de pujada 16:33",
+    "- Maria", "Encara hi són? 16:48", "Sí, segueixen 16:53 --", "Pep", "Ja han marxat de Sort 17:07"].join("\n");
+  const msgs = parseScreenshot(ocr, now);
+  assert.deepEqual(msgs.map((m) => m.text), [
+    "Control de la Guardia Civil a la rotonda de Sort de pujada", "Encara hi són?", "Sí, segueixen", "Pep Ja han marxat de Sort",
+  ]);
+});
