@@ -2,6 +2,7 @@
 // Ingestion compatible con Tasker/WhatsApp y Telegram Bot API.
 import { extractPatrolInfo, classifyFollowUp, manualReportInfo, type FollowUp } from "./extractor";
 import { buildModel, zoneProbsResponse, probabilityResponse, type DetRow, type EventRow, type Model } from "./risk";
+import { handleBulkIngest } from "./bulk"; // PROVA TEMPORAL: importar xats i captures
 
 export interface Env {
   DB: D1Database;
@@ -1334,6 +1335,7 @@ export default {
       if (req.method === "GET" && url.pathname === "/api/zone-probs") return await handleZoneProbs(env);
       if (req.method === "GET" && url.pathname === "/api/ingest-check") return await handleIngestCheck(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/ingest") return await handleIngest(env, req, ctx);
+      if (req.method === "POST" && url.pathname === "/api/ingest-bulk") return await handleBulkIngest(env, req, ctx, { identify, notifyZone, invalidate: () => { riskCache = null; }, json }); // PROVA TEMPORAL (bulk.ts)
       if (req.method === "GET" && url.pathname === "/api/zone-subs") return await handleZoneSubsGet(env, req, url);
       if (req.method === "POST" && url.pathname === "/api/zone-subs") return await handleZoneSubsSave(env, req, url);
       if (req.method === "GET" && url.pathname === "/api/fuel/trend") return await handleFuelTrend(env, url);

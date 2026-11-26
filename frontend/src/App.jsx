@@ -14,6 +14,7 @@ import FriendsManager from "./components/FriendsManager";
 import ConnectGroups from "./components/ConnectGroups";
 import MyKey from "./components/MyKey";
 import ZoneAlerts from "./components/ZoneAlerts";
+import ImportChat from "./components/ImportChat"; // PROVA TEMPORAL
 import PkPicker from "./components/PkPicker";
 import RadarTab from "./tabs/RadarTab";
 import StatsTab from "./tabs/StatsTab";
@@ -904,6 +905,11 @@ export default function App(){
 
             <Collapsible title="🔔 Avisos al mòbil (Telegram)" subtitle="Et diu quan hi ha un control a les teves zones" defaultOpen={false}>
               <ZoneAlerts apiToken={apiToken} extraZones={risk&&risk.zones?Object.keys(risk.zones):[]}/>
+            </Collapsible>
+
+            {/* 🧪 PROVA TEMPORAL: importar xats exportats i captures de l'iPhone (components/ImportChat.jsx) */}
+            <Collapsible title="📥 Importar xats i captures" subtitle="En prova · omple l'històric i llegeix captures de l'iPhone" defaultOpen={false}>
+              <ImportChat apiToken={apiToken} admin={!!me?.admin}/>
             </Collapsible>
 
             {/* 👥 Gestió de grups (activar, desactivar, afegir) */}
